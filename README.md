@@ -91,19 +91,32 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 
 ## Monitoring
 
-Two helper scripts read the gateway's state (set `GATEWAY_LOG_FILE` so events are
-logged — it's in `.env` for local dev):
+Two helper scripts read the gateway's state:
 
 ```bash
-python scripts/status.py            # snapshot: how many people have a token,
-                                    # devices connected, registered clients
-python scripts/monitor.py           # live tail of structured events
-                                    #   (mcp-request, worker-spawn, token-issued, …)
-python scripts/monitor.py --all     # include garminconnect/urllib3 debug noise
+python scripts/status.py          # snapshot: people with a token, devices/clients
+                                  #   connected, registered clients, running workers
+python scripts/monitor.py         # live tail of structured events
+python scripts/monitor.py --all   # include garminconnect/urllib3 debug noise
 ```
 
+**With Docker** the scripts are baked into the image at `/app/scripts`; run them
+inside the container. `status.py` finds the DB under `/data` automatically:
+
+```bash
+docker compose exec gateway python /app/scripts/status.py
+docker compose exec gateway python /app/scripts/monitor.py --file /data/gateway.log
+docker compose logs -f gateway                       # live events (simplest)
+docker compose logs -f gateway | grep '"event": "stats"'
+```
+
+> `monitor.py` reads `GATEWAY_LOG_FILE` (pass `--file` if it isn't set). Inside a
+> container the logs also go to stdout, so `docker compose logs -f` is usually the
+> easiest live view.
+
 The gateway also logs a `stats` event (accounts / tokens / people-with-token /
-clients / active-workers) on startup and whenever those counts change.
+clients / active-workers) on startup and whenever those counts change, and
+`status.py` lists the running per-user `garmin_mcp` workers.
 
 ## How it works
 

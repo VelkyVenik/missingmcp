@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -64,24 +65,57 @@ class WorkerManager:
                 raise WorkerStartError(f"worker for {key[:3]}*** failed to become healthy")
             self._workers[key] = WorkerHandle(key, port, proc, self._clock())
             log("worker-started", port=port)
+            self.write_snapshot()
             return port
 
     async def reap_idle(self) -> None:
         now = self._clock()
+        reaped = False
         for key, h in list(self._workers.items()):
             if now - h.last_active > self._cfg.worker_idle_ttl or h.process.poll() is not None:
                 self._terminate(h)
                 self._workers.pop(key, None)
                 log("worker-reaped", port=h.port)
+                reaped = True
+        if reaped:
+            self.write_snapshot()
 
     def active_count(self) -> int:
         """Number of per-user workers currently running (for monitoring)."""
         return len(self._workers)
 
+    def snapshot(self) -> list[dict]:
+        """Per-worker state for monitoring: account, port, pid, alive, idle secs."""
+        now = self._clock()
+        return [
+            {
+                "key": h.key,
+                "port": h.port,
+                "pid": getattr(h.process, "pid", None),
+                "alive": h.process.poll() is None,
+                "idle_seconds": round(now - h.last_active, 1),
+            }
+            for h in self._workers.values()
+        ]
+
+    def write_snapshot(self) -> None:
+        """Persist worker state to DATA_DIR/workers.json (atomic) for monitoring
+        (scripts/status.py). Best-effort — never raises into the caller."""
+        path = os.path.join(self._cfg.data_dir, "workers.json")
+        data = {"updated": time.strftime("%H:%M:%S"), "workers": self.snapshot()}
+        tmp = f"{path}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+
     def shutdown(self) -> None:
         for h in list(self._workers.values()):
             self._terminate(h)
         self._workers.clear()
+        self.write_snapshot()
 
     # --- internals ------------------------------------------------------
 

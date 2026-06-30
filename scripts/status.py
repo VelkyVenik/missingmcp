@@ -11,6 +11,7 @@ Usage:
 """
 from __future__ import annotations
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -90,6 +91,28 @@ def main():
             name = r["name"] or "(unnamed)"
             accounts = r["accounts"] or "—  (never completed OAuth)"
             print(f"  {name:<30} account: {accounts:<28} tokens: {r['tokens']:<3} {r['redirect']}")
+
+    # Active runners live in the gateway's memory; it persists a snapshot to
+    # workers.json (next to the DB) so we can show them here.
+    wpath = os.path.join(os.path.dirname(os.path.abspath(db_path)), "workers.json")
+    print("\nActive runners (per-user garmin_mcp workers)")
+    if os.path.exists(wpath):
+        try:
+            snap = json.load(open(wpath, encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            snap = None
+        if snap and snap.get("workers"):
+            for w in snap["workers"]:
+                state = "alive" if w.get("alive") else "DEAD"
+                print(f"  {w['key']:<32} port {w['port']}  pid {w['pid']}  "
+                      f"{state}  idle {w['idle_seconds']}s")
+            print(f"  (snapshot at {snap.get('updated', '?')})")
+        elif snap is not None:
+            print(f"  none running   (snapshot at {snap.get('updated', '?')})")
+        else:
+            print("  (workers.json unreadable)")
+    else:
+        print("  (no snapshot — gateway not running yet, or a different DATA_DIR)")
     print()
 
 
