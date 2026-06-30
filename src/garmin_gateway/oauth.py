@@ -180,3 +180,22 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
         return _finish(conn, config, params, result.tokens_json, email)
     except garmin_login.GarminLoginError:
         return render_authorize(params, state.csrf.issue(), "Garmin sign-in could not be verified")
+
+
+async def token_exchange(request, conn) -> JSONResponse:
+    form = await request.form()
+    if form.get("grant_type") != "authorization_code":
+        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+    client = store.get_client(conn, form.get("client_id", ""))
+    if client is None or store.hash_token(form.get("client_secret", "")) != client["client_secret_hash"]:
+        return JSONResponse({"error": "invalid_client"}, status_code=401)
+    row = store.consume_code(conn, store.hash_token(form.get("code", "")))
+    if row is None:
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    if row["client_id"] != form.get("client_id") or row["redirect_uri"] != form.get("redirect_uri"):
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    if not security.verify_pkce(form.get("code_verifier", ""), row["code_challenge"], row["code_challenge_method"]):
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    token = security.new_secret(32)
+    store.create_access_token(conn, store.hash_token(token), row["garmin_user_key"], form.get("client_id"))
+    return JSONResponse({"access_token": token, "token_type": "Bearer"})

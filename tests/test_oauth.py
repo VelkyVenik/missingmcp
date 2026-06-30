@@ -1,4 +1,6 @@
 import re
+import hashlib
+import base64
 import pytest
 from unittest.mock import patch
 from urllib.parse import urlparse, parse_qs
@@ -190,4 +192,47 @@ def test_authorize_post_mfa_rejects_tampered_redirect(conn):
     lid = state.put_mfa(("P", "S"), params)
     csrf = state.csrf.issue()
     r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
+    assert r.status_code == 400
+
+
+def _token_app(conn):
+    async def tok(request):
+        return await oauth.token_exchange(request, conn)
+    return TestClient(Starlette(routes=[Route("/oauth/token", tok, methods=["POST"])]))
+
+
+def _pkce_pair():
+    verifier = "verifier-abcdef-1234567890"
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    return verifier, challenge
+
+
+def test_token_exchange_happy_path(conn):
+    cid = security.new_secret(8)
+    csecret = "topsecret"
+    store.create_client(conn, cid, store.hash_token(csecret), ["https://claude.ai/cb"], "Claude")
+    store.upsert_account(conn, "me@x.cz", "{}", CONFIG.gateway_secret)
+    verifier, challenge = _pkce_pair()
+    code = "thecode"
+    store.create_code(conn, store.hash_token(code), cid, "https://claude.ai/cb", challenge, "S256", "me@x.cz")
+    c = _token_app(conn)
+    r = c.post("/oauth/token", data={
+        "grant_type": "authorization_code", "code": code, "redirect_uri": "https://claude.ai/cb",
+        "client_id": cid, "client_secret": csecret, "code_verifier": verifier,
+    })
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+    assert store.account_key_for_token_hash(conn, store.hash_token(token)) == "me@x.cz"
+
+
+def test_token_exchange_bad_pkce(conn):
+    cid = security.new_secret(8)
+    store.create_client(conn, cid, store.hash_token("s"), ["https://claude.ai/cb"], None)
+    _, challenge = _pkce_pair()
+    store.create_code(conn, store.hash_token("c2"), cid, "https://claude.ai/cb", challenge, "S256", "me@x.cz")
+    c = _token_app(conn)
+    r = c.post("/oauth/token", data={
+        "grant_type": "authorization_code", "code": "c2", "redirect_uri": "https://claude.ai/cb",
+        "client_id": cid, "client_secret": "s", "code_verifier": "WRONG",
+    })
     assert r.status_code == 400
