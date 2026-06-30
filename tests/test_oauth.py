@@ -139,6 +139,7 @@ def test_login_mfa_then_verify_redirects(conn):
             "garmin_email": "me@x.cz", "garmin_password": "pw",
         })
     assert r1.status_code == 200 and "login_id" in r1.text
+    assert "{OPERATOR_NAME}" not in r1.text  # operator placeholder must be filled on the normal MFA page
     # extract login_id and a fresh csrf rendered into the MFA page
     login_id = re.search(r'name="login_id" value="([^"]+)"', r1.text).group(1)
     csrf2 = re.search(r'name="csrf" value="([^"]+)"', r1.text).group(1)

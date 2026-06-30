@@ -201,7 +201,8 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
     if result.status == "needs_mfa":
         params = {**params, "_email": email}
         lid = state.put_mfa(result.pending, params)
-        body = _fill(_tpl("mfa.html"), {"CSRF": state.csrf.issue(), "LOGIN_ID": lid}, "")
+        body = _fill(_tpl("mfa.html"),
+                     {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:
         name = garmin_login.verify_tokens(result.tokens_json)
