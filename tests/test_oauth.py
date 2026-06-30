@@ -225,6 +225,52 @@ def test_token_exchange_happy_path(conn):
     assert store.account_key_for_token_hash(conn, store.hash_token(token)) == "me@x.cz"
 
 
+def test_login_verify_failure_rerenders_form(conn):
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    csrf = state.csrf.issue()
+    with patch.object(garmin_login, "start_login",
+                      return_value=garmin_login.LoginResult(status="ok", tokens_json='{"t":1}')), \
+         patch.object(garmin_login, "verify_tokens",
+                      side_effect=garmin_login.GarminLoginError("bad")):
+        r = client.post("/oauth/authorize", data={
+            "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+            "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+            "garmin_email": "me@x.cz", "garmin_password": "pw",
+        })
+    assert r.status_code == 200
+    assert "garmin_email" in r.text                      # re-rendered login form
+    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) is None  # not stored
+
+
+def test_mfa_wrong_code_reprompts(conn):
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
+              "code_challenge": "abc", "code_challenge_method": "S256", "_email": "me@x.cz"}
+    lid = state.put_mfa(("P", "S"), params)
+    csrf = state.csrf.issue()
+    with patch.object(garmin_login, "resume_login", side_effect=Exception("wrong code")):
+        r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "000000"})
+    assert r.status_code == 400
+    assert "login_id" in r.text                          # re-prompts MFA form
+
+
+def test_mfa_verify_failure_restarts(conn):
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
+              "code_challenge": "abc", "code_challenge_method": "S256", "_email": "me@x.cz"}
+    lid = state.put_mfa(("P", "S"), params)
+    csrf = state.csrf.issue()
+    with patch.object(garmin_login, "resume_login", return_value='{"t":1}'), \
+         patch.object(garmin_login, "verify_tokens",
+                      side_effect=garmin_login.GarminLoginError("bad")):
+        r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
+    assert r.status_code == 200
+    assert "garmin_email" in r.text                      # back to the login form
+
+
 def test_token_exchange_bad_pkce(conn):
     cid = security.new_secret(8)
     store.create_client(conn, cid, store.hash_token("s"), ["https://claude.ai/cb"], None)

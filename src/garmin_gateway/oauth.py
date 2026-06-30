@@ -121,7 +121,7 @@ async def authorize_get(request, _templates, state, conn) -> HTMLResponse:
 
 
 def _finish(conn, config, params: dict, tokens_json: str, email: str) -> RedirectResponse:
-    garmin_login.verify_tokens(tokens_json)  # raises on failure
+    # tokens already verified by the caller (verify_tokens) before we persist
     key = email.strip().lower()
     store.upsert_account(conn, key, tokens_json, config.gateway_secret)
     code = security.new_secret(32)
@@ -150,13 +150,17 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
             return HTMLResponse("invalid client/redirect_uri", status_code=400)
         try:
             tokens = garmin_login.resume_login(pending, form.get("mfa_code", ""))
-            return _finish(conn, config, params, tokens, params["_email"])
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - wrong/expired MFA code: re-prompt
             lid = state.put_mfa(pending, params)
             body = _fill(_tpl("mfa.html"),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid},
                          "Incorrect or expired code, try again")
             return HTMLResponse(body, status_code=400)
+        try:
+            garmin_login.verify_tokens(tokens)
+        except garmin_login.GarminLoginError:  # tokens didn't authenticate: start over
+            return render_authorize(params, state.csrf.issue(), "Garmin sign-in could not be verified")
+        return _finish(conn, config, params, tokens, params["_email"])
 
     # login step
     params = _oauth_params_from(form)
@@ -177,9 +181,10 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
         body = _fill(_tpl("mfa.html"), {"CSRF": state.csrf.issue(), "LOGIN_ID": lid}, "")
         return HTMLResponse(body)
     try:
-        return _finish(conn, config, params, result.tokens_json, email)
+        garmin_login.verify_tokens(result.tokens_json)
     except garmin_login.GarminLoginError:
         return render_authorize(params, state.csrf.issue(), "Garmin sign-in could not be verified")
+    return _finish(conn, config, params, result.tokens_json, email)
 
 
 async def token_exchange(request, conn) -> JSONResponse:

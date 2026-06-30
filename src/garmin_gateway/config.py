@@ -26,6 +26,11 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
     secret = env.get("GATEWAY_SECRET", "")
     if len(secret) < 32:
         raise ValueError("GATEWAY_SECRET must be set and at least 32 characters")
+    if secret.startswith("change-me"):
+        raise ValueError(
+            "GATEWAY_SECRET is still the example placeholder; set a real random "
+            "secret (e.g. `openssl rand -base64 48`)"
+        )
     data_dir = env.get("DATA_DIR", "/data")
     public_url = env.get("PUBLIC_URL", "http://localhost:8080").rstrip("/")
     cmd = env.get("GARMIN_MCP_CMD", "garmin-mcp").split()

@@ -28,6 +28,19 @@ Put nginx in front for TLS + your domain (see `nginx.conf.example`), then add
 4. On each `/mcp` call the gateway ensures the user's `garmin-mcp` worker is
    running (its own tokens, bound to `127.0.0.1`) and reverse-proxies to it.
 
+## Before you deploy
+
+- **Set a real random `GATEWAY_SECRET`** (`openssl rand -base64 48`) — the app
+  refuses to start with the placeholder value in `.env.example`.
+- **Pin `GARMIN_MCP_REF` to a reviewed commit SHA** — the `main` default is a
+  floating ref that can change without notice.
+- **Access tokens have no expiry or auto-revocation** — to revoke a device,
+  delete its row from the `access_tokens` table (admin is DB-level; a management
+  UI is deferred per design).
+- **Run a manual end-to-end smoke test** with a real Garmin account (including
+  the MFA path) before connecting real users — the `garminconnect` login/token
+  path is mocked in the automated tests.
+
 ## Security
 
 - Garmin password is never persisted.

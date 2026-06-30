@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 from pathlib import Path
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
 from . import store, oauth, proxy, security

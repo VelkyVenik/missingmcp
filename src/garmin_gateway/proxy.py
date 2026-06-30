@@ -3,7 +3,7 @@ import httpx
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import store, security
 from .workers import WorkerStartError
-from .log import log_warn, log_error
+from .log import log_error
 
 
 async def authenticate(request, conn, rate) -> "str | Response":

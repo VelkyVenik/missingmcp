@@ -117,6 +117,8 @@ def list_accounts(conn) -> list[dict]:
 
 # --- access tokens --------------------------------------------------------
 
+# Access tokens have no TTL and are not auto-revoked. To revoke a device,
+# delete its row from the access_tokens table (admin is DB-level; UI deferred per design).
 def create_access_token(conn, token_hash: str, key: str, client_id: str) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO access_tokens (token_hash, garmin_user_key, client_id, last_used) "

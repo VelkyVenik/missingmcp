@@ -22,3 +22,8 @@ def test_rejects_short_secret():
 def test_rejects_missing_secret():
     with pytest.raises(ValueError):
         load_config({})
+
+def test_rejects_placeholder_secret():
+    with pytest.raises(ValueError):
+        load_config({"GATEWAY_SECRET": "change-me-to-a-long-random-string-min-32-chars",
+                     "PUBLIC_URL": "https://gw.example.com"})
