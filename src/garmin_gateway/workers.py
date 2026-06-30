@@ -23,6 +23,7 @@ class WorkerHandle:
     port: int
     process: object
     last_active: float
+    inflight: int = 0          # proxied requests currently streaming through
 
 
 class WorkerManager:
@@ -32,6 +33,7 @@ class WorkerManager:
         self._spawn_fn = spawn or self._default_spawn
         self._workers: dict[str, WorkerHandle] = {}
         self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._reserved: set[int] = set()   # ports being spawned but not yet registered
 
     # --- public ---------------------------------------------------------
 
@@ -43,36 +45,49 @@ class WorkerManager:
                 return h.port
             if h is not None:
                 self._terminate(h)
+                self._workers.pop(key, None)
             self._enforce_cap()
             token_dir = self._materialize_tokens(key, tokens_json)
+            # Reserve the port across the awaited spawn/health-check. Without this,
+            # a concurrent ensure_worker for a *different* key (own lock) would see
+            # the same lowest free port — _alloc_port reads _workers, which isn't
+            # updated until after the awaits below — and collide (EADDRINUSE).
             port = self._alloc_port()
-            log("worker-spawn", port=port, cmd=" ".join(self._cfg.garmin_mcp_cmd),
-                token_dir=token_dir)
+            self._reserved.add(port)
             try:
-                proc = self._spawn_fn(key, port, token_dir)
-            except Exception as e:  # noqa: BLE001 - spawn failed (e.g. binary not on PATH)
-                log_exc("worker-spawn-failed", e, error=str(e),
-                        cmd=" ".join(self._cfg.garmin_mcp_cmd))
-                raise WorkerStartError(f"spawn failed: {type(e).__name__}") from e
-            if not await self._wait_healthy(port, proc):
-                rc = proc.poll()
-                log("worker-unhealthy", port=port, returncode=rc,
-                    startup_timeout=self._cfg.worker_startup_timeout)
+                log("worker-spawn", port=port, cmd=" ".join(self._cfg.garmin_mcp_cmd),
+                    token_dir=token_dir)
                 try:
-                    proc.terminate()
-                except Exception:  # noqa: BLE001
-                    pass
-                raise WorkerStartError(f"worker for {key[:3]}*** failed to become healthy")
-            self._workers[key] = WorkerHandle(key, port, proc, self._clock())
-            log("worker-started", port=port)
-            self.write_snapshot()
-            return port
+                    proc = self._spawn_fn(key, port, token_dir)
+                except Exception as e:  # noqa: BLE001 - spawn failed (e.g. binary not on PATH)
+                    log_exc("worker-spawn-failed", e, error=str(e),
+                            cmd=" ".join(self._cfg.garmin_mcp_cmd))
+                    raise WorkerStartError(f"spawn failed: {type(e).__name__}") from e
+                if not await self._wait_healthy(port, proc):
+                    rc = proc.poll()
+                    log("worker-unhealthy", port=port, returncode=rc,
+                        startup_timeout=self._cfg.worker_startup_timeout)
+                    try:
+                        proc.terminate()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    raise WorkerStartError(f"worker for {key[:3]}*** failed to become healthy")
+                self._workers[key] = WorkerHandle(key, port, proc, self._clock())
+                log("worker-started", port=port)
+                self.write_snapshot()
+                return port
+            finally:
+                self._reserved.discard(port)
 
     async def reap_idle(self) -> None:
         now = self._clock()
         reaped = False
         for key, h in list(self._workers.items()):
-            if now - h.last_active > self._cfg.worker_idle_ttl or h.process.poll() is not None:
+            dead = h.process.poll() is not None
+            idle_expired = now - h.last_active > self._cfg.worker_idle_ttl
+            # Reap dead processes always; reap idle ones only when no request is
+            # streaming through them.
+            if dead or (idle_expired and h.inflight == 0):
                 self._terminate(h)
                 self._workers.pop(key, None)
                 log("worker-reaped", port=h.port)
@@ -84,6 +99,20 @@ class WorkerManager:
         """Number of per-user workers currently running (for monitoring)."""
         return len(self._workers)
 
+    def request_started(self, key: str) -> None:
+        """Mark a proxied request in-flight for a worker so reap/evict won't kill
+        it mid-stream; also refreshes its activity timestamp."""
+        h = self._workers.get(key)
+        if h is not None:
+            h.inflight += 1
+            h.last_active = self._clock()
+
+    def request_finished(self, key: str) -> None:
+        h = self._workers.get(key)
+        if h is not None:
+            h.inflight = max(0, h.inflight - 1)
+            h.last_active = self._clock()
+
     def snapshot(self) -> list[dict]:
         """Per-worker state for monitoring: account, port, pid, alive, idle secs."""
         now = self._clock()
@@ -93,6 +122,7 @@ class WorkerManager:
                 "port": h.port,
                 "pid": getattr(h.process, "pid", None),
                 "alive": h.process.poll() is None,
+                "inflight": h.inflight,
                 "idle_seconds": round(now - h.last_active, 1),
             }
             for h in self._workers.values()
@@ -121,7 +151,13 @@ class WorkerManager:
 
     def _enforce_cap(self) -> None:
         while len(self._workers) >= self._cfg.max_workers:
-            oldest = min(self._workers.values(), key=lambda h: h.last_active)
+            idle = [h for h in self._workers.values() if h.inflight == 0]
+            if not idle:
+                # Every worker is mid-request; evicting one would abort a live
+                # stream. Let the pool exceed the cap transiently instead.
+                log("worker-cap-all-busy", workers=len(self._workers))
+                break
+            oldest = min(idle, key=lambda h: h.last_active)
             self._terminate(oldest)
             self._workers.pop(oldest.key, None)
             log("worker-evicted", port=oldest.port)
@@ -140,7 +176,7 @@ class WorkerManager:
         return token_dir
 
     def _alloc_port(self) -> int:
-        used = {h.port for h in self._workers.values()}
+        used = {h.port for h in self._workers.values()} | self._reserved
         for p in range(self._cfg.worker_port_start, self._cfg.worker_port_end + 1):
             if p not in used:
                 return p

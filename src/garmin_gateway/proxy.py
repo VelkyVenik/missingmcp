@@ -64,15 +64,20 @@ async def handle_mcp(request, method, conn, manager, config, secret, rate) -> Re
 
     url = f"http://127.0.0.1:{port}/mcp"
     client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+    # Mark the worker busy so reap_idle / _enforce_cap won't kill it mid-stream.
+    # Paired with request_finished on every exit path below.
+    manager.request_started(key)
     try:
         req = client.build_request(method, url, headers=upstream_headers,
                                    content=body if method != "GET" else None)
         upstream = await client.send(req, stream=True)
     except httpx.TimeoutException:
         await client.aclose()
+        manager.request_finished(key)
         return JSONResponse({"error": "gateway_timeout"}, status_code=504)
     except httpx.HTTPError as e:
         await client.aclose()
+        manager.request_finished(key)
         log_error("mcp-forward-error", error=type(e).__name__)
         return JSONResponse({"error": "bad_gateway"}, status_code=502)
 
@@ -91,5 +96,6 @@ async def handle_mcp(request, method, conn, manager, config, secret, rate) -> Re
         finally:
             await upstream.aclose()
             await client.aclose()
+            manager.request_finished(key)
 
     return StreamingResponse(stream(), status_code=upstream.status_code, headers=resp_headers)
