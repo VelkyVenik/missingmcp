@@ -63,3 +63,21 @@ def test_code_is_one_time(conn):
 def test_expired_code_returns_none(conn):
     store.create_code(conn, "ch", "c1", "https://a/cb", "x", "S256", "me@x.cz", ttl=-1)
     assert store.consume_code(conn, "ch") is None
+
+
+def test_list_accounts_returns_all(conn):
+    store.upsert_account(conn, "a@x.cz", "{}", SECRET)
+    store.upsert_account(conn, "b@x.cz", "{}", SECRET)
+    rows = store.list_accounts(conn)
+    keys = {r["garmin_user_key"] for r in rows}
+    assert keys == {"a@x.cz", "b@x.cz"}
+    assert all("created_at" in r and "updated_at" in r for r in rows)
+
+
+def test_cleanup_expired_codes_removes_only_expired(conn):
+    store.create_code(conn, "expired", "c1", "https://a/cb", "ch", "S256", "me@x.cz", ttl=-1)
+    store.create_code(conn, "valid", "c1", "https://a/cb", "ch", "S256", "me@x.cz", ttl=600)
+    store.cleanup_expired_codes(conn)
+    remaining = conn.execute("SELECT code_hash FROM oauth_codes").fetchall()
+    hashes = {r["code_hash"] for r in remaining}
+    assert hashes == {"valid"}
