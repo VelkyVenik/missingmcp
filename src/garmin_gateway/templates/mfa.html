@@ -1,11 +1,14 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Garmin MFA</title>
-<style>body{font-family:system-ui;max-width:26rem;margin:4rem auto;padding:0 1rem}
+<style>body{font-family:system-ui;max-width:26rem;margin:4rem auto;padding:0 1rem;line-height:1.5}
 input{display:block;width:100%;padding:.6rem;margin:.4rem 0 1rem;box-sizing:border-box}
-button{padding:.6rem 1rem}.err{color:#b00}</style></head>
+button{padding:.6rem 1rem}.err{color:#b00}
+.note{background:#f0f6ff;border-left:4px solid #2563eb;padding:.6rem .9rem;border-radius:4px;margin:1rem 0;font-size:.82rem;color:#1e3a5f}</style></head>
 <body>
 <h1>Enter your MFA code</h1>
 <p>Garmin sent a verification code to your email or phone.</p>
+<div class="note">The code is used once to finish signing in to Garmin and is not
+stored. Only the resulting encrypted session tokens are kept.</div>
 {ERROR}
 <form method="post" action="/oauth/authorize">
   <input type="hidden" name="csrf" value="{CSRF}">

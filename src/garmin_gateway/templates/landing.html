@@ -41,7 +41,7 @@
     <strong>Important:</strong> Your Garmin password is used once to sign in and is <strong>never stored</strong>. Only the resulting Garmin session tokens are kept on this server, encrypted with AES-256-GCM. <strong>Only use this gateway if you trust the server operator.</strong> This instance is operated by {OPERATOR_NAME}{OPERATOR_EMAIL}.
   </div>
 
-  <p>Authentication uses OAuth 2.1 with PKCE. Your credentials are never shared with Claude &mdash; they are only used server-side to authenticate with Garmin.</p>
+  <p>Authentication uses OAuth 2.1 with PKCE. Your credentials are never shared with Claude &mdash; they are only used server-side to authenticate with Garmin. Your Garmin health &amp; activity data is passed through to Claude on demand and is <strong>not stored</strong> by this gateway.</p>
 
   <hr>
   <p><small><a href="https://github.com/VelkyVenik/garmin-mcp-gateway">Source code on GitHub</a> &middot; built on <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a></small></p>
