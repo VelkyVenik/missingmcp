@@ -6,14 +6,15 @@ WORKDIR /app
 ARG GARMIN_MCP_REF=main
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
-COPY pyproject.toml ./
+# git: uv installs the pinned garmin_mcp worker from a git ref.
+# tini: reaps the many worker subprocesses the gateway spawns.
+RUN apt-get update && apt-get install -y --no-install-recommends git tini && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY scripts ./scripts
 RUN uv pip install --system . && \
     uv pip install --system "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}"
-
-# tini reaps the many worker subprocesses the gateway spawns
-RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 ENTRYPOINT ["tini", "--"]
 CMD ["garmin-gateway"]
 EXPOSE 8080
