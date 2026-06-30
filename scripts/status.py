@@ -16,18 +16,31 @@ import sqlite3
 import sys
 
 
+def resolve_db() -> str:
+    """Find the SQLite DB without flags: explicit env first, then the usual
+    container (/data) and local-dev (./.localdata) locations."""
+    if os.environ.get("DB_PATH"):
+        return os.environ["DB_PATH"]
+    if os.environ.get("DATA_DIR"):
+        return os.path.join(os.environ["DATA_DIR"], "gateway.db")
+    for cand in ("/data/gateway.db", "./.localdata/gateway.db"):
+        if os.path.exists(cand):
+            return cand
+    return "/data/gateway.db"
+
+
 def main():
-    default = os.environ.get("DB_PATH") or os.path.join(
-        os.environ.get("DATA_DIR", "./.localdata"), "gateway.db"
-    )
     p = argparse.ArgumentParser(description="Garmin MCP Gateway status snapshot.")
-    p.add_argument("--db", default=default, help=f"SQLite DB path (default: {default})")
+    p.add_argument("--db", default=None,
+                   help="SQLite DB path (default: $DB_PATH, $DATA_DIR/gateway.db, "
+                        "/data/gateway.db, or ./.localdata/gateway.db)")
     args = p.parse_args()
+    db_path = args.db or resolve_db()
 
-    if not os.path.exists(args.db):
-        sys.exit(f"DB not found: {args.db}\nSet --db or DATA_DIR/DB_PATH.")
+    if not os.path.exists(db_path):
+        sys.exit(f"DB not found: {db_path}\nSet --db, DB_PATH or DATA_DIR.")
 
-    db = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     one = lambda sql: db.execute(sql).fetchone()[0]  # noqa: E731
 
@@ -37,7 +50,7 @@ def main():
     clients = one("SELECT COUNT(*) FROM oauth_clients")
     pending = one("SELECT COUNT(*) FROM oauth_codes")
 
-    print(f"\nGarmin MCP Gateway — status  ({args.db})\n")
+    print(f"\nGarmin MCP Gateway — status  ({db_path})\n")
     print("Summary")
     print(f"  People with a token : {people}")
     print(f"  Access tokens       : {tokens}   (devices/clients connected)")
