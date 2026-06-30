@@ -64,6 +64,16 @@ class RateLimiter:
         q.append(now)
         return True
 
+    def gc(self, max_idle: float = 3600.0) -> None:
+        """Drop keys with no recent hits. Without this, _hits grows one entry per
+        distinct key forever — e.g. proxy.authenticate rate-limits on the (unverified)
+        token hash, so rotating Bearer values would leak memory. Call periodically."""
+        now = self._clock()
+        for key in list(self._hits):
+            q = self._hits[key]
+            if not q or q[-1] <= now - max_idle:
+                del self._hits[key]
+
 
 class CsrfStore:
     def __init__(self, ttl: float = 600, clock: Callable[[], float] = time.monotonic):

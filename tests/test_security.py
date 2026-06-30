@@ -52,6 +52,18 @@ def test_rate_limiter_blocks_over_limit():
     assert rl.check("ip", limit=2, window=60)  # window slid
 
 
+def test_rate_limiter_gc_drops_idle_keys():
+    clock = [0.0]
+    rl = security.RateLimiter(clock=lambda: clock[0])
+    rl.check("a", limit=5, window=60)
+    rl.check("b", limit=5, window=60)
+    assert len(rl._hits) == 2
+    clock[0] = 100.0
+    rl.check("b", limit=5, window=60)   # refresh b
+    rl.gc(max_idle=50)                  # a idle 100s > 50, b just used
+    assert "a" not in rl._hits and "b" in rl._hits
+
+
 def test_csrf_one_time():
     clock = [0.0]
     cs = security.CsrfStore(ttl=600, clock=lambda: clock[0])

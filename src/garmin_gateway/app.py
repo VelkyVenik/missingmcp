@@ -83,6 +83,7 @@ def build_app(config: Config) -> Starlette:
                 with contextlib.suppress(Exception):
                     await manager.reap_idle()
                     store.cleanup_expired_codes(conn)
+                    rate.gc()
                     manager.write_snapshot()  # refresh idle_seconds periodically
                     stats = {**store.stats_counts(conn),
                              "active_workers": manager.active_count()}

@@ -2,8 +2,10 @@ FROM python:3.12-slim
 RUN pip install --no-cache-dir uv
 WORKDIR /app
 
-# Pin the unmodified garmin_mcp worker by commit (override at build time).
-ARG GARMIN_MCP_REF=main
+# Pin the unmodified garmin_mcp worker to a reviewed commit (override at build
+# time). Bumping this is a deliberate, reviewed action: the worker runs with each
+# user's decrypted Garmin tokens, so a floating ref would run unreviewed code.
+ARG GARMIN_MCP_REF=2974244bfda1595b00836b3f942f579ec2d6f7d6
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
 # git: uv installs the pinned garmin_mcp worker from a git ref.

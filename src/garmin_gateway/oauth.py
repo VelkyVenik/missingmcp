@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hmac
 import html
 import json
 import time
@@ -222,7 +223,9 @@ async def token_exchange(request, conn) -> JSONResponse:
         log_error("token-bad-grant", grant_type=form.get("grant_type", ""))
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
     client = store.get_client(conn, form.get("client_id", ""))
-    if client is None or store.hash_token(form.get("client_secret", "")) != client["client_secret_hash"]:
+    if client is None or not hmac.compare_digest(
+        store.hash_token(form.get("client_secret", "")), client["client_secret_hash"]
+    ):
         log_error("token-invalid-client", client_known=client is not None)
         return JSONResponse({"error": "invalid_client"}, status_code=401)
     row = store.consume_code(conn, store.hash_token(form.get("code", "")))
