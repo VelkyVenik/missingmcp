@@ -101,6 +101,8 @@ python scripts/monitor.py         # live tail of structured events
 python scripts/monitor.py --all   # include garminconnect/urllib3 debug noise
 python scripts/revoke.py --list             # accounts + token counts
 python scripts/revoke.py --account <email>  # kill-switch: revoke all their tokens
+python scripts/usage.py                     # per-account tool usage + leaderboard
+python scripts/usage.py --account <email>   # one account's per-tool breakdown
 ```
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
