@@ -39,6 +39,62 @@ def test_login_needs_mfa_then_resume():
     assert json.loads(tokens) == {"oauth": "tok"}
 
 
+def test_login_retries_blocked_then_succeeds():
+    calls = {"n": 0}
+
+    def dump(path):
+        with open(os.path.join(path, "garmin_tokens.json"), "w") as f:
+            f.write('{"oauth":"tok"}')
+
+    def make(*a, **k):
+        g = MagicMock()
+        g.client.dump.side_effect = dump
+
+        def login(*la, **lk):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise garmin_login.GarminConnectConnectionError("Portal login failed: HTTP 403")
+            return (None, None)
+
+        g.login.side_effect = login
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        r = garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
+    assert r.status == "ok" and calls["n"] == 2      # retried once, then succeeded
+
+
+def test_login_auth_error_not_retried():
+    calls = {"n": 0}
+
+    def make(*a, **k):
+        g = MagicMock()
+
+        def login(*la, **lk):
+            calls["n"] += 1
+            raise garmin_login.GarminConnectAuthenticationError("401 Unauthorized")
+
+        g.login.side_effect = login
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "wrong", attempts=3, sleep=lambda s: None)
+    assert ei.value.reason == "auth" and calls["n"] == 1   # wrong password: never retried
+
+
+def test_login_blocked_exhausted_raises_blocked():
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectTooManyRequestsError("429 rate limited")
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
+    assert ei.value.reason == "blocked"
+
+
 def test_verify_tokens_returns_name():
     with patch.object(garmin_login, "Garmin", side_effect=_fake_garmin_factory()):
         name = garmin_login.verify_tokens('{"oauth":"tok"}')

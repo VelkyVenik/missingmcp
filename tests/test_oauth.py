@@ -226,6 +226,23 @@ def test_token_exchange_happy_path(conn):
     assert store.account_key_for_token_hash(conn, store.hash_token(token)) == "me@x.cz"
 
 
+def test_login_blocked_shows_retry_message(conn):
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    csrf = state.csrf.issue()
+    with patch.object(garmin_login, "start_login",
+                      side_effect=garmin_login.GarminLoginError("429 rate limited", reason="blocked")):
+        r = client.post("/oauth/authorize", data={
+            "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+            "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+            "garmin_email": "me@x.cz", "garmin_password": "pw",
+        })
+    assert r.status_code == 200
+    assert "blocking sign-ins from this server" in r.text   # not a "wrong password" message
+    assert "isn&#x27;t your password" in r.text or "isn't your password" in r.text
+    assert "garmin_email" in r.text                          # form re-rendered to retry
+
+
 def test_login_verify_failure_rerenders_form(conn):
     client, state = _authz_app(conn)
     cid = _register(conn)

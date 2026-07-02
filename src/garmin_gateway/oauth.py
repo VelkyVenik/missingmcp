@@ -95,6 +95,17 @@ def _operator_fields(config) -> dict:
     }
 
 
+def _login_error_message(reason: str) -> str:
+    if reason == "blocked":
+        # Garmin rate-limits this server's (datacenter) IP on mobile SSO and the
+        # fallback can flake — not the user's fault, and a retry usually works.
+        return ("Garmin is temporarily blocking sign-ins from this server. "
+                "This isn't your password — please wait a couple of minutes and try again.")
+    if reason == "auth":
+        return "Garmin sign-in failed — check your Garmin email and password."
+    return "Garmin sign-in failed, please try again."
+
+
 def render_authorize(params: dict, csrf_token: str, config, error: str = "") -> HTMLResponse:
     body = _fill(_tpl("authorize.html"), {
         "CSRF": csrf_token,
@@ -194,10 +205,15 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
         log("login-start", email=email)
         result = garmin_login.start_login(email, password)
         log("login-start-result", status=result.status)
-    except Exception as e:  # noqa: BLE001
+    except garmin_login.GarminLoginError as e:
         del password
-        log_exc("login-start-failed", e, error_type=type(e).__name__, error=str(e))
-        return render_authorize(params, state.csrf.issue(), config, "Garmin sign-in failed, check your credentials")
+        reason = getattr(e, "reason", "unknown")
+        log_exc("login-start-failed", e, reason=reason, error=str(e))
+        return render_authorize(params, state.csrf.issue(), config, _login_error_message(reason))
+    except Exception as e:  # noqa: BLE001 - unexpected failure
+        del password
+        log_exc("login-start-failed", e, reason="unknown", error_type=type(e).__name__, error=str(e))
+        return render_authorize(params, state.csrf.issue(), config, _login_error_message("unknown"))
     del password  # discard immediately
     if result.status == "needs_mfa":
         params = {**params, "_email": email}
