@@ -238,8 +238,8 @@ def test_login_blocked_shows_retry_message(conn):
             "garmin_email": "me@x.cz", "garmin_password": "pw",
         })
     assert r.status_code == 200
-    assert "blocking sign-ins from this server" in r.text   # not a "wrong password" message
-    assert "isn&#x27;t your password" in r.text or "isn't your password" in r.text
+    assert "rate-limiting" in r.text                         # Garmin-side limit, not "wrong password"
+    assert "not your password" in r.text
     assert "garmin_email" in r.text                          # form re-rendered to retry
 
 

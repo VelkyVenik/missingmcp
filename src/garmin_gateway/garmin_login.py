@@ -35,10 +35,11 @@ def _dump_tokens(client) -> str:
 def start_login(email: str, password: str, attempts: int = 2,
                 backoff: float = 6.0, sleep=time.sleep) -> LoginResult:
     """Log in, retrying transient/blocked failures a couple of times with a short
-    backoff. Garmin rate-limits datacenter IPs (429) on mobile SSO and the widget/
-    portal fallback is flaky (403); a quick retry usually gets through. Wrong
-    credentials ('auth') are NOT retried. Retries are deliberately small/short so
-    the synchronous authorize POST stays under the OAuth callback timeout.
+    backoff. Garmin (via Cloudflare) 429-rate-limits fresh logins on the mobile SSO
+    endpoint — per-account, not per-IP (garth#217, garminconnect#344) — and the
+    widget/portal fallback can flake (403); a quick retry usually gets through.
+    Wrong credentials ('auth') are NOT retried. Retries are deliberately small/short
+    so the synchronous authorize POST stays under the OAuth callback timeout.
 
     Raises GarminLoginError with .reason in {auth, blocked, unknown}."""
     last: Exception | None = None

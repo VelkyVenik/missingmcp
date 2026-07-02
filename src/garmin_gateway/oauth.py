@@ -97,10 +97,11 @@ def _operator_fields(config) -> dict:
 
 def _login_error_message(reason: str) -> str:
     if reason == "blocked":
-        # Garmin rate-limits this server's (datacenter) IP on mobile SSO and the
-        # fallback can flake — not the user's fault, and a retry usually works.
-        return ("Garmin is temporarily blocking sign-ins from this server. "
-                "This isn't your password — please wait a couple of minutes and try again.")
+        # Garmin (via Cloudflare) rate-limits fresh logins on the mobile SSO
+        # endpoint — per-account, not per-IP (garth#217, garminconnect#344) — and
+        # the widget/portal fallback can flake. Not the user's fault; a retry usually works.
+        return ("Garmin is temporarily rate-limiting new sign-ins (a limit on "
+                "Garmin's side, not your password). Please wait a couple of minutes and try again.")
     if reason == "auth":
         return "Garmin sign-in failed — check your Garmin email and password."
     return "Garmin sign-in failed, please try again."
