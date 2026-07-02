@@ -103,6 +103,7 @@ python scripts/revoke.py --list             # accounts + token counts
 python scripts/revoke.py --account <email>  # kill-switch: revoke all their tokens
 python scripts/usage.py                     # per-account tool usage + leaderboard
 python scripts/usage.py --account <email>   # one account's per-tool breakdown
+python scripts/health.py                    # health report: logins/workers/errors — is it all OK?
 ```
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
@@ -113,6 +114,7 @@ docker compose exec gateway python /app/scripts/status.py
 docker compose exec gateway python /app/scripts/monitor.py --file /data/gateway.log
 docker compose logs -f gateway                       # live events (simplest)
 docker compose logs -f gateway | grep '"event": "stats"'
+docker compose logs gateway | python scripts/health.py   # health report from the stdout logs
 ```
 
 > `monitor.py` reads `GATEWAY_LOG_FILE` (pass `--file` if it isn't set). Inside a
