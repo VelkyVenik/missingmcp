@@ -3,6 +3,7 @@ import stat
 import time
 import pytest
 from garmin_gateway import workers
+from garmin_gateway.adapters.garmin import GarminWorkerForward
 from garmin_gateway.config import load_config
 
 
@@ -25,7 +26,7 @@ async def test_ensure_spawns_and_reuses(tmp_path, fake_worker):
         return FakeProc()
 
     cfg = _config(tmp_path, worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
-    mgr = workers.WorkerManager(cfg, spawn=spawn)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=spawn)
     port1 = await mgr.ensure_worker("me@x.cz", '{"t":1}')
     assert port1 == fake_worker.port
     port2 = await mgr.ensure_worker("me@x.cz", '{"t":1}')
@@ -42,7 +43,7 @@ async def test_ensure_raises_when_never_healthy(tmp_path):
         def terminate(self): pass
 
     cfg = _config(tmp_path, worker_startup_timeout=1, worker_port_start=59999, worker_port_end=59999)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: DeadProc())
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: DeadProc())
     with pytest.raises(workers.WorkerStartError):
         await mgr.ensure_worker("me@x.cz", "{}")
 
@@ -58,7 +59,7 @@ async def test_reap_idle_terminates(tmp_path, fake_worker):
     proc = FakeProc()
     cfg = _config(tmp_path, worker_idle_ttl=10,
                   worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: proc, clock=lambda: clock[0])
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: proc, clock=lambda: clock[0])
     await mgr.ensure_worker("me@x.cz", "{}")
     clock[0] = 1100.0                              # advance past idle ttl
     await mgr.reap_idle()
@@ -76,7 +77,7 @@ async def test_reap_idle_spares_busy_worker(tmp_path, fake_worker):
     proc = FakeProc()
     cfg = _config(tmp_path, worker_idle_ttl=10,
                   worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: proc, clock=lambda: clock[0])
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: proc, clock=lambda: clock[0])
     await mgr.ensure_worker("me@x.cz", "{}")
     mgr.request_started("me@x.cz")                 # a request is streaming
     clock[0] = 1100.0                              # past idle ttl
@@ -90,7 +91,7 @@ async def test_reap_idle_spares_busy_worker(tmp_path, fake_worker):
 
 def test_enforce_cap_spares_busy_worker(tmp_path):
     cfg = _config(tmp_path, max_workers=1)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: None)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
 
     class P:
         def __init__(self): self.killed = False
@@ -108,7 +109,7 @@ def test_enforce_cap_spares_busy_worker(tmp_path):
 
 def test_alloc_port_excludes_reserved(tmp_path):
     cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9001)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: None)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
     mgr._reserved.add(9000)
     assert mgr._alloc_port() == 9001               # 9000 reserved -> next free
 
@@ -122,9 +123,33 @@ def test_alloc_port_excludes_reserved(tmp_path):
 
 async def test_materialize_tokens_sets_secure_perms(tmp_path):
     cfg = _config(tmp_path)
-    mgr = workers.WorkerManager(cfg, spawn=lambda *a: None)
-    token_dir = mgr._materialize_tokens("Me@X.cz", '{"t":1}')
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
+    token_dir = mgr._materialize("Me@X.cz", '{"t":1}')
     tok_file = os.path.join(token_dir, "garmin_tokens.json")
     assert stat.S_IMODE(os.stat(tok_file).st_mode) == 0o600
     assert stat.S_IMODE(os.stat(token_dir).st_mode) == 0o700
     assert stat.S_IMODE(os.stat(os.path.dirname(token_dir)).st_mode) == 0o700
+
+
+async def test_manager_delegates_to_forward(tmp_path, fake_worker):
+    calls = []
+
+    class FakeForward:
+        def command(self):
+            return ["fake-worker"]
+        def env(self, port, workdir):
+            calls.append(("env", port, workdir))
+            return {"FAKE": "1"}
+        def materialize(self, blob, workdir):
+            calls.append(("materialize", blob, workdir))
+
+    class FakeProc:
+        def poll(self): return None
+        def terminate(self): pass
+
+    cfg = _config(tmp_path, worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, FakeForward(), spawn=lambda *a: FakeProc())
+    await mgr.ensure_worker("me@x.cz", '{"blob":1}')
+    assert ("materialize", '{"blob":1}', calls[0][2]) == calls[0]   # forward wrote the credentials
+    assert calls[0][2].endswith("/tokens")                          # into the manager-owned workdir
+    mgr.shutdown()

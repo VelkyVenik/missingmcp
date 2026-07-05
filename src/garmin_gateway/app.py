@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import store, oauth, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
+from .adapters.garmin import GarminWorkerForward
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -25,7 +26,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
-    manager = WorkerManager(config)
+    manager = WorkerManager(config, GarminWorkerForward(config))
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
 

@@ -27,8 +27,9 @@ class WorkerHandle:
 
 
 class WorkerManager:
-    def __init__(self, config, spawn=None, clock=time.monotonic):
+    def __init__(self, config, forward, spawn=None, clock=time.monotonic):
         self._cfg = config
+        self._forward = forward
         self._clock = clock
         self._spawn_fn = spawn or self._default_spawn
         self._workers: dict[str, WorkerHandle] = {}
@@ -37,7 +38,7 @@ class WorkerManager:
 
     # --- public ---------------------------------------------------------
 
-    async def ensure_worker(self, key: str, tokens_json: str) -> int:
+    async def ensure_worker(self, key: str, blob: str) -> int:
         async with self._locks[key]:
             h = self._workers.get(key)
             if h is not None and h.process.poll() is None and await self._healthy(h.port):
@@ -47,7 +48,7 @@ class WorkerManager:
                 self._terminate(h)
                 self._workers.pop(key, None)
             self._enforce_cap()
-            token_dir = self._materialize_tokens(key, tokens_json)
+            token_dir = self._materialize(key, blob)
             # Reserve the port across the awaited spawn/health-check. Without this,
             # a concurrent ensure_worker for a *different* key (own lock) would see
             # the same lowest free port — _alloc_port reads _workers, which isn't
@@ -55,13 +56,13 @@ class WorkerManager:
             port = self._alloc_port()
             self._reserved.add(port)
             try:
-                log("worker-spawn", port=port, cmd=" ".join(self._cfg.garmin_mcp_cmd),
+                log("worker-spawn", port=port, cmd=" ".join(self._forward.command()),
                     token_dir=token_dir)
                 try:
                     proc = self._spawn_fn(key, port, token_dir)
                 except Exception as e:  # noqa: BLE001 - spawn failed (e.g. binary not on PATH)
                     log_exc("worker-spawn-failed", e, error=str(e),
-                            cmd=" ".join(self._cfg.garmin_mcp_cmd))
+                            cmd=" ".join(self._forward.command()))
                     raise WorkerStartError(f"spawn failed: {type(e).__name__}") from e
                 if not await self._wait_healthy(port, proc):
                     rc = proc.poll()
@@ -162,18 +163,15 @@ class WorkerManager:
             self._workers.pop(oldest.key, None)
             log("worker-evicted", port=oldest.port)
 
-    def _materialize_tokens(self, key: str, tokens_json: str) -> str:
+    def _materialize(self, key: str, blob: str) -> str:
         safe = _SAFE.sub("_", key)
         user_dir = os.path.join(self._cfg.data_dir, "users", safe)
-        token_dir = os.path.join(user_dir, "tokens")
-        os.makedirs(token_dir, exist_ok=True)
+        workdir = os.path.join(user_dir, "tokens")
+        os.makedirs(workdir, exist_ok=True)
         os.chmod(user_dir, 0o700)
-        os.chmod(token_dir, 0o700)
-        path = os.path.join(token_dir, "garmin_tokens.json")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(tokens_json)
-        return token_dir
+        os.chmod(workdir, 0o700)
+        self._forward.materialize(blob, workdir)
+        return workdir
 
     def _alloc_port(self) -> int:
         used = {h.port for h in self._workers.values()} | self._reserved
@@ -182,21 +180,16 @@ class WorkerManager:
                 return p
         raise WorkerStartError("no free worker port")
 
-    def _default_spawn(self, key: str, port: int, token_dir: str):
+    def _default_spawn(self, key: str, port: int, workdir: str):
         env = dict(os.environ)
-        env.update({
-            "GARMIN_MCP_TRANSPORT": "streamable-http",
-            "GARMIN_MCP_HOST": "127.0.0.1",
-            "GARMIN_MCP_PORT": str(port),
-            "GARMINTOKENS": token_dir,
-        })
+        env.update(self._forward.env(port, workdir))
         # Redirect the worker's own (chatty, unstructured) stdout/stderr to a
         # per-user file so it doesn't interleave with the gateway's structured
         # log. The child inherits the fd; we close our copy after spawning.
-        log_path = os.path.join(os.path.dirname(token_dir), "worker.log")
+        log_path = os.path.join(os.path.dirname(workdir), "worker.log")
         logf = open(log_path, "a", encoding="utf-8")
         try:
-            return subprocess.Popen(self._cfg.garmin_mcp_cmd, env=env,
+            return subprocess.Popen(self._forward.command(), env=env,
                                     stdout=logf, stderr=subprocess.STDOUT)
         finally:
             logf.close()
