@@ -151,7 +151,7 @@ def build_app(config: Config) -> Starlette:
     ]
     for a in adapters.values():
         routes.extend(adapter_routes(a))
-    # Catch-all (must stay last): unknown GET paths get the landing page.
+    # Catch-all (must stay last): unknown GET paths get the home page.
     routes.append(Route("/{path:path}", notfound, methods=["GET"]))
     app = Starlette(routes=routes, lifespan=lifespan)
     app.add_middleware(SecurityHeadersMiddleware)
