@@ -124,3 +124,13 @@ def test_verify_ok_and_failure():
         with pytest.raises(base.LoginError) as ei:
             _adapter().verify('{"t":1}')
     assert "could not be verified" in str(ei.value)
+
+
+from garmin_gateway.adapters import build_adapters
+
+
+def test_registry_builds_garmin():
+    adapters = build_adapters(CFG)
+    assert set(adapters) == {"garmin"}
+    assert adapters["garmin"].name == "garmin"
+    assert adapters["garmin"].forward.command() == ["uvx", "garmin-mcp"]

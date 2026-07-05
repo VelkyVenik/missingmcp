@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import store, oauth, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
-from .adapters.garmin import GarminAdapter
+from .adapters import build_adapters
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -26,7 +26,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
-    garmin = GarminAdapter(config)
+    adapters = build_adapters(config)
+    garmin = adapters["garmin"]
     manager = WorkerManager(config, garmin.forward)
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
@@ -78,7 +79,8 @@ def build_app(config: Config) -> Starlette:
 
     def mcp(method):
         async def handler(request):
-            return await proxy.handle_mcp(request, method, conn, manager, config, config.gateway_secret, rate)
+            return await proxy.handle_mcp(request, method, garmin, conn, manager,
+                                          config, config.gateway_secret, rate)
         return handler
 
     @contextlib.asynccontextmanager

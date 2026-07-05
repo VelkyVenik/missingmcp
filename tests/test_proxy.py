@@ -2,7 +2,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from garmin_gateway import store, proxy, workers, security
-from garmin_gateway.adapters.garmin import GarminWorkerForward
+from garmin_gateway.adapters.garmin import GarminAdapter, GarminWorkerForward
 from garmin_gateway.config import load_config
 
 
@@ -14,8 +14,10 @@ def _cfg(tmp_path, fw):
 
 def _app(conn, mgr, cfg):
     rate = security.RateLimiter()
+    adapter = GarminAdapter(cfg)
     async def mcp_post(request):
-        return await proxy.handle_mcp(request, "POST", conn, mgr, cfg, cfg.gateway_secret, rate)
+        return await proxy.handle_mcp(request, "POST", adapter, conn, mgr, cfg,
+                                      cfg.gateway_secret, rate)
     return TestClient(Starlette(routes=[Route("/mcp", mcp_post, methods=["POST"])]))
 
 
