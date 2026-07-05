@@ -114,6 +114,7 @@ def render_authorize(params: dict, csrf_token: str, config, adapter, error: str 
         "STATE": params.get("state", ""),
         "CODE_CHALLENGE": params.get("code_challenge", ""),
         "METHOD": params.get("code_challenge_method", ""),
+        "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
         **_operator_fields(config),
     }, error)
     return HTMLResponse(body)
@@ -181,7 +182,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
             lid = state.put_mfa(e.state, params)
             body = _fill(_tpl(adapter.second_factor_template),
-                         {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)},
+                         {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
+                          "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                          **_operator_fields(config)},
                          str(e))
             return HTMLResponse(body, status_code=400)
         try:
@@ -213,7 +216,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     if isinstance(result, SecondFactorNeeded):
         lid = state.put_mfa(result.state, params)
         body = _fill(_tpl(adapter.second_factor_template),
-                     {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)}, "")
+                     {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
+                      "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                      **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:
         name = adapter.verify(result.blob)

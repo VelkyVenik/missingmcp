@@ -102,6 +102,7 @@ def test_authorize_get_renders_form(conn):
     assert r.status_code == 200
     assert "garmin_email" in r.text
     assert "csrf" in r.text
+    assert 'action="/garmin/oauth/authorize"' in r.text
 
 
 def test_authorize_get_rejects_bad_redirect(conn):
