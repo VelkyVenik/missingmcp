@@ -13,8 +13,8 @@ from .log import log, log_error, log_exc
 _TPL_DIR = Path(__file__).parent / "templates"
 
 
-def metadata(config) -> dict:
-    base = config.public_url
+def metadata(config, adapter) -> dict:
+    base = f"{config.public_url}/{adapter.name}"
     return {
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
@@ -24,6 +24,15 @@ def metadata(config) -> dict:
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
+    }
+
+
+def protected_resource_metadata(config, adapter) -> dict:
+    # RFC 9728: points the MCP client at this resource's authorization server.
+    base = config.public_url
+    return {
+        "resource": f"{base}/{adapter.name}/mcp",
+        "authorization_servers": [f"{base}/{adapter.name}"],
     }
 
 

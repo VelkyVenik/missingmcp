@@ -23,12 +23,18 @@ def conn():
 
 
 def test_metadata_shape():
-    m = oauth.metadata(CONFIG)
-    assert m["issuer"] == "https://gw.example.com"
-    assert m["authorization_endpoint"] == "https://gw.example.com/oauth/authorize"
-    assert m["token_endpoint"] == "https://gw.example.com/oauth/token"
-    assert m["registration_endpoint"] == "https://gw.example.com/oauth/register"
+    m = oauth.metadata(CONFIG, ADAPTER)
+    assert m["issuer"] == "https://gw.example.com/garmin"
+    assert m["authorization_endpoint"] == "https://gw.example.com/garmin/oauth/authorize"
+    assert m["token_endpoint"] == "https://gw.example.com/garmin/oauth/token"
+    assert m["registration_endpoint"] == "https://gw.example.com/garmin/oauth/register"
     assert m["code_challenge_methods_supported"] == ["S256"]
+
+
+def test_protected_resource_metadata_shape():
+    m = oauth.protected_resource_metadata(CONFIG, ADAPTER)
+    assert m["resource"] == "https://gw.example.com/garmin/mcp"
+    assert m["authorization_servers"] == ["https://gw.example.com/garmin"]
 
 
 def _client_app(conn):

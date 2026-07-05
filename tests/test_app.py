@@ -25,7 +25,7 @@ def test_healthz(tmp_path):
 def test_metadata_endpoint(tmp_path):
     c = _client(tmp_path)
     m = c.get("/.well-known/oauth-authorization-server").json()
-    assert m["issuer"] == "https://gw.example.com"
+    assert m["issuer"] == "https://gw.example.com/garmin"
 
 
 def test_mcp_requires_auth(tmp_path):

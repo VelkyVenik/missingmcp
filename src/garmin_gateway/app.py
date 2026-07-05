@@ -57,7 +57,7 @@ def build_app(config: Config) -> Starlette:
                         headers={"Cache-Control": "public, max-age=86400"})
 
     async def meta(request):
-        return JSONResponse(oauth.metadata(config))
+        return JSONResponse(oauth.metadata(config, garmin))
 
     async def register(request):
         if not rate.check(f"oauth:{request.client.host}", 20, 60):
