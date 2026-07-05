@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Status / stats snapshot for the Garmin MCP Gateway (reads the DB read-only).
+"""Status / stats snapshot for the MCP gateway (reads the DB read-only).
 
-Shows how many people have a token, how many devices/clients are connected, the
-registered OAuth clients, and per-account token counts. Safe to run while the
-gateway is live (opens the SQLite DB read-only).
+One overview: every connected account (adapter:key) with its devices —
+token-hash prefixes you can pass to revoke.py --device — plus a tool-usage
+summary, the registered OAuth clients, and the running workers. Safe to run
+while the gateway is live (opens the SQLite DB read-only).
 
 Usage:
   python scripts/status.py                 # uses ./.localdata/gateway.db
   python scripts/status.py --db /data/gateway.db
+  railway ssh --service gateway "python3 /app/scripts/status.py"
 """
 from __future__ import annotations
 import argparse
@@ -31,7 +33,7 @@ def resolve_db() -> str:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Garmin MCP Gateway status snapshot.")
+    p = argparse.ArgumentParser(description="MCP gateway status snapshot.")
     p.add_argument("--db", default=None,
                    help="SQLite DB path (default: $DB_PATH, $DATA_DIR/gateway.db, "
                         "/data/gateway.db, or ./.localdata/gateway.db)")
@@ -51,34 +53,58 @@ def main():
     clients = one("SELECT COUNT(*) FROM oauth_clients")
     pending = one("SELECT COUNT(*) FROM oauth_codes")
 
-    print(f"\nGarmin MCP Gateway — status  ({db_path})\n")
+    print(f"\nMissingMCP gateway — status  ({db_path})\n")
     print("Summary")
     print(f"  People with a token : {people}")
     print(f"  Access tokens       : {tokens}   (devices/clients connected)")
-    print(f"  Garmin accounts     : {accounts}")
+    print(f"  Accounts            : {accounts}")
     print(f"  OAuth clients       : {clients}   (registered apps)")
     print(f"  Pending auth codes  : {pending}")
 
-    # per-account: token count + last use
+    client_names = {c["client_id"]: (c["client_name"] or "(unnamed)")
+                    for c in db.execute("SELECT client_id, client_name FROM oauth_clients")}
+    tokens_by_acct: dict[tuple[str, str], list[sqlite3.Row]] = {}
+    for t in db.execute(
+        "SELECT adapter, account_key, token_hash, client_id, created_at, last_used "
+        "FROM access_tokens ORDER BY created_at"
+    ):
+        tokens_by_acct.setdefault((t["adapter"], t["account_key"]), []).append(t)
+    usage_by_acct = {
+        (u["adapter"], u["account_key"]): u
+        for u in db.execute(
+            "SELECT adapter, account_key, SUM(calls) AS calls, COUNT(*) AS tools, "
+            "MAX(last_used) AS last FROM tool_usage GROUP BY adapter, account_key"
+        )
+    }
+
     rows = db.execute(
-        """
-        SELECT a.adapter AS adapter, a.account_key AS key, a.created_at AS created,
-               COUNT(t.token_hash) AS devices, MAX(t.last_used) AS last
-        FROM accounts a
-        LEFT JOIN access_tokens t
-          ON t.adapter = a.adapter AND t.account_key = a.account_key
-        GROUP BY a.adapter, a.account_key ORDER BY a.created_at
-        """
+        "SELECT adapter, account_key, created_at FROM accounts ORDER BY created_at"
     ).fetchall()
     if rows:
         print("\nAccounts")
-        for r in rows:
-            print(f"  {r['adapter']}:{r['key']:<32} tokens: {r['devices']:<3} "
-                  f"connected: {r['created']}  last used: {r['last'] or '—'}")
+        for a in rows:
+            k = (a["adapter"], a["account_key"])
+            devices = tokens_by_acct.pop(k, [])
+            last = max((t["last_used"] or "" for t in devices), default="") or "—"
+            print(f"  {a['adapter']}:{a['account_key']:<32} devices: {len(devices):<3} "
+                  f"connected: {a['created_at']}  last used: {last}")
+            u = usage_by_acct.get(k)
+            if u:
+                print(f"    usage: calls: {u['calls']} across {u['tools']} tool(s), "
+                      f"last {u['last']}")
+            for t in devices:
+                print(f"    {t['token_hash'][:8]}…  "
+                      f"{client_names.get(t['client_id'], '?'):<24} "
+                      f"created: {t['created_at']}  last used: {t['last_used'] or '—'}")
+    if tokens_by_acct:  # tokens whose account row is gone (e.g. after --purge)
+        print("\nTokens without a stored account (revoke these)")
+        for (adapter, key), devices in tokens_by_acct.items():
+            for t in devices:
+                print(f"  {t['token_hash'][:8]}…  {adapter}:{key}")
 
     crows = db.execute(
         """
-        SELECT c.client_name AS name, c.redirect_uris AS redirect,
+        SELECT c.adapter AS adapter, c.client_name AS name, c.redirect_uris AS redirect,
                COUNT(t.token_hash) AS tokens,
                GROUP_CONCAT(DISTINCT t.account_key) AS accounts
         FROM oauth_clients c
@@ -90,13 +116,14 @@ def main():
         print("\nOAuth clients (registered)")
         for r in crows:
             name = r["name"] or "(unnamed)"
-            accounts = r["accounts"] or "—  (never completed OAuth)"
-            print(f"  {name:<30} account: {accounts:<28} tokens: {r['tokens']:<3} {r['redirect']}")
+            accts = r["accounts"] or "—  (never completed OAuth)"
+            print(f"  [{r['adapter']}] {name:<28} account: {accts:<28} "
+                  f"tokens: {r['tokens']:<3} {r['redirect']}")
 
     # Active runners live in the gateway's memory; it persists a snapshot to
     # workers.json (next to the DB) so we can show them here.
     wpath = os.path.join(os.path.dirname(os.path.abspath(db_path)), "workers.json")
-    print("\nActive runners (per-user garmin_mcp workers)")
+    print("\nActive runners (per-account MCP workers)")
     if os.path.exists(wpath):
         try:
             snap = json.load(open(wpath, encoding="utf-8"))
