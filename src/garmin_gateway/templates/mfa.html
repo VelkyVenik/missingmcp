@@ -14,7 +14,7 @@ hr{border:none;border-top:1px solid #eee;margin:1.4rem 0}a{color:#2563eb}</style
 stored. Only the resulting encrypted session tokens are kept. This gateway is
 operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>.</div>
 {ERROR}
-<form method="post" action="/oauth/authorize">
+<form method="post" action="{AUTHORIZE_ACTION}">
   <input type="hidden" name="csrf" value="{CSRF}">
   <input type="hidden" name="login_id" value="{LOGIN_ID}">
   <label>MFA code<input name="mfa_code" inputmode="numeric" required></label>

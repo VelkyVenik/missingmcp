@@ -7,7 +7,7 @@ connect their own [Garmin Connect](https://connect.garmin.com) account to Claude
 per-user token isolation, and a reverse proxy.
 
 ```
-Claude → POST /mcp (Bearer) → Gateway → 127.0.0.1:<port>/mcp (per-user garmin_mcp) → connect.garmin.com
+Claude → POST /garmin/mcp (Bearer) → Gateway → 127.0.0.1:<port>/mcp (per-user garmin_mcp) → connect.garmin.com
 ```
 
 ## Why
@@ -41,7 +41,7 @@ docker compose up -d --build
 ```
 
 Put nginx in front for TLS + your domain (see [`nginx.conf.example`](nginx.conf.example)),
-then add `https://<your-domain>/mcp` as a remote MCP server in Claude.
+then add `https://<your-domain>/garmin/mcp` as a remote MCP server in Claude.
 
 ## Local development
 
@@ -63,7 +63,7 @@ variables take precedence), so you can drop the same values there instead.
 ## Connecting from Claude
 
 1. In any Claude client: **Settings → Connectors → Add custom connector**, or in
-   the CLI: `claude mcp add --transport http garmin https://<your-domain>/mcp`.
+   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`.
 2. Claude opens the gateway's sign-in page — enter your Garmin Connect email +
    password (and an MFA code if prompted).
 3. Done — your Garmin tools are now available in Claude.
@@ -134,7 +134,7 @@ whenever those counts change, and `status.py` lists the running workers.
    prompted). The gateway logs in via `garminconnect`, stores **only the resulting
    tokens** (encrypted), and discards the password.
 3. Claude exchanges the code for a Bearer token.
-4. On each `/mcp` call the gateway ensures the user's `garmin_mcp` worker is running
+4. On each `/garmin/mcp` call the gateway ensures the user's `garmin_mcp` worker is running
    (its own tokens, bound to `127.0.0.1`) and reverse-proxies to it.
 
 ## Security

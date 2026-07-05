@@ -23,7 +23,7 @@ hr{border:none;border-top:1px solid #eee;margin:1.4rem 0}a{color:#2563eb}</style
   only continue if you trust them. You can disconnect anytime.
 </div>
 {ERROR}
-<form method="post" action="/oauth/authorize">
+<form method="post" action="{AUTHORIZE_ACTION}">
   <input type="hidden" name="csrf" value="{CSRF}">
   <input type="hidden" name="client_id" value="{CLIENT_ID}">
   <input type="hidden" name="redirect_uri" value="{REDIRECT_URI}">

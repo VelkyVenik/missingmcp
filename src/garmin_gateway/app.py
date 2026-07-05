@@ -28,6 +28,8 @@ def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
     adapters = build_adapters(config)
     garmin = adapters["garmin"]
+    # Single worker manager: garmin is the only worker-based adapter today. A
+    # second, non-worker adapter (step 4) reworks forwarding and revisits this.
     manager = WorkerManager(config, garmin.forward)
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
@@ -56,32 +58,50 @@ def build_app(config: Config) -> Starlette:
         return Response(favicon_svg, media_type="image/svg+xml",
                         headers={"Cache-Control": "public, max-age=86400"})
 
-    async def meta(request):
-        return JSONResponse(oauth.metadata(config))
+    def adapter_routes(adapter):
+        p = adapter.name
 
-    async def register(request):
-        if not rate.check(f"oauth:{request.client.host}", 20, 60):
-            return JSONResponse({"error": "rate_limited"}, status_code=429)
-        return await oauth.register_client(request, conn, garmin)
+        async def meta(request):
+            return JSONResponse(oauth.metadata(config, adapter))
 
-    async def authz_get(request):
-        return await oauth.authorize_get(request, garmin, auth_state, conn, config)
+        async def prmeta(request):
+            return JSONResponse(oauth.protected_resource_metadata(config, adapter))
 
-    async def authz_post(request):
-        if not rate.check(f"login:{request.client.host}", 5, 60):
-            return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
-        return await oauth.authorize_post(request, garmin, auth_state, conn, config)
+        async def register(request):
+            if not rate.check(f"oauth:{request.client.host}", 20, 60):
+                return JSONResponse({"error": "rate_limited"}, status_code=429)
+            return await oauth.register_client(request, conn, adapter)
 
-    async def token(request):
-        if not rate.check(f"oauth:{request.client.host}", 20, 60):
-            return JSONResponse({"error": "rate_limited"}, status_code=429)
-        return await oauth.token_exchange(request, conn, config)
+        async def authz_get(request):
+            return await oauth.authorize_get(request, adapter, auth_state, conn, config)
 
-    def mcp(method):
-        async def handler(request):
-            return await proxy.handle_mcp(request, method, garmin, conn, manager,
-                                          config, config.gateway_secret, rate)
-        return handler
+        async def authz_post(request):
+            if not rate.check(f"login:{request.client.host}", 5, 60):
+                return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
+            return await oauth.authorize_post(request, adapter, auth_state, conn, config)
+
+        async def token(request):
+            if not rate.check(f"oauth:{request.client.host}", 20, 60):
+                return JSONResponse({"error": "rate_limited"}, status_code=429)
+            return await oauth.token_exchange(request, conn, config)
+
+        def mcp(method):
+            async def handler(request):
+                return await proxy.handle_mcp(request, method, adapter, conn, manager,
+                                              config, config.gateway_secret, rate)
+            return handler
+
+        return [
+            Route(f"/.well-known/oauth-authorization-server/{p}", meta, methods=["GET"]),
+            Route(f"/.well-known/oauth-protected-resource/{p}/mcp", prmeta, methods=["GET"]),
+            Route(f"/{p}/oauth/register", register, methods=["POST"]),
+            Route(f"/{p}/oauth/authorize", authz_get, methods=["GET"]),
+            Route(f"/{p}/oauth/authorize", authz_post, methods=["POST"]),
+            Route(f"/{p}/oauth/token", token, methods=["POST"]),
+            Route(f"/{p}/mcp", mcp("POST"), methods=["POST"]),
+            Route(f"/{p}/mcp", mcp("GET"), methods=["GET"]),
+            Route(f"/{p}/mcp", mcp("DELETE"), methods=["DELETE"]),
+        ]
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
@@ -120,17 +140,11 @@ def build_app(config: Config) -> Starlette:
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
-        Route("/.well-known/oauth-authorization-server", meta, methods=["GET"]),
-        Route("/oauth/register", register, methods=["POST"]),
-        Route("/oauth/authorize", authz_get, methods=["GET"]),
-        Route("/oauth/authorize", authz_post, methods=["POST"]),
-        Route("/oauth/token", token, methods=["POST"]),
-        Route("/mcp", mcp("POST"), methods=["POST"]),
-        Route("/mcp", mcp("GET"), methods=["GET"]),
-        Route("/mcp", mcp("DELETE"), methods=["DELETE"]),
-        # Catch-all (must stay last): unknown GET paths get the landing page.
-        Route("/{path:path}", notfound, methods=["GET"]),
     ]
+    for a in adapters.values():
+        routes.extend(adapter_routes(a))
+    # Catch-all (must stay last): unknown GET paths get the landing page.
+    routes.append(Route("/{path:path}", notfound, methods=["GET"]))
     app = Starlette(routes=routes, lifespan=lifespan)
     app.add_middleware(SecurityHeadersMiddleware)
     return app

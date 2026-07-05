@@ -13,8 +13,8 @@ from .log import log, log_error, log_exc
 _TPL_DIR = Path(__file__).parent / "templates"
 
 
-def metadata(config) -> dict:
-    base = config.public_url
+def metadata(config, adapter) -> dict:
+    base = f"{config.public_url}/{adapter.name}"
     return {
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
@@ -24,6 +24,15 @@ def metadata(config) -> dict:
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
+    }
+
+
+def protected_resource_metadata(config, adapter) -> dict:
+    # RFC 9728: points the MCP client at this resource's authorization server.
+    base = config.public_url
+    return {
+        "resource": f"{base}/{adapter.name}/mcp",
+        "authorization_servers": [f"{base}/{adapter.name}"],
     }
 
 
@@ -105,6 +114,7 @@ def render_authorize(params: dict, csrf_token: str, config, adapter, error: str 
         "STATE": params.get("state", ""),
         "CODE_CHALLENGE": params.get("code_challenge", ""),
         "METHOD": params.get("code_challenge_method", ""),
+        "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
         **_operator_fields(config),
     }, error)
     return HTMLResponse(body)
@@ -172,7 +182,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
             lid = state.put_mfa(e.state, params)
             body = _fill(_tpl(adapter.second_factor_template),
-                         {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)},
+                         {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
+                          "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                          **_operator_fields(config)},
                          str(e))
             return HTMLResponse(body, status_code=400)
         try:
@@ -204,7 +216,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     if isinstance(result, SecondFactorNeeded):
         lid = state.put_mfa(result.state, params)
         body = _fill(_tpl(adapter.second_factor_template),
-                     {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)}, "")
+                     {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
+                      "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                      **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:
         name = adapter.verify(result.blob)
