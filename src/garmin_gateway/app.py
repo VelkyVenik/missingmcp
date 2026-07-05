@@ -14,6 +14,7 @@ from .adapters import build_adapters
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
+_STATIC = Path(__file__).parent / "static"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -57,6 +58,11 @@ def build_app(config: Config) -> Starlette:
         return HTMLResponse(home_page, status_code=404)
 
     favicon_svg = (_TPL / "favicon.svg").read_text()
+    # Brand assets (the MissingMCP logo mark). Read once at startup and served
+    # from memory, same as the favicon — same-origin, so CSP `default-src 'self'`
+    # covers them without an img-src rule.
+    _assets = {n: (_STATIC / n).read_bytes()
+               for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png")}
 
     async def healthz(request):
         return PlainTextResponse("ok")
@@ -64,6 +70,14 @@ def build_app(config: Config) -> Starlette:
     async def favicon(request):
         return Response(favicon_svg, media_type="image/svg+xml",
                         headers={"Cache-Control": "public, max-age=86400"})
+
+    def static_png(name):
+        body = _assets[name]
+
+        async def handler(request):
+            return Response(body, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+        return handler
 
     def adapter_routes(adapter):
         p = adapter.name
@@ -148,6 +162,9 @@ def build_app(config: Config) -> Starlette:
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
+        Route("/static/icon.png", static_png("icon.png"), methods=["GET"]),
+        Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
+        Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),
     ]
     for a in adapters.values():
         routes.extend(adapter_routes(a))

@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MissingMCP — Your apps, in Claude</title>
   <meta name="description" content="Connect Garmin and more to Claude in two minutes. Sign in once, add a URL, start asking. Free and open source.">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <style>
     :root {
       --bg: #ffffff; --bg-card: #f7f8fa; --border: #e5e7ee;
@@ -29,8 +30,12 @@
     a:hover { text-decoration: underline; }
 
     header { padding: 1.1rem 0; }
-    header .wrap { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
-    .logo { font-weight: 700; letter-spacing: -.02em; color: var(--text); }
+    header .wrap { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
+    .logo { display: inline-flex; align-items: center; gap: .5rem; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; color: var(--text); }
+    .logo:hover { text-decoration: none; }
+    .logo img { width: 30px; height: 30px; display: block; }
+    .logo .mcp { color: var(--accent); }
+    .logo .tld { color: var(--dim); font-weight: 700; }
     nav a { color: var(--muted); font-size: .9rem; margin-left: 1.1rem; }
 
     .hero { padding: 4rem 0 3rem; }
@@ -81,7 +86,10 @@
 <body>
   <header>
     <div class="wrap">
-      <span class="logo">MissingMCP</span>
+      <a class="logo" href="/">
+        <img src="/static/icon.png" alt="MissingMCP" width="30" height="30">
+        <span>missing<span class="mcp">mcp</span><span class="tld">.com</span></span>
+      </a>
       <nav>
         <a href="#connectors">Connectors</a>
         <a href="#how">How it works</a>
