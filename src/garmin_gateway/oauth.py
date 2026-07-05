@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
-from . import store, security, garmin_login
+from . import store, security
+from .adapters.garmin import login as garmin_login
 from .log import log, log_error, log_exc
 
 _TPL_DIR = Path(__file__).parent / "templates"

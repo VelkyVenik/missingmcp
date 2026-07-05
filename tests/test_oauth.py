@@ -7,7 +7,8 @@ from urllib.parse import urlparse, parse_qs
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
-from garmin_gateway import store, oauth, security, garmin_login
+from garmin_gateway import store, oauth, security
+from garmin_gateway.adapters.garmin import login as garmin_login
 from garmin_gateway.config import load_config
 
 CONFIG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.example.com"})
