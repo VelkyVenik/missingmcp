@@ -250,7 +250,7 @@ tool_usage    : + adapter TEXT NOT NULL
 
 ## Implementation order (in-place, tests green at every step)
 
-1. **Extract the adapter seam** in this repo: introduce `Adapter` protocol +
+1. ~~Extract the adapter seam~~ ✅ done (plan 2026-07-05-adapter-seam.md) in this repo: introduce `Adapter` protocol +
    registry; move `garmin_login.py` and worker/env specifics behind
    `adapters/garmin/`; parameterize `WorkerManager` by `WorkerForward`;
    thread `adapter` through oauth.py/proxy.py signatures. Pure refactor —
