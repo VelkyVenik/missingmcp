@@ -115,7 +115,8 @@ def test_login_no_mfa_redirects_with_code(conn):
     csrf = state.csrf.issue()
     with patch.object(garmin_login, "start_login",
                       return_value=garmin_login.LoginResult(status="ok", tokens_json='{"t":1}')), \
-         patch.object(garmin_login, "verify_tokens", return_value="Vaclav S"):
+         patch.object(garmin_login, "verify_tokens", return_value="Vaclav S"), \
+         patch.object(oauth, "log") as log_spy:
         r = client.post("/oauth/authorize", data={
             "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
             "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
@@ -127,6 +128,9 @@ def test_login_no_mfa_redirects_with_code(conn):
     assert q["code"]
     # account stored under normalized (lowercased) email
     assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) == '{"t":1}'
+    # scripts/health.py buckets on this exact literal — a typo here breaks monitoring silently
+    status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
+    assert status_calls == ["ok"]
 
 
 def test_login_mfa_then_verify_redirects(conn):
@@ -134,13 +138,17 @@ def test_login_mfa_then_verify_redirects(conn):
     cid = _register(conn)
     csrf1 = state.csrf.issue()
     with patch.object(garmin_login, "start_login",
-                      return_value=garmin_login.LoginResult(status="needs_mfa", pending=("P", "S"))):
+                      return_value=garmin_login.LoginResult(status="needs_mfa", pending=("P", "S"))), \
+         patch.object(oauth, "log") as log_spy:
         r1 = client.post("/oauth/authorize", data={
             "csrf": csrf1, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
             "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
             "garmin_email": "me@x.cz", "garmin_password": "pw",
         })
     assert r1.status_code == 200 and "login_id" in r1.text
+    # scripts/health.py buckets on this exact literal — a typo here breaks monitoring silently
+    status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
+    assert status_calls == ["needs_mfa"]
     assert "{OPERATOR_NAME}" not in r1.text  # operator placeholder must be filled on the normal MFA page
     # extract login_id and a fresh csrf rendered into the MFA page
     login_id = re.search(r'name="login_id" value="([^"]+)"', r1.text).group(1)
@@ -289,6 +297,7 @@ def test_mfa_verify_failure_restarts(conn):
         r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
     assert r.status_code == 200
     assert "garmin_email" in r.text                      # back to the login form
+    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) is None  # not stored
 
 
 def test_token_exchange_bad_pkce(conn):
