@@ -40,7 +40,7 @@ deploys (Railway).
 | URL continuity | **Clean paths, no legacy `/mcp` alias.** Garmin moves to `/garmin/mcp`. | Deliberate accept: the whole circle re-onboards once (re-add connector + Garmin login/MFA). Re-onboarding is staged over days because Garmin's Cloudflare limits are per-account. |
 | Rohlik users | Re-login on the new gateway; **no `proxy.db` migration** | Rohlik login is email+password without MFA — a one-minute re-onboard. A one-off TS→Python re-encryption script costs more than it saves. |
 | End state | Repo renamed `missingmcp`; `rohlik-oauth-proxy` archived | Rename is the *last* step, after the dust settles. |
-| Name | **MissingMCP** — `missingmcp.dev` / `missingmcp.com`, GitHub `missingmcp` | See *Naming* below. |
+| Name | **MissingMCP** — `missingmcp.com` (registered 2026-07-05; `.dev` deliberately skipped — one domain is enough), GitHub `missingmcp` | See *Naming* below. |
 
 ### Why not the alternatives
 
@@ -57,7 +57,7 @@ deploys (Railway).
 
 ## Naming
 
-**MissingMCP** (`missingmcp.dev`, `missingmcp.com`, GitHub `missingmcp`).
+**MissingMCP** (`missingmcp.com`, GitHub `missingmcp`).
 Chosen 2026-07-05 after weighing the "simple" family (`simplemcp.dev` etc.):
 
 - Names the user's moment of need — "the connector is missing from Claude" —
