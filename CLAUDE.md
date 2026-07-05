@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A multi-user, OAuth 2.1–protected **remote MCP gateway** that lets a small trusted circle each connect their own Garmin account to Claude (mobile/desktop/web). It wraps the **unmodified** `garmin_mcp` worker (`github.com/Taxuspt/garmin_mcp`): the gateway terminates OAuth, performs the Garmin login, stores per-account encrypted tokens, and for each account spawns + reverse-proxies to a per-user `garmin-mcp` subprocess.
 
-The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow.
+The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `monitor`, `revoke`, `usage`, `health`) live in `scripts/` and are documented in README → Monitoring.
 
 ## Commands
 
@@ -20,6 +20,8 @@ uv run --extra dev pytest tests/test_oauth.py::test_metadata_shape -v   # one te
 # Run the gateway locally (no Garmin needed to exercise the OAuth surface).
 # DATA_DIR defaults to /data (not writable locally) — point it somewhere writable.
 # GATEWAY_SECRET must be >=32 chars AND must not start with "change-me" (startup guard).
+# To exercise the full /mcp path locally, also set GARMIN_MCP_CMD (garmin-mcp isn't on
+# PATH): GARMIN_MCP_CMD="uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp"
 GATEWAY_SECRET="$(openssl rand -base64 48)" PUBLIC_URL=http://localhost:8088 PORT=8088 \
   DATA_DIR=./.localdata uv run garmin-gateway
 
@@ -51,9 +53,9 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 
 - **`config.py`** — `Config` frozen dataclass + `load_config(env)`. Single source of all tunables (read from env). Refuses to start without a valid `GATEWAY_SECRET`.
 - **`log.py`** — structured JSON logging to stdout (`log` / `log_warn` / `log_error`). Callers must never pass secrets; the runtime (Docker/journald) supplies timestamps.
-- **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD. Four tables: `garmin_accounts` (encrypted tokens), `access_tokens` (Bearer hash → account), `oauth_clients` (DCR), `oauth_codes` (one-time PKCE codes). Encryption key = `SHA-256(GATEWAY_SECRET)`.
+- **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD. Five tables: `garmin_accounts` (encrypted tokens), `access_tokens` (Bearer hash → account), `oauth_clients` (DCR), `oauth_codes` (one-time PKCE codes), `tool_usage` (per-account tool metrics). Encryption key = `SHA-256(GATEWAY_SECRET)`.
 - **`security.py`** — PKCE S256 verify, redirect_uri allowlist, `CsrfStore`, sliding-window `RateLimiter`, security headers, `read_body_limited`.
-- **`garmin_login.py`** — thin `garminconnect` wrapper: `start_login` (MFA-aware, `return_on_mfa=True`), `resume_login`, `verify_tokens`. Token capture mirrors `garmin_mcp/auth_cli.py` (dump via garth client → read `garmin_tokens.json`).
+- **`garmin_login.py`** — thin `garminconnect` wrapper: `start_login` (MFA-aware, `return_on_mfa=True`; retries transient Garmin/Cloudflare blocks with a short backoff — a bad password is never retried), `resume_login`, `verify_tokens`. Token capture mirrors `garmin_mcp/auth_cli.py` (dump via garth client → read `garmin_tokens.json`).
 - **`oauth.py`** — one cohesive module covering metadata (RFC 8414), DCR (RFC 7591), the `/authorize` form + Garmin login + MFA two-step, and `/token` exchange. `AuthState` holds the in-memory MFA-pending map (TTL 300s).
 - **`workers.py`** — `WorkerManager`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap, and token materialization to `0700` dirs / `0600` files. `spawn` is injectable for tests.
 - **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp` (body-limit → `ensure_worker` → stream-forward to the worker, mapping timeout→504, start-failure→502).
