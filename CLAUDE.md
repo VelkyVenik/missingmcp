@@ -55,9 +55,10 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **`log.py`** — structured JSON logging to stdout (`log` / `log_warn` / `log_error`). Callers must never pass secrets; the runtime (Docker/journald) supplies timestamps.
 - **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD. Five tables: `garmin_accounts` (encrypted tokens), `access_tokens` (Bearer hash → account), `oauth_clients` (DCR), `oauth_codes` (one-time PKCE codes), `tool_usage` (per-account tool metrics). Encryption key = `SHA-256(GATEWAY_SECRET)`.
 - **`security.py`** — PKCE S256 verify, redirect_uri allowlist, `CsrfStore`, sliding-window `RateLimiter`, security headers, `read_body_limited`.
-- **`garmin_login.py`** — thin `garminconnect` wrapper: `start_login` (MFA-aware, `return_on_mfa=True`; retries transient Garmin/Cloudflare blocks with a short backoff — a bad password is never retried), `resume_login`, `verify_tokens`. Token capture mirrors `garmin_mcp/auth_cli.py` (dump via garth client → read `garmin_tokens.json`).
+- **`adapters/base.py`** — the adapter contract: `Adapter`/`WorkerForward` protocols, `LoginOk`/`SecondFactorNeeded` results, `LoginError`/`SecondFactorError`. The seam between the core and upstream services (spec 2026-07-05).
+- **`adapters/garmin/`** — `login.py` is the thin `garminconnect` wrapper (`start_login` MFA-aware with transient-block retry, `resume_login`, `verify_tokens`); `GarminAdapter` owns form-field names, error copy, account-key normalization and the second-factor state; `GarminWorkerForward` owns the worker CLI/env contract + token materialization. Registry: `adapters.build_adapters(config)`.
 - **`oauth.py`** — one cohesive module covering metadata (RFC 8414), DCR (RFC 7591), the `/authorize` form + Garmin login + MFA two-step, and `/token` exchange. `AuthState` holds the in-memory MFA-pending map (TTL 300s).
-- **`workers.py`** — `WorkerManager`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap, and token materialization to `0700` dirs / `0600` files. `spawn` is injectable for tests.
+- **`workers.py`** — `WorkerManager(config, forward)`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap; dirs `0700` are manager-owned, credential files come from `forward.materialize` (`0600`). `spawn` is injectable for tests.
 - **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp` (body-limit → `ensure_worker` → stream-forward to the worker, mapping timeout→504, start-failure→502).
 - **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, `WorkerManager`, `AuthState`, `RateLimiter`) + a lifespan that periodically reaps idle workers and cleans expired codes. `main()` is the `garmin-gateway` console entrypoint.
 
@@ -69,6 +70,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.
 - **Workers bind `127.0.0.1` only**; the compose file publishes `127.0.0.1:8080:8080`. Only the gateway reaches workers; nginx (operator-managed) terminates TLS in front.
 - **Process-local state** (worker registry, `AuthState`, `CsrfStore`, `RateLimiter`) means the gateway is **single-node by design**. The durable record is SQLite on `/data`; the worker registry is ephemeral and rebuilt lazily from persisted tokens after a restart.
+- **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized (lowercased email); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (`scripts/health.py` parses them) — refactors must not rename events or the `status`/`reason` values.
 
 ## Testing approach
 

@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import store, oauth, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
+from .adapters import build_adapters
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -25,7 +26,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
-    manager = WorkerManager(config)
+    adapters = build_adapters(config)
+    garmin = adapters["garmin"]
+    manager = WorkerManager(config, garmin.forward)
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
 
@@ -62,12 +65,12 @@ def build_app(config: Config) -> Starlette:
         return await oauth.register_client(request, conn)
 
     async def authz_get(request):
-        return await oauth.authorize_get(request, None, auth_state, conn, config)
+        return await oauth.authorize_get(request, garmin, auth_state, conn, config)
 
     async def authz_post(request):
         if not rate.check(f"login:{request.client.host}", 5, 60):
             return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
-        return await oauth.authorize_post(request, None, auth_state, conn, config)
+        return await oauth.authorize_post(request, garmin, auth_state, conn, config)
 
     async def token(request):
         if not rate.check(f"oauth:{request.client.host}", 20, 60):
@@ -76,7 +79,8 @@ def build_app(config: Config) -> Starlette:
 
     def mcp(method):
         async def handler(request):
-            return await proxy.handle_mcp(request, method, conn, manager, config, config.gateway_secret, rate)
+            return await proxy.handle_mcp(request, method, garmin, conn, manager,
+                                          config, config.gateway_secret, rate)
         return handler
 
     @contextlib.asynccontextmanager

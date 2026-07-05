@@ -45,8 +45,9 @@ async def authenticate(request, conn, rate) -> "str | Response":
     return key
 
 
-async def handle_mcp(request, method, conn, manager, config, secret, rate) -> Response:
-    log("mcp-request", method=method, has_session=bool(request.headers.get("mcp-session-id")))
+async def handle_mcp(request, method, adapter, conn, manager, config, secret, rate) -> Response:
+    log("mcp-request", adapter=adapter.name, method=method,
+        has_session=bool(request.headers.get("mcp-session-id")))
     auth = await authenticate(request, conn, rate)
     if isinstance(auth, Response):
         log("mcp-auth-rejected", method=method, status=auth.status_code)

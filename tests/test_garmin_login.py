@@ -2,7 +2,7 @@ import json
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from garmin_gateway import garmin_login
+from garmin_gateway.adapters.garmin import login as garmin_login
 
 
 def _fake_garmin_factory(needs_mfa=False, dump_payload='{"oauth":"tok"}'):
