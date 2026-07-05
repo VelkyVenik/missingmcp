@@ -41,7 +41,7 @@ def test_account_upsert_and_fetch(conn):
 def test_access_token_maps_to_account(conn):
     store.upsert_account(conn, "garmin", "me@x.cz", "{}", SECRET)
     store.create_access_token(conn, "hash1", "garmin", "me@x.cz", "client1")
-    assert store.account_key_for_token_hash(conn, "hash1") == "me@x.cz"
+    assert store.account_key_for_token_hash(conn, "hash1") == ("garmin", "me@x.cz")
     assert store.account_key_for_token_hash(conn, "nope") is None
 
 
@@ -50,8 +50,8 @@ def test_access_token_expiry(conn):
     store.create_access_token(conn, "h_live", "garmin", "me@x.cz", "c1", ttl=3600)
     store.create_access_token(conn, "h_forever", "garmin", "me@x.cz", "c1")        # ttl=0 -> no expiry
     assert store.account_key_for_token_hash(conn, "h_exp") is None       # rejected
-    assert store.account_key_for_token_hash(conn, "h_live") == "me@x.cz"
-    assert store.account_key_for_token_hash(conn, "h_forever") == "me@x.cz"
+    assert store.account_key_for_token_hash(conn, "h_live") == ("garmin", "me@x.cz")
+    assert store.account_key_for_token_hash(conn, "h_forever") == ("garmin", "me@x.cz")
 
 
 def test_cleanup_expired_tokens(conn):
@@ -67,7 +67,7 @@ def test_revoke_account_and_token(conn):
     store.create_access_token(conn, "h3", "garmin", "other@x.cz", "c1")
     assert store.revoke_account(conn, "garmin", "me@x.cz") == 2
     assert store.account_key_for_token_hash(conn, "h1") is None
-    assert store.account_key_for_token_hash(conn, "h3") == "other@x.cz"   # untouched
+    assert store.account_key_for_token_hash(conn, "h3") == ("garmin", "other@x.cz")   # untouched
     assert store.revoke_token(conn, "h3") == 1
     assert store.account_key_for_token_hash(conn, "h3") is None
     assert store.revoke_token(conn, "nope") == 0

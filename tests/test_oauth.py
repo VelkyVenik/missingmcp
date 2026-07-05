@@ -233,7 +233,7 @@ def test_token_exchange_happy_path(conn):
     })
     assert r.status_code == 200
     token = r.json()["access_token"]
-    assert store.account_key_for_token_hash(conn, store.hash_token(token)) == "me@x.cz"
+    assert store.account_key_for_token_hash(conn, store.hash_token(token)) == ("garmin", "me@x.cz")
 
 
 def test_login_blocked_shows_retry_message(conn):

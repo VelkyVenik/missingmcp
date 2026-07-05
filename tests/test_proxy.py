@@ -50,6 +50,20 @@ def test_authorized_forwards_to_worker(tmp_path, fake_worker):
     assert fake_worker.calls and fake_worker.calls[-1][1] == "/mcp"
 
 
+def test_bearer_for_other_adapter_is_rejected(tmp_path, fake_worker):
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-rohlik"
+    # a token minted for a DIFFERENT adapter
+    store.upsert_account(conn, "rohlik", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "rohlik", "me@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)                     # _app forwards to the GARMIN adapter
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401                  # garmin path must not accept a rohlik token
+
+
 def test_mcp_tool_parsing():
     assert proxy._mcp_tool(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_activities"},"id":1}') == "get_activities"
     assert proxy._mcp_tool(b'{"method":"tools/list","id":2}') == "tools/list"

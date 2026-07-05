@@ -216,11 +216,9 @@ def create_access_token(conn, token_hash: str, adapter: str, account_key: str,
     conn.commit()
 
 
-def account_key_for_token_hash(conn, token_hash: str) -> str | None:
-    # Returns account_key (str). Task 2 (adapter isolation) changes this to
-    # return (adapter, account_key) so the proxy can reject cross-adapter tokens.
+def account_key_for_token_hash(conn, token_hash: str) -> "tuple[str, str] | None":
     row = conn.execute(
-        "SELECT account_key, expires_at FROM access_tokens WHERE token_hash=?",
+        "SELECT adapter, account_key, expires_at FROM access_tokens WHERE token_hash=?",
         (token_hash,),
     ).fetchone()
     if row is None:
@@ -232,7 +230,7 @@ def account_key_for_token_hash(conn, token_hash: str) -> str | None:
         (token_hash,),
     )
     conn.commit()
-    return row["account_key"]
+    return (row["adapter"], row["account_key"])
 
 
 def cleanup_expired_tokens(conn) -> None:
