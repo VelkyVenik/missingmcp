@@ -154,11 +154,7 @@ Polish the existing `scripts/` (no new runtime surface, no web auth):
 
 ## Implementation order — two plans
 
-- **Plan A (structural, breaking):** Part 1 (schema + migration) then Part 2
-  (path routing + path-scoped discovery). Touches `store.py`, `oauth.py`,
-  `app.py`, `proxy.py`, templates for endpoints, and most tests. **Ends with the
-  staging discovery spike** (deploy to Railway, re-add connector, confirm OAuth
-  completes) as the go/no-go before prod.
+- **Plan A (structural, breaking):** Part 1 ✅ (plan 2026-07-05-schema-migration.md), Part 2 ✅ (plan 2026-07-05-path-routing.md) — pending the staging discovery spike.
 - **Plan B (UX, non-breaking):** Part 3 (revoke/status CLI) + Part 4 (rozcestník
   + Garmin subpage). Independent of A's URL/schema churn except that both read the
   new `adapter` column, so B lands after A.

@@ -20,7 +20,7 @@ uv run --extra dev pytest tests/test_oauth.py::test_metadata_shape -v   # one te
 # Run the gateway locally (no Garmin needed to exercise the OAuth surface).
 # DATA_DIR defaults to /data (not writable locally) — point it somewhere writable.
 # GATEWAY_SECRET must be >=32 chars AND must not start with "change-me" (startup guard).
-# To exercise the full /mcp path locally, also set GARMIN_MCP_CMD (garmin-mcp isn't on
+# To exercise the full /<adapter>/mcp path locally, also set GARMIN_MCP_CMD (garmin-mcp isn't on
 # PATH): GARMIN_MCP_CMD="uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp"
 GATEWAY_SECRET="$(openssl rand -base64 48)" PUBLIC_URL=http://localhost:8088 PORT=8088 \
   DATA_DIR=./.localdata uv run garmin-gateway
@@ -43,10 +43,10 @@ There is no separate lint step configured.
 Request flow (one user, one device):
 
 ```
-Claude → OAuth 2.1 (DCR → /authorize → /token, PKCE S256)
-       → Garmin web login via garminconnect (password discarded, tokens kept)
-       → encrypted tokens in SQLite, keyed by garmin_user_key
-       → on POST /mcp: ensure the user's garmin-mcp subprocess (127.0.0.1:<port>) → reverse-proxy
+Claude → OAuth 2.1 (DCR → /<adapter>/oauth/register → /<adapter>/oauth/authorize → /<adapter>/oauth/token, PKCE S256, RFC 8414 discovery at /.well-known/oauth-authorization-server/<adapter>)
+       → adapter-specific login via garminconnect (for Garmin; password discarded, tokens kept)
+       → encrypted tokens in SQLite, keyed by (adapter, account_key)
+       → on POST /<adapter>/mcp: ensure the user's worker subprocess (127.0.0.1:<port>) → reverse-proxy (RFC 9728 discovery at /.well-known/oauth-protected-resource/<adapter>/mcp)
 ```
 
 Modules (`src/garmin_gateway/`), in dependency order — each has one responsibility and composes through small explicit contracts:
@@ -57,7 +57,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **`security.py`** — PKCE S256 verify, redirect_uri allowlist, `CsrfStore`, sliding-window `RateLimiter`, security headers, `read_body_limited`.
 - **`adapters/base.py`** — the adapter contract: `Adapter`/`WorkerForward` protocols, `LoginOk`/`SecondFactorNeeded` results, `LoginError`/`SecondFactorError`. The seam between the core and upstream services (spec 2026-07-05).
 - **`adapters/garmin/`** — `login.py` is the thin `garminconnect` wrapper (`start_login` MFA-aware with transient-block retry, `resume_login`, `verify_tokens`); `GarminAdapter` owns form-field names, error copy, account-key normalization and the second-factor state; `GarminWorkerForward` owns the worker CLI/env contract + token materialization. Registry: `adapters.build_adapters(config)`.
-- **`oauth.py`** — one cohesive module covering metadata (RFC 8414), DCR (RFC 7591), the `/authorize` form + Garmin login + MFA two-step, and `/token` exchange. `AuthState` holds the in-memory MFA-pending map (TTL 300s).
+- **`oauth.py`** — one cohesive module covering metadata (RFC 8414), DCR (RFC 7591), the `/<adapter>/oauth/authorize` form + adapter login + MFA two-step, and `/<adapter>/oauth/token` exchange. `AuthState` holds the in-memory MFA-pending map (TTL 300s).
 - **`workers.py`** — `WorkerManager(config, forward)`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap; dirs `0700` are manager-owned, credential files come from `forward.materialize` (`0600`). `spawn` is injectable for tests.
 - **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp` (body-limit → `ensure_worker` → stream-forward to the worker, mapping timeout→504, start-failure→502).
 - **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, `WorkerManager`, `AuthState`, `RateLimiter`) + a lifespan that periodically reaps idle workers and cleans expired codes. `main()` is the `garmin-gateway` console entrypoint.
@@ -71,6 +71,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **Workers bind `127.0.0.1` only**; the compose file publishes `127.0.0.1:8080:8080`. Only the gateway reaches workers; nginx (operator-managed) terminates TLS in front.
 - **Process-local state** (worker registry, `AuthState`, `CsrfStore`, `RateLimiter`) means the gateway is **single-node by design**. The durable record is SQLite on `/data`; the worker registry is ephemeral and rebuilt lazily from persisted tokens after a restart.
 - **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized (lowercased email); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (`scripts/health.py` parses them) — refactors must not rename events or the `status`/`reason` values.
+- **Path-scoped connectors:** each adapter is mounted under `/<adapter>` — the connector is `/<adapter>/mcp` (e.g. `/garmin/mcp`), OAuth endpoints are `/<adapter>/oauth/*`, and discovery is path-scoped: `/.well-known/oauth-authorization-server/<adapter>` (RFC 8414, issuer `PUBLIC_URL/<adapter>`) and `/.well-known/oauth-protected-resource/<adapter>/mcp` (RFC 9728). There is no bare `/mcp` alias.
 
 ## Testing approach
 
