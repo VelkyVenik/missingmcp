@@ -82,9 +82,11 @@ def main():
         return
 
     if args.device:
-        prefix = args.device.strip().lower()
+        prefix = args.device.strip().lower().rstrip("…")  # status.py prints "ab12cd34…"
         if len(prefix) < 8:
             sys.exit("Prefix too short — give at least 8 characters (status.py shows them).")
+        if not all(c in "0123456789abcdef" for c in prefix):
+            sys.exit("Not a token-hash prefix — expected hex characters (status.py shows them).")
         rows = conn.execute(
             "SELECT token_hash, adapter, account_key FROM access_tokens "
             "WHERE token_hash LIKE ?", (prefix + "%",)

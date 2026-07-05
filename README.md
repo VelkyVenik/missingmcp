@@ -92,7 +92,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 
 ## Monitoring
 
-Three helper scripts read the gateway's DB (safe while the gateway is live):
+Three helper scripts work directly on the gateway's DB (safe to run while the gateway is live):
 
 ```bash
 python scripts/status.py          # snapshot: accounts, their devices (token

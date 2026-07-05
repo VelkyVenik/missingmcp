@@ -130,6 +130,19 @@ def test_revoke_purge_removes_account_and_usage(seeded_db, capsys, monkeypatch):
     conn.close()
 
 
+def test_revoke_device_accepts_pasted_prefix_with_ellipsis(seeded_db, capsys, monkeypatch):
+    out = run_script("revoke", ["--db", seeded_db, "--device", "aa110000…"],
+                     capsys, monkeypatch)                  # pasted straight from status.py
+    assert "Revoked device" in out
+    assert len(_tokens(seeded_db)) == 2
+
+
+def test_revoke_device_rejects_non_hex_prefix(seeded_db, capsys, monkeypatch):
+    with pytest.raises(SystemExit):
+        run_script("revoke", ["--db", seeded_db, "--device", "aa11%000"], capsys, monkeypatch)
+    assert len(_tokens(seeded_db)) == 3                    # nothing deleted
+
+
 # --- usage.py --------------------------------------------------------------
 
 def test_usage_summary_groups_by_adapter(seeded_db, capsys, monkeypatch):
