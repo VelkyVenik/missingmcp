@@ -92,18 +92,18 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 
 ## Monitoring
 
-Two helper scripts read the gateway's state:
+Three helper scripts read the gateway's DB (safe while the gateway is live):
 
 ```bash
-python scripts/status.py          # snapshot: people with a token, devices/clients
-                                  #   connected, registered clients, running workers
-python scripts/monitor.py         # live tail of structured events
-python scripts/monitor.py --all   # include garminconnect/urllib3 debug noise
-python scripts/revoke.py --list             # accounts + token counts
-python scripts/revoke.py --account <email>  # kill-switch: revoke all their tokens
-python scripts/usage.py                     # per-account tool usage + leaderboard
-python scripts/usage.py --account <email>   # one account's per-tool breakdown
-python scripts/health.py                    # health report: logins/workers/errors — is it all OK?
+python scripts/status.py          # snapshot: accounts, their devices (token
+                                  #   prefixes), usage summary, running workers
+python scripts/revoke.py --list                       # accounts + token counts
+python scripts/revoke.py --account [<adapter>:]<key>  # kill-switch: revoke ALL the
+                                                      #   account's tokens (bare key = garmin)
+python scripts/revoke.py --account <key> --purge      # + delete stored account & usage
+python scripts/revoke.py --device <hash-prefix>       # revoke ONE device (prefix from status.py)
+python scripts/usage.py                               # per-account tool usage + leaderboard
+python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
 ```
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
@@ -111,15 +111,16 @@ inside the container. `status.py` finds the DB under `/data` automatically:
 
 ```bash
 docker compose exec gateway python /app/scripts/status.py
-docker compose exec gateway python /app/scripts/monitor.py --file /data/gateway.log
-docker compose logs -f gateway                       # live events (simplest)
-docker compose logs -f gateway | grep '"event": "stats"'
-docker compose logs gateway | python scripts/health.py   # health report from the stdout logs
+docker compose logs -f gateway              # live structured-JSON events
 ```
 
-> `monitor.py` reads `GATEWAY_LOG_FILE` (pass `--file` if it isn't set). Inside a
-> container the logs also go to stdout, so `docker compose logs -f` is usually the
-> easiest live view.
+**On Railway** run them over `railway ssh`; logs live in the Railway dashboard
+(`railway logs --service gateway` for a live tail):
+
+```bash
+railway ssh --service gateway "python3 /app/scripts/status.py"
+railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
+```
 
 The gateway's own log is structured JSON (one event per line). Each per-user
 worker's verbose output is kept out of it, in `DATA_DIR/users/<account>/worker.log`
@@ -156,8 +157,8 @@ whenever those counts change, and `status.py` lists the running workers.
   can change without notice (supply-chain).
 - **Revoking access** — access tokens expire after `ACCESS_TOKEN_TTL_DAYS` (default
   90; the user just re-authenticates in Claude). To revoke sooner — a leaked token
-  or a removed user — run `python scripts/revoke.py --account <email>` (kill-switch
-  for all of that account's tokens).
+  or a removed user — run `python scripts/revoke.py --account [<adapter>:]<email>` (kill-switch
+  for all of that account's tokens). A single device can be revoked with `--device <hash-prefix>` (prefixes are shown by `status.py`).
 - **Run a manual end-to-end smoke test** with a real Garmin account (including the
   MFA path) before connecting real users — the `garminconnect` login/token path is
   mocked in the automated tests.

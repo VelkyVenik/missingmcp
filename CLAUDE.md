@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A multi-user, OAuth 2.1–protected **remote MCP gateway** that lets a small trusted circle each connect their own Garmin account to Claude (mobile/desktop/web). It wraps the **unmodified** `garmin_mcp` worker (`github.com/Taxuspt/garmin_mcp`): the gateway terminates OAuth, performs the Garmin login, stores per-account encrypted tokens, and for each account spawns + reverse-proxies to a per-user `garmin-mcp` subprocess.
 
-The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `monitor`, `revoke`, `usage`, `health`) live in `scripts/` and are documented in README → Monitoring.
+The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `revoke`, `usage`) live in `scripts/` and are documented in README → Monitoring.
 
 ## Commands
 
@@ -70,7 +70,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.
 - **Workers bind `127.0.0.1` only**; the compose file publishes `127.0.0.1:8080:8080`. Only the gateway reaches workers; nginx (operator-managed) terminates TLS in front.
 - **Process-local state** (worker registry, `AuthState`, `CsrfStore`, `RateLimiter`) means the gateway is **single-node by design**. The durable record is SQLite on `/data`; the worker registry is ephemeral and rebuilt lazily from persisted tokens after a restart.
-- **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized (lowercased email); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (`scripts/health.py` parses them) — refactors must not rename events or the `status`/`reason` values.
+- **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized (lowercased email); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (operators query them in Railway logs) — refactors must not rename events or the `status`/`reason` values.
 - **Path-scoped connectors:** each adapter is mounted under `/<adapter>` — the connector is `/<adapter>/mcp` (e.g. `/garmin/mcp`), OAuth endpoints are `/<adapter>/oauth/*`, and discovery is path-scoped: `/.well-known/oauth-authorization-server/<adapter>` (RFC 8414, issuer `PUBLIC_URL/<adapter>`) and `/.well-known/oauth-protected-resource/<adapter>/mcp` (RFC 9728). There is no bare `/mcp` alias.
 
 ## Testing approach
