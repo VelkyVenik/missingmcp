@@ -20,4 +20,6 @@ RUN uv pip install --system . && \
 ENTRYPOINT ["tini", "--"]
 CMD ["garmin-gateway"]
 EXPOSE 8080
-VOLUME ["/data"]
+# No VOLUME directive: Railway's builder rejects it ("use Railway Volumes") and
+# provides /data via a platform-managed volume; docker-compose mounts /data via
+# its own `volumes:` mapping. Persistence is supplied by the runtime, not the image.
