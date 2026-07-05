@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Revoke Garmin MCP Gateway access tokens — a kill-switch for a leaked/lost token.
+"""Revoke MCP gateway access tokens — a kill-switch for a leaked/lost token.
 
 Usage:
-  python scripts/revoke.py --list                  # accounts + token counts
-  python scripts/revoke.py --account me@x.cz        # revoke ALL tokens for an account
-  python scripts/revoke.py --token-hash <sha256>    # revoke one token by its hash
+  python scripts/revoke.py --list                      # accounts + token counts
+  python scripts/revoke.py --account me@x.cz           # ALL garmin tokens for an account
+  python scripts/revoke.py --account rohlik:me@x.cz    # adapter-scoped
+  python scripts/revoke.py --account me@x.cz --purge   # + delete stored account & usage
+  python scripts/revoke.py --device ab12cd34           # one device, by token-hash prefix
+                                                       #   (prefixes shown by status.py)
 
-Removes only the bearer access tokens; the account's stored Garmin tokens are
-left intact, so the user simply re-authenticates in Claude. The running gateway
-re-checks the DB on every request, so revocation takes effect immediately.
+Revoking tokens only logs devices out; the account's stored service tokens are
+left intact, so the user simply re-authenticates in Claude. --purge also deletes
+the encrypted account row and its usage metrics (full off-boarding). The running
+gateway re-checks the DB on every request, so revocation takes effect immediately.
 
 DB path resolves like status.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
-In Docker: docker compose exec gateway python /app/scripts/revoke.py --account <email>
+In Docker:  docker compose exec gateway python /app/scripts/revoke.py --account <email>
+On Railway: railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
 """
 from __future__ import annotations
 import argparse
 import os
 import sqlite3
 import sys
+
+DEFAULT_ADAPTER = "garmin"
 
 
 def resolve_db() -> str:
@@ -31,14 +38,30 @@ def resolve_db() -> str:
     return "/data/gateway.db"
 
 
+def parse_account(value: str) -> tuple[str, str]:
+    """'rohlik:me@x.cz' -> ('rohlik', 'me@x.cz'); a bare key defaults to garmin.
+    Keys are stored lowercased (oauth._finish), so normalize here too."""
+    adapter, sep, key = value.partition(":")
+    if not sep:
+        return DEFAULT_ADAPTER, adapter.strip().lower()
+    return adapter.strip().lower(), key.strip().lower()
+
+
 def main():
     p = argparse.ArgumentParser(description="Revoke gateway access tokens.")
     p.add_argument("--db", default=None, help="SQLite DB path (default: auto-resolve)")
+    p.add_argument("--purge", action="store_true",
+                   help="with --account: also delete the stored account row + usage metrics")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--list", action="store_true", help="list accounts and token counts")
-    g.add_argument("--account", help="revoke ALL tokens for this account (email)")
-    g.add_argument("--token-hash", help="revoke a single token by its SHA-256 hash")
+    g.add_argument("--account", metavar="[ADAPTER:]KEY",
+                   help="revoke ALL tokens for this account (bare key = garmin)")
+    g.add_argument("--device", metavar="HASH_PREFIX",
+                   help="revoke one device by its token-hash prefix "
+                        "(>=8 chars; a full hash works too)")
     args = p.parse_args()
+    if args.purge and not args.account:
+        p.error("--purge only makes sense with --account")
 
     db_path = args.db or resolve_db()
     if not os.path.exists(db_path):
@@ -54,19 +77,47 @@ def main():
         if not rows:
             print("No access tokens.")
         for r in rows:
-            print(f"  {r['adapter']}:{r['key']:<32} tokens: {r['n']:<3} last used: {r['last'] or '—'}")
+            print(f"  {r['adapter']}:{r['key']:<32} tokens: {r['n']:<3} "
+                  f"last used: {r['last'] or '—'}")
         return
 
-    if args.account:
-        key = args.account.strip().lower()  # stored lowercased, as in _finish
-        cur = conn.execute("DELETE FROM access_tokens WHERE account_key=?", (key,))
+    if args.device:
+        prefix = args.device.strip().lower()
+        if len(prefix) < 8:
+            sys.exit("Prefix too short — give at least 8 characters (status.py shows them).")
+        rows = conn.execute(
+            "SELECT token_hash, adapter, account_key FROM access_tokens "
+            "WHERE token_hash LIKE ?", (prefix + "%",)
+        ).fetchall()
+        if not rows:
+            print(f"No token matches {prefix}…")
+            return
+        if len(rows) > 1:
+            for r in rows:
+                print(f"  {r['token_hash'][:16]}…  {r['adapter']}:{r['account_key']}")
+            sys.exit(f"Ambiguous prefix — {len(rows)} tokens match; give more characters.")
+        conn.execute("DELETE FROM access_tokens WHERE token_hash=?",
+                     (rows[0]["token_hash"],))
         conn.commit()
-        print(f"Revoked {cur.rowcount} token(s) for {key}. They must reconnect in Claude.")
+        print(f"Revoked device {prefix}… of "
+              f"{rows[0]['adapter']}:{rows[0]['account_key']}.")
         return
 
-    cur = conn.execute("DELETE FROM access_tokens WHERE token_hash=?", (args.token_hash,))
+    adapter, key = parse_account(args.account)
+    cur = conn.execute(
+        "DELETE FROM access_tokens WHERE adapter=? AND account_key=?", (adapter, key))
+    msg = f"Revoked {cur.rowcount} token(s) for {adapter}:{key}."
+    if args.purge:
+        conn.execute("DELETE FROM tool_usage WHERE adapter=? AND account_key=?",
+                     (adapter, key))
+        purged = conn.execute(
+            "DELETE FROM accounts WHERE adapter=? AND account_key=?", (adapter, key))
+        msg += (" Purged the stored account + usage." if purged.rowcount
+                else " No stored account row to purge.")
+    else:
+        msg += " They must reconnect in Claude."
     conn.commit()
-    print(f"Revoked {cur.rowcount} token(s).")
+    print(msg)
 
 
 if __name__ == "__main__":
