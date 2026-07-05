@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 from . import store, security
-from .adapters.garmin import login as garmin_login
+from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded
 from .log import log, log_error, log_exc
 
 _TPL_DIR = Path(__file__).parent / "templates"
@@ -96,20 +96,8 @@ def _operator_fields(config) -> dict:
     }
 
 
-def _login_error_message(reason: str) -> str:
-    if reason == "blocked":
-        # Garmin (via Cloudflare) rate-limits fresh logins on the mobile SSO
-        # endpoint — per-account, not per-IP (garth#217, garminconnect#344) — and
-        # the widget/portal fallback can flake. Not the user's fault; a retry usually works.
-        return ("Garmin is temporarily rate-limiting new sign-ins (a limit on "
-                "Garmin's side, not your password). Please wait a couple of minutes and try again.")
-    if reason == "auth":
-        return "Garmin sign-in failed — check your Garmin email and password."
-    return "Garmin sign-in failed, please try again."
-
-
-def render_authorize(params: dict, csrf_token: str, config, error: str = "") -> HTMLResponse:
-    body = _fill(_tpl("authorize.html"), {
+def render_authorize(params: dict, csrf_token: str, config, adapter, error: str = "") -> HTMLResponse:
+    body = _fill(_tpl(adapter.authorize_template), {
         "CSRF": csrf_token,
         "CLIENT_ID": params.get("client_id", ""),
         "REDIRECT_URI": params.get("redirect_uri", ""),
@@ -131,7 +119,7 @@ def _oauth_params_from(source) -> dict:
     }
 
 
-async def authorize_get(request, _templates, state, conn, config) -> HTMLResponse:
+async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse:
     params = _oauth_params_from(request.query_params)
     client = store.get_client(conn, params["client_id"])
     if client is None:
@@ -140,24 +128,23 @@ async def authorize_get(request, _templates, state, conn, config) -> HTMLRespons
         return HTMLResponse("invalid redirect_uri", status_code=400)
     if params["code_challenge_method"] != "S256" or not params["code_challenge"]:
         return HTMLResponse("PKCE S256 required", status_code=400)
-    return render_authorize(params, state.csrf.issue(), config)
+    return render_authorize(params, state.csrf.issue(), config, adapter)
 
 
-def _finish(conn, config, params: dict, tokens_json: str, email: str) -> RedirectResponse:
-    # tokens already verified by the caller (verify_tokens) before we persist
-    key = email.strip().lower()
-    store.upsert_account(conn, key, tokens_json, config.gateway_secret)
+def _finish(conn, config, params: dict, blob: str, account_key: str) -> RedirectResponse:
+    # blob already verified by the caller (adapter.verify) before we persist
+    store.upsert_account(conn, account_key, blob, config.gateway_secret)
     code = security.new_secret(32)
     store.create_code(
         conn, store.hash_token(code), params["client_id"], params["redirect_uri"],
-        params["code_challenge"], params["code_challenge_method"], key,
+        params["code_challenge"], params["code_challenge_method"], account_key,
     )
     sep = "&" if "?" in params["redirect_uri"] else "?"
     location = params["redirect_uri"] + sep + urlencode({"code": code, "state": params["state"]})
     return RedirectResponse(location, status_code=302)
 
 
-async def authorize_post(request, _templates, state, conn, config) -> HTMLResponse | RedirectResponse:
+async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse | RedirectResponse:
     form = await request.form()
     has_login_id = bool(form.get("login_id"))
     log("authorize-post", step="mfa" if has_login_id else "login",
@@ -166,7 +153,7 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
         log_error("authorize-csrf-invalid", step="mfa" if has_login_id else "login")
         return HTMLResponse("invalid or expired CSRF token", status_code=400)
 
-    # MFA step
+    # second-factor step (Garmin: MFA)
     if has_login_id:
         popped = state.pop_mfa(form["login_id"])
         if popped is None:
@@ -178,59 +165,54 @@ async def authorize_post(request, _templates, state, conn, config) -> HTMLRespon
             return HTMLResponse("invalid client/redirect_uri", status_code=400)
         try:
             log("mfa-resume-start", mfa_len=len(form.get("mfa_code", "")))
-            tokens = garmin_login.resume_login(pending, form.get("mfa_code", ""))
-            log("mfa-resume-ok", tokens_len=len(tokens or ""))
-        except Exception as e:  # noqa: BLE001 - wrong/expired MFA code: re-prompt
+            result = adapter.resume_second_factor(pending, form)
+            log("mfa-resume-ok", tokens_len=len(result.blob or ""))
+        except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
-            lid = state.put_mfa(pending, params)
-            body = _fill(_tpl("mfa.html"),
+            lid = state.put_mfa(e.state, params)
+            body = _fill(_tpl(adapter.second_factor_template),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)},
-                         "Incorrect or expired code, try again")
+                         str(e))
             return HTMLResponse(body, status_code=400)
         try:
-            name = garmin_login.verify_tokens(tokens)
+            name = adapter.verify(result.blob)
             log("mfa-verify-ok", name=name)
-        except garmin_login.GarminLoginError as e:  # tokens didn't authenticate: start over
+        except LoginError as e:  # blob didn't authenticate: start over
             log_exc("mfa-verify-failed", e, error=str(e))
-            return render_authorize(params, state.csrf.issue(), config, "Garmin sign-in could not be verified")
+            return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         log("authorize-finish", step="mfa")
-        return _finish(conn, config, params, tokens, params["_email"])
+        return _finish(conn, config, params, result.blob, result.account_key)
 
     # login step
     params = _oauth_params_from(form)
     client = store.get_client(conn, params["client_id"])
     if client is None or not security.validate_redirect_uri(params["redirect_uri"], client["redirect_uris"]):
         return HTMLResponse("invalid client/redirect_uri", status_code=400)
-    email = form.get("garmin_email", "")
-    password = form.get("garmin_password", "")
     try:
-        log("login-start", email=email)
-        result = garmin_login.start_login(email, password)
-        log("login-start-result", status=result.status)
-    except garmin_login.GarminLoginError as e:
-        del password
-        reason = getattr(e, "reason", "unknown")
-        log_exc("login-start-failed", e, reason=reason, error=str(e))
-        return render_authorize(params, state.csrf.issue(), config, _login_error_message(reason))
+        log("login-start", email=adapter.login_hint(form))
+        result = adapter.start_login(form)
+        log("login-start-result",
+            status="needs_mfa" if isinstance(result, SecondFactorNeeded) else "ok")
+    except LoginError as e:
+        log_exc("login-start-failed", e, reason=e.reason, error=str(e))
+        return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     except Exception as e:  # noqa: BLE001 - unexpected failure
-        del password
         log_exc("login-start-failed", e, reason="unknown", error_type=type(e).__name__, error=str(e))
-        return render_authorize(params, state.csrf.issue(), config, _login_error_message("unknown"))
-    del password  # discard immediately
-    if result.status == "needs_mfa":
-        params = {**params, "_email": email}
-        lid = state.put_mfa(result.pending, params)
-        body = _fill(_tpl("mfa.html"),
+        return render_authorize(params, state.csrf.issue(), config, adapter,
+                                f"{adapter.display_name} sign-in failed, please try again.")
+    if isinstance(result, SecondFactorNeeded):
+        lid = state.put_mfa(result.state, params)
+        body = _fill(_tpl(adapter.second_factor_template),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid, **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:
-        name = garmin_login.verify_tokens(result.tokens_json)
+        name = adapter.verify(result.blob)
         log("login-verify-ok", name=name)
-    except garmin_login.GarminLoginError as e:
+    except LoginError as e:
         log_exc("login-verify-failed", e, error=str(e))
-        return render_authorize(params, state.csrf.issue(), config, "Garmin sign-in could not be verified")
+        return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     log("authorize-finish", step="login")
-    return _finish(conn, config, params, result.tokens_json, email)
+    return _finish(conn, config, params, result.blob, result.account_key)
 
 
 async def token_exchange(request, conn, config) -> JSONResponse:
