@@ -183,3 +183,23 @@ def test_migration_is_idempotent(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
     conn.close()
+
+
+def test_migration_rolls_back_and_stays_remigratable(tmp_path, monkeypatch):
+    """A crash mid-migration must roll back atomically (no orphan `accounts`
+    table) and leave the DB re-migratable on the next init_db."""
+    db = str(tmp_path / "old.db")
+    _build_v0_db(db)
+    # Inject a failing statement partway through the migration.
+    broken = list(store._MIGRATE_V1) + ["THIS IS NOT VALID SQL"]
+    monkeypatch.setattr(store, "_MIGRATE_V1", broken)
+    with pytest.raises(Exception):
+        store.init_db(db).close()
+    # Reopen with the real (unpatched) migration list: it must succeed, proving
+    # the failed attempt left no orphan `accounts` table and the v0 data intact.
+    monkeypatch.undo()
+    conn = store.init_db(db)
+    row = conn.execute("SELECT adapter, account_key, blob_enc FROM accounts").fetchone()
+    assert (row["adapter"], row["account_key"], row["blob_enc"]) == ("garmin", "me@x.cz", "NONCE:CIPHER")
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    conn.close()

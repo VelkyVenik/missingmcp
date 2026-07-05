@@ -118,9 +118,18 @@ def _migrate(conn) -> None:
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='garmin_accounts'"
     ).fetchone() is not None
     if has_legacy:
-        with conn:                       # transaction: commit on success, rollback on error
+        # Explicit transaction: sqlite3 only auto-opens one before DML, so the
+        # leading CREATE TABLE (DDL) would otherwise auto-commit outside any
+        # rollback scope. BEGIN makes the whole migration atomic — a crash
+        # mid-migration rolls back cleanly and the DB stays re-migratable.
+        conn.execute("BEGIN")
+        try:
             for stmt in _MIGRATE_V1:
                 conn.execute(stmt)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
