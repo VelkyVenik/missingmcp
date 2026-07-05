@@ -34,20 +34,26 @@ def build_app(config: Config) -> Starlette:
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
 
-    landing = (_TPL / "landing.html").read_text().replace(
-        "{PUBLIC_URL}", config.public_url
-    ).replace("{OPERATOR_NAME}", config.operator_name).replace(
-        "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
-    )
+    def _render(name: str) -> str:
+        return (_TPL / name).read_text().replace(
+            "{PUBLIC_URL}", config.public_url
+        ).replace("{OPERATOR_NAME}", config.operator_name).replace(
+            "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
+        )
+
+    garmin_page = _render("garmin.html")
 
     async def home(request):
-        return HTMLResponse(landing)
+        return HTMLResponse(garmin_page)
+
+    async def garmin_landing(request):
+        return HTMLResponse(garmin_page)
 
     async def notfound(request):
         # Catch-all for unknown GET paths: show the instructional landing page
         # (humans see how to connect) but with a 404 so API/discovery clients
         # still read it as "not here".
-        return HTMLResponse(landing, status_code=404)
+        return HTMLResponse(garmin_page, status_code=404)
 
     favicon_svg = (_TPL / "favicon.svg").read_text()
 
@@ -137,6 +143,7 @@ def build_app(config: Config) -> Starlette:
 
     routes = [
         Route("/", home, methods=["GET"]),
+        Route("/garmin", garmin_landing, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),

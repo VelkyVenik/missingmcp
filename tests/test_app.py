@@ -44,3 +44,11 @@ def test_mcp_requires_auth(tmp_path):
     # returns 405 rather than 404; this is generic framework behavior for any
     # POST to any unregistered path, not specific to /mcp.
     assert c.post("/mcp", json={}).status_code == 405
+
+
+def test_garmin_page(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/garmin")
+    assert r.status_code == 200
+    assert "How to connect" in r.text
+    assert "https://gw.example.com/garmin/mcp" in r.text
