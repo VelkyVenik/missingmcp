@@ -58,14 +58,14 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     if body is None:
         return JSONResponse({"error": "request_too_large"}, status_code=413)
 
-    tokens = store.get_account_tokens(conn, key, secret)
+    tokens = store.get_account_tokens(conn, adapter.name, key, secret)
     if tokens is None:
         return JSONResponse({"error": "unknown_account"}, status_code=401)
 
     tool = _mcp_tool(body)
     if tool:
         try:
-            store.record_usage(conn, key, tool)
+            store.record_usage(conn, adapter.name, key, tool)
         except Exception:  # noqa: BLE001 - usage metrics must never break a request
             pass
 

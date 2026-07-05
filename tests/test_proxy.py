@@ -39,8 +39,8 @@ def test_authorized_forwards_to_worker(tmp_path, fake_worker):
     conn = store.init_db(":memory:")
     cfg = _cfg(tmp_path, fake_worker)
     token = "tok-123"
-    store.upsert_account(conn, "me@x.cz", '{"t":1}', cfg.gateway_secret)
-    store.create_access_token(conn, store.hash_token(token), "me@x.cz", "c1")
+    store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
     mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
     c = _app(conn, mgr, cfg)
     r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
