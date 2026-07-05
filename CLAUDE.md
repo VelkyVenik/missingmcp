@@ -53,7 +53,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 
 - **`config.py`** — `Config` frozen dataclass + `load_config(env)`. Single source of all tunables (read from env). Refuses to start without a valid `GATEWAY_SECRET`.
 - **`log.py`** — structured JSON logging to stdout (`log` / `log_warn` / `log_error`). Callers must never pass secrets; the runtime (Docker/journald) supplies timestamps.
-- **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD. Five tables: `garmin_accounts` (encrypted tokens), `access_tokens` (Bearer hash → account), `oauth_clients` (DCR), `oauth_codes` (one-time PKCE codes), `tool_usage` (per-account tool metrics). Encryption key = `SHA-256(GATEWAY_SECRET)`.
+- **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD, **adapter-keyed**. Tables: `accounts` (encrypted per-account blob, PK `(adapter, account_key)`), `access_tokens` (Bearer hash → `(adapter, account_key)`), `oauth_clients` (DCR, per adapter), `oauth_codes` (one-time PKCE, per adapter), `tool_usage` (per-account metrics). A guarded `PRAGMA user_version` 0→1 migration rewrites the pre-adapter Garmin schema in place (ciphertext verbatim). Encryption key = `SHA-256(GATEWAY_SECRET)`.
 - **`security.py`** — PKCE S256 verify, redirect_uri allowlist, `CsrfStore`, sliding-window `RateLimiter`, security headers, `read_body_limited`.
 - **`adapters/base.py`** — the adapter contract: `Adapter`/`WorkerForward` protocols, `LoginOk`/`SecondFactorNeeded` results, `LoginError`/`SecondFactorError`. The seam between the core and upstream services (spec 2026-07-05).
 - **`adapters/garmin/`** — `login.py` is the thin `garminconnect` wrapper (`start_login` MFA-aware with transient-block retry, `resume_login`, `verify_tokens`); `GarminAdapter` owns form-field names, error copy, account-key normalization and the second-factor state; `GarminWorkerForward` owns the worker CLI/env contract + token materialization. Registry: `adapters.build_adapters(config)`.
@@ -64,7 +64,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 
 ## Cross-cutting invariants (easy to break, hard to see from one file)
 
-- **`garmin_user_key`** = the normalized **lowercased Garmin login email**. It is the join key across every table *and* the worker registry — so a user's phone and desktop share one warm worker.
+- **`account_key`** = the normalized **lowercased login email**, scoped by `adapter`. `(adapter, account_key)` is the join key across every table *and* (with `account_key` alone) the worker registry. A Bearer token carries its `adapter`; the proxy rejects a token used on a different adapter's `/mcp`.
 - **Secret handling:** the Garmin **password is never persisted or logged** (held in a local, `del`-ed right after `start_login`). **Bearer tokens and client secrets are stored only as SHA-256 hashes.** Garmin tokens are AES-256-GCM encrypted at rest (`token files 0600`, `dirs 0700`). Logs carry at most an 8-char hash prefix.
 - **Verify-then-persist:** in `oauth.py`, `verify_tokens` is the only "expectedly failing" step and gates `_finish` (which does upsert + code-mint + redirect) on **every** authorize path. A login/verify failure re-renders the form; a wrong MFA code re-prompts. Don't move `verify_tokens` back into `_finish`.
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.

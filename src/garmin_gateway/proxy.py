@@ -29,7 +29,7 @@ def _mcp_tool(body) -> "str | None":
     return method
 
 
-async def authenticate(request, conn, rate) -> "str | Response":
+async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
     ip = request.client.host if request.client else "unknown"
     if not rate.check(f"unauth:{ip}", limit=30, window=60):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
@@ -39,16 +39,19 @@ async def authenticate(request, conn, rate) -> "str | Response":
     token_hash = store.hash_token(header[7:])
     if not rate.check(f"tok:{token_hash}", limit=60, window=60):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
-    key = store.account_key_for_token_hash(conn, token_hash)
-    if key is None:
+    found = store.account_key_for_token_hash(conn, token_hash)
+    if found is None:
         return JSONResponse({"error": "invalid_token"}, status_code=401)
-    return key
+    tok_adapter, account_key = found
+    if tok_adapter != adapter_name:                 # token belongs to another connector
+        return JSONResponse({"error": "invalid_token"}, status_code=401)
+    return account_key
 
 
 async def handle_mcp(request, method, adapter, conn, manager, config, secret, rate) -> Response:
     log("mcp-request", adapter=adapter.name, method=method,
         has_session=bool(request.headers.get("mcp-session-id")))
-    auth = await authenticate(request, conn, rate)
+    auth = await authenticate(request, adapter.name, conn, rate)
     if isinstance(auth, Response):
         log("mcp-auth-rejected", method=method, status=auth.status_code)
         return auth
@@ -58,14 +61,14 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     if body is None:
         return JSONResponse({"error": "request_too_large"}, status_code=413)
 
-    tokens = store.get_account_tokens(conn, key, secret)
+    tokens = store.get_account_tokens(conn, adapter.name, key, secret)
     if tokens is None:
         return JSONResponse({"error": "unknown_account"}, status_code=401)
 
     tool = _mcp_tool(body)
     if tool:
         try:
-            store.record_usage(conn, key, tool)
+            store.record_usage(conn, adapter.name, key, tool)
         except Exception:  # noqa: BLE001 - usage metrics must never break a request
             pass
 

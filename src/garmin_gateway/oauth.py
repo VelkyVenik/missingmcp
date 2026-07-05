@@ -27,7 +27,7 @@ def metadata(config) -> dict:
     }
 
 
-async def register_client(request, conn) -> JSONResponse:
+async def register_client(request, conn, adapter) -> JSONResponse:
     body = await security.read_body_limited(request)
     if body is None:
         return JSONResponse({"error": "request too large"}, status_code=413)
@@ -40,7 +40,8 @@ async def register_client(request, conn) -> JSONResponse:
         return JSONResponse({"error": "invalid_redirect_uri"}, status_code=400)
     client_id = security.new_secret(16)
     client_secret = security.new_secret(32)
-    store.create_client(conn, client_id, store.hash_token(client_secret), uris, data.get("client_name"))
+    store.create_client(conn, client_id, store.hash_token(client_secret), uris,
+                        data.get("client_name"), adapter.name)
     return JSONResponse(
         {
             "client_id": client_id,
@@ -131,13 +132,13 @@ async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse:
     return render_authorize(params, state.csrf.issue(), config, adapter)
 
 
-def _finish(conn, config, params: dict, blob: str, account_key: str) -> RedirectResponse:
+def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_key: str) -> RedirectResponse:
     # blob already verified by the caller (adapter.verify) before we persist
-    store.upsert_account(conn, account_key, blob, config.gateway_secret)
+    store.upsert_account(conn, adapter_name, account_key, blob, config.gateway_secret)
     code = security.new_secret(32)
     store.create_code(
         conn, store.hash_token(code), params["client_id"], params["redirect_uri"],
-        params["code_challenge"], params["code_challenge_method"], account_key,
+        params["code_challenge"], params["code_challenge_method"], adapter_name, account_key,
     )
     sep = "&" if "?" in params["redirect_uri"] else "?"
     location = params["redirect_uri"] + sep + urlencode({"code": code, "state": params["state"]})
@@ -181,7 +182,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             log_exc("mfa-verify-failed", e, error=str(e))
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         log("authorize-finish", step="mfa")
-        return _finish(conn, config, params, result.blob, result.account_key)
+        return _finish(conn, config, params, result.blob, adapter.name, result.account_key)
 
     # login step
     params = _oauth_params_from(form)
@@ -212,7 +213,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         log_exc("login-verify-failed", e, error=str(e))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     log("authorize-finish", step="login")
-    return _finish(conn, config, params, result.blob, result.account_key)
+    return _finish(conn, config, params, result.blob, adapter.name, result.account_key)
 
 
 async def token_exchange(request, conn, config) -> JSONResponse:
@@ -239,9 +240,9 @@ async def token_exchange(request, conn, config) -> JSONResponse:
         log_error("token-invalid-grant", reason="pkce_mismatch")
         return JSONResponse({"error": "invalid_grant"}, status_code=400)
     token = security.new_secret(32)
-    store.create_access_token(conn, store.hash_token(token), row["garmin_user_key"],
+    store.create_access_token(conn, store.hash_token(token), row["adapter"], row["account_key"],
                               form.get("client_id"), ttl=config.access_token_ttl)
-    log("token-issued", garmin_user_key=row["garmin_user_key"])
+    log("token-issued", account_key=row["account_key"])
     resp = {"access_token": token, "token_type": "Bearer"}
     if config.access_token_ttl:
         resp["expires_in"] = config.access_token_ttl

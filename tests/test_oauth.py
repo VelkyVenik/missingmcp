@@ -33,7 +33,7 @@ def test_metadata_shape():
 
 def _client_app(conn):
     async def reg(request):
-        return await oauth.register_client(request, conn)
+        return await oauth.register_client(request, conn, ADAPTER)
     return TestClient(Starlette(routes=[Route("/oauth/register", reg, methods=["POST"])]))
 
 
@@ -81,7 +81,7 @@ def _authz_app(conn):
 
 def _register(conn):
     cid = security.new_secret(8)
-    store.create_client(conn, cid, "h", ["https://claude.ai/cb"], "Claude")
+    store.create_client(conn, cid, "h", ["https://claude.ai/cb"], "Claude", "garmin")
     return cid
 
 
@@ -127,7 +127,7 @@ def test_login_no_mfa_redirects_with_code(conn):
     assert q["state"] == ["xyz"]
     assert q["code"]
     # account stored under normalized (lowercased) email
-    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) == '{"t":1}'
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) == '{"t":1}'
     # scripts/health.py buckets on this exact literal — a typo here breaks monitoring silently
     status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
     assert status_calls == ["ok"]
@@ -159,7 +159,7 @@ def test_login_mfa_then_verify_redirects(conn):
             "csrf": csrf2, "login_id": login_id, "mfa_code": "123456",
         })
     assert r2.status_code == 302
-    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) == '{"t":9}'
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) == '{"t":9}'
 
 
 def test_authorize_post_rejects_bad_csrf(conn):
@@ -221,11 +221,11 @@ def _pkce_pair():
 def test_token_exchange_happy_path(conn):
     cid = security.new_secret(8)
     csecret = "topsecret"
-    store.create_client(conn, cid, store.hash_token(csecret), ["https://claude.ai/cb"], "Claude")
-    store.upsert_account(conn, "me@x.cz", "{}", CONFIG.gateway_secret)
+    store.create_client(conn, cid, store.hash_token(csecret), ["https://claude.ai/cb"], "Claude", "garmin")
+    store.upsert_account(conn, "garmin", "me@x.cz", "{}", CONFIG.gateway_secret)
     verifier, challenge = _pkce_pair()
     code = "thecode"
-    store.create_code(conn, store.hash_token(code), cid, "https://claude.ai/cb", challenge, "S256", "me@x.cz")
+    store.create_code(conn, store.hash_token(code), cid, "https://claude.ai/cb", challenge, "S256", "garmin", "me@x.cz")
     c = _token_app(conn)
     r = c.post("/oauth/token", data={
         "grant_type": "authorization_code", "code": code, "redirect_uri": "https://claude.ai/cb",
@@ -233,7 +233,7 @@ def test_token_exchange_happy_path(conn):
     })
     assert r.status_code == 200
     token = r.json()["access_token"]
-    assert store.account_key_for_token_hash(conn, store.hash_token(token)) == "me@x.cz"
+    assert store.account_key_for_token_hash(conn, store.hash_token(token)) == ("garmin", "me@x.cz")
 
 
 def test_login_blocked_shows_retry_message(conn):
@@ -268,7 +268,7 @@ def test_login_verify_failure_rerenders_form(conn):
         })
     assert r.status_code == 200
     assert "garmin_email" in r.text                      # re-rendered login form
-    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) is None  # not stored
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) is None  # not stored
 
 
 def test_mfa_wrong_code_reprompts(conn):
@@ -297,14 +297,14 @@ def test_mfa_verify_failure_restarts(conn):
         r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
     assert r.status_code == 200
     assert "garmin_email" in r.text                      # back to the login form
-    assert store.get_account_tokens(conn, "me@x.cz", CONFIG.gateway_secret) is None  # not stored
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) is None  # not stored
 
 
 def test_token_exchange_bad_pkce(conn):
     cid = security.new_secret(8)
-    store.create_client(conn, cid, store.hash_token("s"), ["https://claude.ai/cb"], None)
+    store.create_client(conn, cid, store.hash_token("s"), ["https://claude.ai/cb"], None, "garmin")
     _, challenge = _pkce_pair()
-    store.create_code(conn, store.hash_token("c2"), cid, "https://claude.ai/cb", challenge, "S256", "me@x.cz")
+    store.create_code(conn, store.hash_token("c2"), cid, "https://claude.ai/cb", challenge, "S256", "garmin", "me@x.cz")
     c = _token_app(conn)
     r = c.post("/oauth/token", data={
         "grant_type": "authorization_code", "code": "c2", "redirect_uri": "https://claude.ai/cb",

@@ -33,54 +33,115 @@ def hash_token(token: str) -> str:
 
 # --- schema ---------------------------------------------------------------
 
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS accounts (
+    adapter     TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    blob_enc    TEXT NOT NULL,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (adapter, account_key)
+);
+CREATE TABLE IF NOT EXISTS access_tokens (
+    token_hash  TEXT PRIMARY KEY,
+    adapter     TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    client_id   TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    last_used   TEXT,
+    expires_at  INTEGER
+);
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id          TEXT PRIMARY KEY,
+    adapter            TEXT NOT NULL,
+    client_secret_hash TEXT NOT NULL,
+    redirect_uris      TEXT NOT NULL,
+    client_name        TEXT,
+    created_at         TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS oauth_codes (
+    code_hash             TEXT PRIMARY KEY,
+    adapter               TEXT NOT NULL,
+    client_id             TEXT NOT NULL,
+    redirect_uri          TEXT NOT NULL,
+    code_challenge        TEXT,
+    code_challenge_method TEXT,
+    account_key           TEXT NOT NULL,
+    expires_at            INTEGER NOT NULL,
+    created_at            TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS tool_usage (
+    adapter     TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    tool        TEXT NOT NULL,
+    calls       INTEGER NOT NULL DEFAULT 0,
+    last_used   TEXT,
+    PRIMARY KEY (adapter, account_key, tool)
+);
+"""
+
+# One-time transform from the pre-adapter (v0) schema. Ciphertext moves verbatim.
+# ADD COLUMN needs a DEFAULT to satisfy NOT NULL on existing rows; the default is
+# harmless afterward (the code always supplies `adapter`). tool_usage's PK changes,
+# so it is rebuilt rather than altered.
+_MIGRATE_V1 = [
+    """CREATE TABLE accounts (
+        adapter TEXT NOT NULL, account_key TEXT NOT NULL, blob_enc TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (adapter, account_key))""",
+    """INSERT INTO accounts (adapter, account_key, blob_enc, created_at, updated_at)
+        SELECT 'garmin', garmin_user_key, garmin_tokens_enc, created_at, updated_at
+        FROM garmin_accounts""",
+    "DROP TABLE garmin_accounts",
+    "ALTER TABLE access_tokens ADD COLUMN adapter TEXT NOT NULL DEFAULT 'garmin'",
+    "ALTER TABLE access_tokens RENAME COLUMN garmin_user_key TO account_key",
+    "ALTER TABLE oauth_codes ADD COLUMN adapter TEXT NOT NULL DEFAULT 'garmin'",
+    "ALTER TABLE oauth_codes RENAME COLUMN garmin_user_key TO account_key",
+    "ALTER TABLE oauth_clients ADD COLUMN adapter TEXT NOT NULL DEFAULT 'garmin'",
+    """CREATE TABLE tool_usage_new (
+        adapter TEXT NOT NULL, account_key TEXT NOT NULL, tool TEXT NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0, last_used TEXT,
+        PRIMARY KEY (adapter, account_key, tool))""",
+    """INSERT INTO tool_usage_new (adapter, account_key, tool, calls, last_used)
+        SELECT 'garmin', garmin_user_key, tool, calls, last_used FROM tool_usage""",
+    "DROP TABLE tool_usage",
+    "ALTER TABLE tool_usage_new RENAME TO tool_usage",
+]
+
+
+def _migrate(conn) -> None:
+    """Bring an existing DB to the current schema version. Guarded by
+    PRAGMA user_version; idempotent. Fresh DBs (no legacy table) are just stamped."""
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= 1:
+        return
+    has_legacy = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='garmin_accounts'"
+    ).fetchone() is not None
+    if has_legacy:
+        # Explicit transaction: sqlite3 only auto-opens one before DML, so the
+        # leading CREATE TABLE (DDL) would otherwise auto-commit outside any
+        # rollback scope. BEGIN makes the whole migration atomic — a crash
+        # mid-migration rolls back cleanly and the DB stays re-migratable.
+        conn.execute("BEGIN")
+        try:
+            for stmt in _MIGRATE_V1:
+                conn.execute(stmt)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS garmin_accounts (
-            garmin_user_key   TEXT PRIMARY KEY,
-            garmin_tokens_enc TEXT NOT NULL,
-            created_at        TEXT DEFAULT (datetime('now')),
-            updated_at        TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS access_tokens (
-            token_hash      TEXT PRIMARY KEY,
-            garmin_user_key TEXT NOT NULL,
-            client_id       TEXT,
-            created_at      TEXT DEFAULT (datetime('now')),
-            last_used       TEXT,
-            expires_at      INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS oauth_clients (
-            client_id          TEXT PRIMARY KEY,
-            client_secret_hash TEXT NOT NULL,
-            redirect_uris      TEXT NOT NULL,
-            client_name        TEXT,
-            created_at         TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS oauth_codes (
-            code_hash             TEXT PRIMARY KEY,
-            client_id             TEXT NOT NULL,
-            redirect_uri          TEXT NOT NULL,
-            code_challenge        TEXT,
-            code_challenge_method TEXT,
-            garmin_user_key       TEXT NOT NULL,
-            expires_at            INTEGER NOT NULL,
-            created_at            TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS tool_usage (
-            garmin_user_key TEXT NOT NULL,
-            tool            TEXT NOT NULL,   -- tools/call name, or the MCP method
-            calls           INTEGER NOT NULL DEFAULT 0,
-            last_used       TEXT,
-            PRIMARY KEY (garmin_user_key, tool)
-        );
-        """
-    )
+    _migrate(conn)                       # transform an old DB before creating fresh tables
+    conn.executescript(_SCHEMA)          # create target tables for a fresh DB; no-op otherwise
     conn.commit()
-    # Migrate DBs created before access_tokens had expires_at (added for token TTL).
+    # Back-compat: DBs created before access_tokens had expires_at.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(access_tokens)")}
     if "expires_at" not in cols:
         conn.execute("ALTER TABLE access_tokens ADD COLUMN expires_at INTEGER")
@@ -96,34 +157,31 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 # --- accounts -------------------------------------------------------------
 
-def upsert_account(conn, key: str, tokens_json: str, secret: str) -> None:
-    enc = encrypt(secret, tokens_json)
+def upsert_account(conn, adapter: str, account_key: str, blob: str, secret: str) -> None:
+    enc = encrypt(secret, blob)
     conn.execute(
-        """
-        INSERT INTO garmin_accounts (garmin_user_key, garmin_tokens_enc)
-        VALUES (?, ?)
-        ON CONFLICT(garmin_user_key)
-        DO UPDATE SET garmin_tokens_enc=excluded.garmin_tokens_enc,
-                      updated_at=datetime('now')
-        """,
-        (key, enc),
+        """INSERT INTO accounts (adapter, account_key, blob_enc)
+           VALUES (?, ?, ?)
+           ON CONFLICT(adapter, account_key)
+           DO UPDATE SET blob_enc=excluded.blob_enc, updated_at=datetime('now')""",
+        (adapter, account_key, enc),
     )
     conn.commit()
 
 
-def get_account_tokens(conn, key: str, secret: str) -> str | None:
+def get_account_tokens(conn, adapter: str, account_key: str, secret: str) -> str | None:
     row = conn.execute(
-        "SELECT garmin_tokens_enc FROM garmin_accounts WHERE garmin_user_key=?",
-        (key,),
+        "SELECT blob_enc FROM accounts WHERE adapter=? AND account_key=?",
+        (adapter, account_key),
     ).fetchone()
     if row is None:
         return None
-    return decrypt(secret, row["garmin_tokens_enc"])
+    return decrypt(secret, row["blob_enc"])
 
 
 def list_accounts(conn) -> list[dict]:
     rows = conn.execute(
-        "SELECT garmin_user_key, created_at, updated_at FROM garmin_accounts ORDER BY created_at"
+        "SELECT adapter, account_key, created_at, updated_at FROM accounts ORDER BY created_at"
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -133,9 +191,10 @@ def stats_counts(conn) -> dict:
     holding a token, registered OAuth clients, pending auth codes."""
     one = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
     return {
-        "accounts": one("SELECT COUNT(*) FROM garmin_accounts"),
+        "accounts": one("SELECT COUNT(*) FROM accounts"),
         "tokens": one("SELECT COUNT(*) FROM access_tokens"),
-        "people_with_token": one("SELECT COUNT(DISTINCT garmin_user_key) FROM access_tokens"),
+        "people_with_token": one(
+            "SELECT COUNT(DISTINCT adapter || ':' || account_key) FROM access_tokens"),
         "clients": one("SELECT COUNT(*) FROM oauth_clients"),
         "pending_codes": one("SELECT COUNT(*) FROM oauth_codes"),
     }
@@ -145,20 +204,21 @@ def stats_counts(conn) -> dict:
 
 # Access tokens have no TTL and are not auto-revoked. To revoke a device,
 # delete its row from the access_tokens table (admin is DB-level; UI deferred per design).
-def create_access_token(conn, token_hash: str, key: str, client_id: str, ttl: int = 0) -> None:
+def create_access_token(conn, token_hash: str, adapter: str, account_key: str,
+                        client_id: str, ttl: int = 0) -> None:
     expires_at = int(time.time()) + ttl if ttl else None
     conn.execute(
         "INSERT OR REPLACE INTO access_tokens "
-        "(token_hash, garmin_user_key, client_id, last_used, expires_at) "
-        "VALUES (?, ?, ?, datetime('now'), ?)",
-        (token_hash, key, client_id, expires_at),
+        "(token_hash, adapter, account_key, client_id, last_used, expires_at) "
+        "VALUES (?, ?, ?, ?, datetime('now'), ?)",
+        (token_hash, adapter, account_key, client_id, expires_at),
     )
     conn.commit()
 
 
-def account_key_for_token_hash(conn, token_hash: str) -> str | None:
+def account_key_for_token_hash(conn, token_hash: str) -> "tuple[str, str] | None":
     row = conn.execute(
-        "SELECT garmin_user_key, expires_at FROM access_tokens WHERE token_hash=?",
+        "SELECT adapter, account_key, expires_at FROM access_tokens WHERE token_hash=?",
         (token_hash,),
     ).fetchone()
     if row is None:
@@ -170,7 +230,7 @@ def account_key_for_token_hash(conn, token_hash: str) -> str | None:
         (token_hash,),
     )
     conn.commit()
-    return row["garmin_user_key"]
+    return (row["adapter"], row["account_key"])
 
 
 def cleanup_expired_tokens(conn) -> None:
@@ -188,21 +248,25 @@ def revoke_token(conn, token_hash: str) -> int:
     return cur.rowcount
 
 
-def revoke_account(conn, key: str) -> int:
+def revoke_account(conn, adapter: str, account_key: str) -> int:
     """Revoke all access tokens for an account (a 'log out all devices'). Returns
-    rows deleted. The Garmin account row itself is left intact."""
-    cur = conn.execute("DELETE FROM access_tokens WHERE garmin_user_key=?", (key,))
+    rows deleted. The account row itself is left intact."""
+    cur = conn.execute(
+        "DELETE FROM access_tokens WHERE adapter=? AND account_key=?",
+        (adapter, account_key),
+    )
     conn.commit()
     return cur.rowcount
 
 
 # --- oauth clients --------------------------------------------------------
 
-def create_client(conn, client_id, client_secret_hash, redirect_uris: list[str], client_name) -> None:
+def create_client(conn, client_id, client_secret_hash, redirect_uris: list[str],
+                  client_name, adapter: str) -> None:
     conn.execute(
-        "INSERT INTO oauth_clients (client_id, client_secret_hash, redirect_uris, client_name) "
-        "VALUES (?, ?, ?, ?)",
-        (client_id, client_secret_hash, json.dumps(redirect_uris), client_name),
+        "INSERT INTO oauth_clients (client_id, adapter, client_secret_hash, redirect_uris, client_name) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (client_id, adapter, client_secret_hash, json.dumps(redirect_uris), client_name),
     )
     conn.commit()
 
@@ -222,19 +286,21 @@ def get_client(conn, client_id) -> dict | None:
 
 # --- oauth codes ----------------------------------------------------------
 
-def create_code(conn, code_hash, client_id, redirect_uri, code_challenge, method, key, ttl=600) -> None:
+def create_code(conn, code_hash, client_id, redirect_uri, code_challenge, method,
+                adapter: str, account_key: str, ttl=600) -> None:
     conn.execute(
-        "INSERT INTO oauth_codes (code_hash, client_id, redirect_uri, code_challenge, "
-        "code_challenge_method, garmin_user_key, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (code_hash, client_id, redirect_uri, code_challenge, method, key, int(time.time()) + ttl),
+        "INSERT INTO oauth_codes (code_hash, adapter, client_id, redirect_uri, code_challenge, "
+        "code_challenge_method, account_key, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (code_hash, adapter, client_id, redirect_uri, code_challenge, method,
+         account_key, int(time.time()) + ttl),
     )
     conn.commit()
 
 
 def consume_code(conn, code_hash) -> dict | None:
     row = conn.execute(
-        "SELECT client_id, redirect_uri, code_challenge, code_challenge_method, "
-        "garmin_user_key, expires_at FROM oauth_codes WHERE code_hash=?",
+        "SELECT adapter, client_id, redirect_uri, code_challenge, code_challenge_method, "
+        "account_key, expires_at FROM oauth_codes WHERE code_hash=?",
         (code_hash,),
     ).fetchone()
     conn.execute("DELETE FROM oauth_codes WHERE code_hash=?", (code_hash,))
@@ -242,11 +308,12 @@ def consume_code(conn, code_hash) -> dict | None:
     if row is None or time.time() > row["expires_at"]:
         return None
     return {
+        "adapter": row["adapter"],
         "client_id": row["client_id"],
         "redirect_uri": row["redirect_uri"],
         "code_challenge": row["code_challenge"],
         "code_challenge_method": row["code_challenge_method"],
-        "garmin_user_key": row["garmin_user_key"],
+        "account_key": row["account_key"],
     }
 
 
@@ -259,12 +326,12 @@ def cleanup_expired_codes(conn) -> None:
 
 # Records only the tool/method name and a per-account count — never request
 # contents or any Garmin data.
-def record_usage(conn, key: str, tool: str) -> None:
+def record_usage(conn, adapter: str, account_key: str, tool: str) -> None:
     conn.execute(
-        "INSERT INTO tool_usage (garmin_user_key, tool, calls, last_used) "
-        "VALUES (?, ?, 1, datetime('now')) "
-        "ON CONFLICT(garmin_user_key, tool) DO UPDATE SET "
+        "INSERT INTO tool_usage (adapter, account_key, tool, calls, last_used) "
+        "VALUES (?, ?, ?, 1, datetime('now')) "
+        "ON CONFLICT(adapter, account_key, tool) DO UPDATE SET "
         "calls = calls + 1, last_used = datetime('now')",
-        (key, tool),
+        (adapter, account_key, tool),
     )
     conn.commit()

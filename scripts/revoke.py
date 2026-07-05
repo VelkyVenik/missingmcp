@@ -48,18 +48,18 @@ def main():
 
     if args.list:
         rows = conn.execute(
-            "SELECT garmin_user_key AS key, COUNT(*) AS n, MAX(last_used) AS last "
-            "FROM access_tokens GROUP BY garmin_user_key ORDER BY garmin_user_key"
+            "SELECT account_key AS key, adapter, COUNT(*) AS n, MAX(last_used) AS last "
+            "FROM access_tokens GROUP BY adapter, account_key ORDER BY adapter, account_key"
         ).fetchall()
         if not rows:
             print("No access tokens.")
         for r in rows:
-            print(f"  {r['key']:<32} tokens: {r['n']:<3} last used: {r['last'] or '—'}")
+            print(f"  {r['adapter']}:{r['key']:<32} tokens: {r['n']:<3} last used: {r['last'] or '—'}")
         return
 
     if args.account:
         key = args.account.strip().lower()  # stored lowercased, as in _finish
-        cur = conn.execute("DELETE FROM access_tokens WHERE garmin_user_key=?", (key,))
+        cur = conn.execute("DELETE FROM access_tokens WHERE account_key=?", (key,))
         conn.commit()
         print(f"Revoked {cur.rowcount} token(s) for {key}. They must reconnect in Claude.")
         return

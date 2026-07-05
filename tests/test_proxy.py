@@ -39,8 +39,8 @@ def test_authorized_forwards_to_worker(tmp_path, fake_worker):
     conn = store.init_db(":memory:")
     cfg = _cfg(tmp_path, fake_worker)
     token = "tok-123"
-    store.upsert_account(conn, "me@x.cz", '{"t":1}', cfg.gateway_secret)
-    store.create_access_token(conn, store.hash_token(token), "me@x.cz", "c1")
+    store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
     mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
     c = _app(conn, mgr, cfg)
     r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
@@ -48,6 +48,21 @@ def test_authorized_forwards_to_worker(tmp_path, fake_worker):
     assert r.status_code == 200
     assert r.headers.get("mcp-session-id") == "sess-1"
     assert fake_worker.calls and fake_worker.calls[-1][1] == "/mcp"
+
+
+def test_bearer_for_other_adapter_is_rejected(tmp_path, fake_worker):
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-rohlik"
+    # a token minted for a DIFFERENT adapter
+    store.upsert_account(conn, "rohlik", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "rohlik", "me@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)                     # _app forwards to the GARMIN adapter
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401                  # garmin path must not accept a rohlik token
+    assert r.json() == {"error": "invalid_token"}   # authenticate() rejected it, not the unknown_account path
 
 
 def test_mcp_tool_parsing():

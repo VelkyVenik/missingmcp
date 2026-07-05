@@ -62,7 +62,7 @@ def build_app(config: Config) -> Starlette:
     async def register(request):
         if not rate.check(f"oauth:{request.client.host}", 20, 60):
             return JSONResponse({"error": "rate_limited"}, status_code=429)
-        return await oauth.register_client(request, conn)
+        return await oauth.register_client(request, conn, garmin)
 
     async def authz_get(request):
         return await oauth.authorize_get(request, garmin, auth_state, conn, config)
