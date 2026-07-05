@@ -39,7 +39,7 @@ deploys (Railway).
 | Hosting | **Railway**, single service + volume; **staging-first** on a temporary URL, custom domain flipped only after the spike test passes | Motivation: drop VPS maintenance, git-push deploys during the rebuild. Risk gate: Garmin login through Railway egress IPs (Cloudflare) must be proven on staging first. VPS keeps serving production until the flip. |
 | URL continuity | **Clean paths, no legacy `/mcp` alias.** Garmin moves to `/garmin/mcp`. | Deliberate accept: the whole circle re-onboards once (re-add connector + Garmin login/MFA). Re-onboarding is staged over days because Garmin's Cloudflare limits are per-account. |
 | Rohlik users | Re-login on the new gateway; **no `proxy.db` migration** | Rohlik login is email+password without MFA — a one-minute re-onboard. A one-off TS→Python re-encryption script costs more than it saves. |
-| End state | Repo renamed `missingmcp`; `rohlik-oauth-proxy` archived | Rename is the *last* step, after the dust settles. |
+| End state | Development moved to `github.com/VelkyVenik/missingmcp` (done 2026-07-05, fork-style); `garmin-mcp-gateway` frozen as the prod snapshot the VPS deploys from; both legacy repos archived at the end | Deliberate fork-style split: prod stays pinned while the gateway evolves. Bugfixes needed in prod before the domain flip must be cherry-picked to the `legacy` remote. |
 | Name | **MissingMCP** — `missingmcp.com` (registered 2026-07-05; `.dev` deliberately skipped — one domain is enough), GitHub `missingmcp` | See *Naming* below. |
 
 ### Why not the alternatives
@@ -240,9 +240,10 @@ tool_usage    : + adapter TEXT NOT NULL
   4. Point the custom domain at Railway; VPS keeps running until then.
   5. Staged re-onboarding of the circle (few accounts per day — Garmin
      Cloudflare limits are per-account; logins now also come from a new IP).
-  6. Decommission VPS; archive `rohlik-oauth-proxy`; rename repo → `missingmcp`
-     (package `garmin_gateway` → `missingmcp`, entrypoint `garmin-gateway` →
-     `missingmcp`).
+  6. Decommission VPS; archive `garmin-mcp-gateway` (frozen prod snapshot) and
+     `rohlik-oauth-proxy`; rename package `garmin_gateway` → `missingmcp` and
+     entrypoint `garmin-gateway` → `missingmcp` (the GitHub repo already lives
+     at `VelkyVenik/missingmcp` since 2026-07-05).
 - **Backups:** Railway volume backups if available on the plan; otherwise a
   scheduled `sqlite3 .backup` shipped off-box. DB remains useless without
   `GATEWAY_SECRET` (kept outside Railway too). — *open question below.*
