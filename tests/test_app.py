@@ -9,12 +9,22 @@ def _client(tmp_path):
     return TestClient(build_app(cfg))
 
 
-def test_landing_page(tmp_path):
+def test_home_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/")
     assert r.status_code == 200
-    assert "/garmin/mcp" in r.text
+    assert "Your apps," in r.text                 # hero H1
+    assert 'href="/garmin"' in r.text             # Garmin card links to the subpage
+    assert "Coming soon" in r.text                # Rohlík card
+    assert "never stored" in r.text               # security section
     assert r.headers["x-frame-options"] == "DENY"
+
+
+def test_unknown_path_serves_home_as_404(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/definitely-not-a-page")
+    assert r.status_code == 404
+    assert "Your apps," in r.text
 
 
 def test_healthz(tmp_path):

@@ -42,18 +42,19 @@ def build_app(config: Config) -> Starlette:
         )
 
     garmin_page = _render("garmin.html")
+    home_page = _render("home.html")
 
     async def home(request):
-        return HTMLResponse(garmin_page)
+        return HTMLResponse(home_page)
 
     async def garmin_landing(request):
         return HTMLResponse(garmin_page)
 
     async def notfound(request):
-        # Catch-all for unknown GET paths: show the instructional landing page
-        # (humans see how to connect) but with a 404 so API/discovery clients
-        # still read it as "not here".
-        return HTMLResponse(garmin_page, status_code=404)
+        # Catch-all for unknown GET paths: humans get the MissingMCP home
+        # (with links to every connector) but with a 404 status so
+        # API/discovery clients still read it as "not here".
+        return HTMLResponse(home_page, status_code=404)
 
     favicon_svg = (_TPL / "favicon.svg").read_text()
 
