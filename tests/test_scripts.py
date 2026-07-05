@@ -128,3 +128,32 @@ def test_revoke_purge_removes_account_and_usage(seeded_db, capsys, monkeypatch):
     assert conn.execute("SELECT adapter FROM accounts").fetchall() == [("rohlik",)]
     assert conn.execute("SELECT DISTINCT adapter FROM tool_usage").fetchall() == [("rohlik",)]
     conn.close()
+
+
+# --- usage.py --------------------------------------------------------------
+
+def test_usage_summary_groups_by_adapter(seeded_db, capsys, monkeypatch):
+    out = run_script("usage", ["--db", seeded_db], capsys, monkeypatch)
+    assert "garmin:alice@example.com" in out       # two lines, not one merged line
+    assert "rohlik:alice@example.com" in out
+    assert "MissingMCP" in out
+
+
+def test_usage_account_filter_is_adapter_aware(seeded_db, capsys, monkeypatch):
+    out = run_script("usage", ["--db", seeded_db, "--account", "rohlik:alice@example.com"],
+                     capsys, monkeypatch)
+    assert "get_cart" in out
+    assert "get_activities" not in out
+
+
+def test_usage_bare_account_defaults_to_garmin(seeded_db, capsys, monkeypatch):
+    out = run_script("usage", ["--db", seeded_db, "--account", "alice@example.com"],
+                     capsys, monkeypatch)
+    assert "get_activities" in out
+    assert "get_cart" not in out
+
+
+def test_usage_tools_leaderboard_shows_adapter(seeded_db, capsys, monkeypatch):
+    out = run_script("usage", ["--db", seeded_db, "--tools"], capsys, monkeypatch)
+    assert "garmin:get_activities" in out
+    assert "rohlik:get_cart" in out
