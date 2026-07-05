@@ -11,6 +11,7 @@ from . import store, oauth, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters
+from .adapters.base import is_remote
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -28,10 +29,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
     adapters = build_adapters(config)
-    garmin = adapters["garmin"]
-    # Single worker manager: garmin is the only worker-based adapter today. A
-    # second, non-worker adapter (step 4) reworks forwarding and revisits this.
-    manager = WorkerManager(config, garmin.forward)
+    # One WorkerManager per worker-based adapter; remote adapters need none.
+    # NOTE: managers share one port range, one DATA_DIR/users/<key> namespace and
+    # one workers.json snapshot — safe while garmin is the only worker-based
+    # adapter; scope those per adapter before ever adding a second one.
+    managers = {a.name: WorkerManager(config, a.forward)
+                for a in adapters.values() if not is_remote(a.forward)}
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
 
@@ -42,14 +45,10 @@ def build_app(config: Config) -> Starlette:
             "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
         )
 
-    garmin_page = _render("garmin.html")
     home_page = _render("home.html")
 
     async def home(request):
         return HTMLResponse(home_page)
-
-    async def garmin_landing(request):
-        return HTMLResponse(garmin_page)
 
     async def notfound(request):
         # Catch-all for unknown GET paths: humans get the MissingMCP home
@@ -81,6 +80,11 @@ def build_app(config: Config) -> Starlette:
 
     def adapter_routes(adapter):
         p = adapter.name
+        manager = managers.get(p)          # None for remote-forward adapters
+        landing_page = _render(adapter.landing_template)
+
+        async def landing(request):
+            return HTMLResponse(landing_page)
 
         async def meta(request):
             return JSONResponse(oauth.metadata(config, adapter))
@@ -113,6 +117,7 @@ def build_app(config: Config) -> Starlette:
             return handler
 
         return [
+            Route(f"/{p}", landing, methods=["GET"]),
             Route(f"/.well-known/oauth-authorization-server/{p}", meta, methods=["GET"]),
             Route(f"/.well-known/oauth-protected-resource/{p}/mcp", prmeta, methods=["GET"]),
             Route(f"/{p}/oauth/register", register, methods=["POST"]),
@@ -132,13 +137,16 @@ def build_app(config: Config) -> Starlette:
             last_stats = None
             while not stop.is_set():
                 with contextlib.suppress(Exception):
-                    await manager.reap_idle()
+                    for manager in managers.values():
+                        await manager.reap_idle()
                     store.cleanup_expired_codes(conn)
                     store.cleanup_expired_tokens(conn)
                     rate.gc()
-                    manager.write_snapshot()  # refresh idle_seconds periodically
+                    for manager in managers.values():
+                        manager.write_snapshot()  # refresh idle_seconds periodically
                     stats = {**store.stats_counts(conn),
-                             "active_workers": manager.active_count()}
+                             "active_workers": sum(m.active_count()
+                                                   for m in managers.values())}
                     if stats != last_stats:  # log only when something changed
                         log("stats", **stats)
                         last_stats = stats
@@ -154,11 +162,11 @@ def build_app(config: Config) -> Starlette:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            manager.shutdown()
+            for manager in managers.values():
+                manager.shutdown()
 
     routes = [
         Route("/", home, methods=["GET"]),
-        Route("/garmin", garmin_landing, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),

@@ -207,7 +207,7 @@ def test_authorize_post_mfa_rejects_tampered_redirect(conn):
     cid = _register(conn)
     params = {"client_id": cid, "redirect_uri": "https://evil.com/cb", "state": "s",
               "code_challenge": "abc", "code_challenge_method": "S256"}
-    lid = state.put_mfa((("P", "S"), "me@x.cz"), params)
+    lid = state.put_mfa((("P", "S"), "me@x.cz"), params, "garmin")
     csrf = state.csrf.issue()
     r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
     assert r.status_code == 400
@@ -283,7 +283,7 @@ def test_mfa_wrong_code_reprompts(conn):
     cid = _register(conn)
     params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
               "code_challenge": "abc", "code_challenge_method": "S256"}
-    lid = state.put_mfa((("P", "S"), "me@x.cz"), params)
+    lid = state.put_mfa((("P", "S"), "me@x.cz"), params, "garmin")
     csrf = state.csrf.issue()
     with patch.object(garmin_login, "resume_login", side_effect=Exception("wrong code")):
         r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "000000"})
@@ -296,7 +296,7 @@ def test_mfa_verify_failure_restarts(conn):
     cid = _register(conn)
     params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
               "code_challenge": "abc", "code_challenge_method": "S256"}
-    lid = state.put_mfa((("P", "S"), "me@x.cz"), params)
+    lid = state.put_mfa((("P", "S"), "me@x.cz"), params, "garmin")
     csrf = state.csrf.issue()
     with patch.object(garmin_login, "resume_login", return_value='{"t":1}'), \
          patch.object(garmin_login, "verify_tokens",
@@ -305,6 +305,23 @@ def test_mfa_verify_failure_restarts(conn):
     assert r.status_code == 200
     assert "garmin_email" in r.text                      # back to the login form
     assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) is None  # not stored
+
+
+def test_mfa_resume_login_error_restarts_login(conn):
+    # base.py contract: resume_second_factor may raise LoginError = "start over";
+    # the core must re-render the credential form, not 500
+    from garmin_gateway.adapters.base import LoginError
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
+              "code_challenge": "abc", "code_challenge_method": "S256"}
+    lid = state.put_mfa((("P", "S"), "me@x.cz"), params, "garmin")
+    csrf = state.csrf.issue()
+    with patch.object(ADAPTER, "resume_second_factor",
+                      side_effect=LoginError("session vanished")):
+        r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
+    assert r.status_code == 200
+    assert "garmin_email" in r.text                      # back to the login form
 
 
 def test_token_exchange_bad_pkce(conn):
@@ -318,3 +335,101 @@ def test_token_exchange_bad_pkce(conn):
         "client_id": cid, "client_secret": "s", "code_verifier": "WRONG",
     })
     assert r.status_code == 400
+
+
+# --- Rohlik authorize flow: real adapter + template, verify against the fake upstream ---
+
+import json
+from garmin_gateway.adapters.rohlik import RohlikAdapter
+
+
+def _rohlik_authz(conn, fake_remote):
+    cfg = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "ROHLIK_MCP_URL": f"http://127.0.0.1:{fake_remote.port}/mcp"})
+    adapter = RohlikAdapter(cfg)
+    state = oauth.AuthState(security.CsrfStore())
+    async def aget(request):
+        return await oauth.authorize_get(request, adapter, state, conn, cfg)
+    async def apost(request):
+        return await oauth.authorize_post(request, adapter, state, conn, cfg)
+    app = Starlette(routes=[
+        Route("/oauth/authorize", aget, methods=["GET"]),
+        Route("/oauth/authorize", apost, methods=["POST"]),
+    ])
+    cid = security.new_secret(8)
+    store.create_client(conn, cid, "h", ["https://claude.ai/cb"], "Claude", "rohlik")
+    return TestClient(app, follow_redirects=False), state, cfg, cid
+
+
+def test_rohlik_authorize_get_renders_form(conn, fake_remote):
+    client, _, _, cid = _rohlik_authz(conn, fake_remote)
+    r = client.get("/oauth/authorize", params={
+        "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+        "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+        "response_type": "code",
+    })
+    assert r.status_code == 200
+    assert "rohlik_email" in r.text and "rohlik_password" in r.text
+    assert 'action="/rohlik/oauth/authorize"' in r.text
+    assert "{OPERATOR_NAME}" not in r.text and "{OAUTH_FIELDS}" not in r.text  # placeholders filled
+    assert 'name="csrf"' in r.text                       # hidden OAuth fields injected
+
+
+def test_rohlik_login_verifies_upstream_and_redirects(conn, fake_remote):
+    client, state, cfg, cid = _rohlik_authz(conn, fake_remote)
+    csrf = state.csrf.issue()
+    r = client.post("/oauth/authorize", data={
+        "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+        "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+        "rohlik_email": "Me@X.cz", "rohlik_password": "pw",
+    })
+    assert r.status_code == 302
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["state"] == ["xyz"] and q["code"]
+    # verify() hit the upstream with the injected credential headers
+    _, path, hdrs, _ = fake_remote.calls[-1]
+    assert path == "/mcp" and hdrs.get("rhl-email") == "Me@X.cz" and hdrs.get("rhl-pass") == "pw"
+    # blob persisted under the normalized key, credentials intact
+    blob = store.get_account_tokens(conn, "rohlik", "me@x.cz", cfg.gateway_secret)
+    assert json.loads(blob) == {"email": "Me@X.cz", "password": "pw"}
+
+
+def test_rohlik_verify_failure_rerenders_form_and_persists_nothing(conn, fake_remote):
+    client, state, cfg, cid = _rohlik_authz(conn, fake_remote)
+    fake_remote.response_status = 401                    # upstream rejects the credentials
+    csrf = state.csrf.issue()
+    r = client.post("/oauth/authorize", data={
+        "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+        "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+        "rohlik_email": "me@x.cz", "rohlik_password": "wrong",
+    })
+    assert r.status_code == 200
+    assert "rohlik_email" in r.text                      # back to the login form
+    assert "check your Rohlík email and password" in r.text
+    assert store.get_account_tokens(conn, "rohlik", "me@x.cz", cfg.gateway_secret) is None
+
+
+def test_rohlik_invalid_email_rerenders_form(conn, fake_remote):
+    client, state, cfg, cid = _rohlik_authz(conn, fake_remote)
+    csrf = state.csrf.issue()
+    r = client.post("/oauth/authorize", data={
+        "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+        "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+        "rohlik_email": "not-an-email", "rohlik_password": "pw",
+    })
+    assert r.status_code == 200
+    assert "Please enter a valid email address." in r.text
+    assert not fake_remote.calls                         # rejected before touching the upstream
+
+
+def test_mfa_login_id_from_another_adapter_is_rejected(conn, fake_remote):
+    # AuthState is shared across adapter routes: a login_id minted mid-Garmin-MFA
+    # must read as expired on the rohlik authorize endpoint, not crash the flow
+    client, state, _, _ = _rohlik_authz(conn, fake_remote)
+    params = {"client_id": "cg", "redirect_uri": "https://claude.ai/cb", "state": "s",
+              "code_challenge": "abc", "code_challenge_method": "S256"}
+    lid = state.put_mfa((("P", "S"), "me@x.cz"), params, "garmin")
+    csrf = state.csrf.issue()
+    r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
+    assert r.status_code == 400
+    assert "MFA session expired" in r.text

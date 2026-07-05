@@ -69,25 +69,30 @@ def _tpl(name: str) -> str:
 class AuthState:
     def __init__(self, csrf):
         self.csrf = csrf
-        self._mfa: dict[str, tuple] = {}   # login_id -> (pending, oauth_params, ts)
+        self._mfa: dict[str, tuple] = {}   # login_id -> (pending, oauth_params, adapter, ts)
 
-    def put_mfa(self, pending, oauth_params: dict) -> str:
+    def put_mfa(self, pending, oauth_params: dict, adapter_name: str) -> str:
         self._gc()
         lid = security.new_secret(18)
-        self._mfa[lid] = (pending, oauth_params, time.monotonic())
+        self._mfa[lid] = (pending, oauth_params, adapter_name, time.monotonic())
         return lid
 
-    def pop_mfa(self, login_id: str):
+    def pop_mfa(self, login_id: str, adapter_name: str):
+        # AuthState is shared by all adapter routes: a login_id minted by one
+        # adapter's flow must read as expired on another's (state is consumed
+        # either way — same as a replayed/expired id).
         self._gc()
         item = self._mfa.pop(login_id, None)
         if item is None:
             return None
-        pending, params, _ts = item
+        pending, params, owner, _ts = item
+        if owner != adapter_name:
+            return None
         return pending, params
 
     def _gc(self) -> None:
         now = time.monotonic()
-        for k, (_p, _q, ts) in list(self._mfa.items()):
+        for k, (_p, _q, _a, ts) in list(self._mfa.items()):
             if now - ts > 300:
                 self._mfa.pop(k, None)
 
@@ -106,17 +111,31 @@ def _operator_fields(config) -> dict:
     }
 
 
+def _oauth_hidden_fields(params: dict, csrf_token: str) -> str:
+    """The CSRF + OAuth-param hidden inputs every adapter's authorize form must
+    POST back — built once here so per-adapter templates can't drift apart."""
+    fields = [
+        ("csrf", csrf_token),
+        ("client_id", params.get("client_id", "")),
+        ("redirect_uri", params.get("redirect_uri", "")),
+        ("state", params.get("state", "")),
+        ("code_challenge", params.get("code_challenge", "")),
+        ("code_challenge_method", params.get("code_challenge_method", "")),
+    ]
+    return "\n".join(
+        f'  <input type="hidden" name="{n}" value="{html.escape(v, quote=True)}">'
+        for n, v in fields
+    )
+
+
 def render_authorize(params: dict, csrf_token: str, config, adapter, error: str = "") -> HTMLResponse:
     body = _fill(_tpl(adapter.authorize_template), {
-        "CSRF": csrf_token,
-        "CLIENT_ID": params.get("client_id", ""),
-        "REDIRECT_URI": params.get("redirect_uri", ""),
-        "STATE": params.get("state", ""),
-        "CODE_CHALLENGE": params.get("code_challenge", ""),
-        "METHOD": params.get("code_challenge_method", ""),
         "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
         **_operator_fields(config),
     }, error)
+    # after _fill: the fragment is HTML (must not be escaped) and its escaped
+    # values must not be re-scanned for placeholders
+    body = body.replace("{OAUTH_FIELDS}", _oauth_hidden_fields(params, csrf_token))
     return HTMLResponse(body)
 
 
@@ -166,7 +185,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
 
     # second-factor step (Garmin: MFA)
     if has_login_id:
-        popped = state.pop_mfa(form["login_id"])
+        popped = state.pop_mfa(form["login_id"], adapter.name)
         if popped is None:
             log_error("mfa-session-missing", login_id=form.get("login_id", "")[:6])
             return HTMLResponse("MFA session expired, please start over", status_code=400)
@@ -180,13 +199,16 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             log("mfa-resume-ok", tokens_len=len(result.blob or ""))
         except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
-            lid = state.put_mfa(e.state, params)
+            lid = state.put_mfa(e.state, params, adapter.name)
             body = _fill(_tpl(adapter.second_factor_template),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                           "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                           **_operator_fields(config)},
                          str(e))
             return HTMLResponse(body, status_code=400)
+        except LoginError as e:  # contract: "start over" — back to the credential form
+            log_exc("mfa-resume-fatal", e, error=str(e))
+            return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         try:
             name = adapter.verify(result.blob)
             log("mfa-verify-ok", name=name)
@@ -214,7 +236,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 f"{adapter.display_name} sign-in failed, please try again.")
     if isinstance(result, SecondFactorNeeded):
-        lid = state.put_mfa(result.state, params)
+        lid = state.put_mfa(result.state, params, adapter.name)
         body = _fill(_tpl(adapter.second_factor_template),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                       "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
