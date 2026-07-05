@@ -62,3 +62,28 @@ def test_garmin_page(tmp_path):
     assert r.status_code == 200
     assert "How to connect" in r.text
     assert "https://gw.example.com/garmin/mcp" in r.text
+
+
+def test_static_logo_assets_served(tmp_path):
+    c = _client(tmp_path)
+    for path in ("/static/icon.png", "/static/favicon-32.png",
+                 "/static/apple-touch-icon.png"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert r.headers["content-type"] == "image/png", path
+        assert r.content[:8] == b"\x89PNG\r\n\x1a\n", f"{path} is a PNG"
+
+
+def test_home_shows_logo_lockup(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/").text
+    assert 'src="/static/icon.png"' in r          # mark in the header
+    assert 'class="mcp"' in r and 'class="tld"' in r  # CSS wordmark parts
+    assert '/static/favicon-32.png' in r          # PNG favicon link
+
+
+def test_garmin_shows_logo_linking_home(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/garmin").text
+    assert 'class="site-logo" href="/"' in r      # logo links back to the home
+    assert 'src="/static/icon.png"' in r
