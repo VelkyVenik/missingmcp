@@ -62,6 +62,7 @@ def test_bearer_for_other_adapter_is_rejected(tmp_path, fake_worker):
     r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
                headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 401                  # garmin path must not accept a rohlik token
+    assert r.json() == {"error": "invalid_token"}   # authenticate() rejected it, not the unknown_account path
 
 
 def test_mcp_tool_parsing():
