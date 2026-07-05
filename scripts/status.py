@@ -45,9 +45,9 @@ def main():
     db.row_factory = sqlite3.Row
     one = lambda sql: db.execute(sql).fetchone()[0]  # noqa: E731
 
-    accounts = one("SELECT COUNT(*) FROM garmin_accounts")
+    accounts = one("SELECT COUNT(*) FROM accounts")
     tokens = one("SELECT COUNT(*) FROM access_tokens")
-    people = one("SELECT COUNT(DISTINCT garmin_user_key) FROM access_tokens")
+    people = one("SELECT COUNT(DISTINCT adapter || ':' || account_key) FROM access_tokens")
     clients = one("SELECT COUNT(*) FROM oauth_clients")
     pending = one("SELECT COUNT(*) FROM oauth_codes")
 
@@ -62,24 +62,25 @@ def main():
     # per-account: token count + last use
     rows = db.execute(
         """
-        SELECT a.garmin_user_key AS key, a.created_at AS created,
-               COUNT(t.token_hash) AS tokens, MAX(t.last_used) AS last_used
-        FROM garmin_accounts a
-        LEFT JOIN access_tokens t ON t.garmin_user_key = a.garmin_user_key
-        GROUP BY a.garmin_user_key ORDER BY a.created_at
+        SELECT a.adapter AS adapter, a.account_key AS key, a.created_at AS created,
+               COUNT(t.token_hash) AS devices, MAX(t.last_used) AS last
+        FROM accounts a
+        LEFT JOIN access_tokens t
+          ON t.adapter = a.adapter AND t.account_key = a.account_key
+        GROUP BY a.adapter, a.account_key ORDER BY a.created_at
         """
     ).fetchall()
     if rows:
         print("\nAccounts")
         for r in rows:
-            print(f"  {r['key']:<32} tokens: {r['tokens']:<3} "
-                  f"connected: {r['created']}  last used: {r['last_used'] or '—'}")
+            print(f"  {r['adapter']}:{r['key']:<32} tokens: {r['devices']:<3} "
+                  f"connected: {r['created']}  last used: {r['last'] or '—'}")
 
     crows = db.execute(
         """
         SELECT c.client_name AS name, c.redirect_uris AS redirect,
                COUNT(t.token_hash) AS tokens,
-               GROUP_CONCAT(DISTINCT t.garmin_user_key) AS accounts
+               GROUP_CONCAT(DISTINCT t.account_key) AS accounts
         FROM oauth_clients c
         LEFT JOIN access_tokens t ON t.client_id = c.client_id
         GROUP BY c.client_id ORDER BY c.created_at

@@ -53,7 +53,7 @@ def main():
     if args.account:
         key = args.account.strip().lower()
         rows = db.execute(
-            "SELECT tool, calls, last_used FROM tool_usage WHERE garmin_user_key=? "
+            "SELECT tool, calls, last_used FROM tool_usage WHERE account_key=? "
             "ORDER BY calls DESC",
             (key,),
         ).fetchall()
@@ -68,7 +68,7 @@ def main():
 
     if args.tools:
         rows = db.execute(
-            "SELECT tool, SUM(calls) AS n, COUNT(DISTINCT garmin_user_key) AS users "
+            "SELECT tool, SUM(calls) AS n, COUNT(DISTINCT account_key) AS users "
             "FROM tool_usage GROUP BY tool ORDER BY n DESC LIMIT ?",
             (args.limit,),
         ).fetchall()
@@ -82,9 +82,9 @@ def main():
     print(f"\nGarmin MCP Gateway — usage  ({db_path})\n")
     print("Per account")
     for r in db.execute(
-        "SELECT garmin_user_key AS key, SUM(calls) AS calls, "
+        "SELECT account_key AS key, SUM(calls) AS calls, "
         "COUNT(DISTINCT tool) AS tools, MAX(last_used) AS last "
-        "FROM tool_usage GROUP BY garmin_user_key ORDER BY calls DESC"
+        "FROM tool_usage GROUP BY account_key ORDER BY calls DESC"
     ).fetchall():
         print(f"  {r['key']:<30} calls: {r['calls']:<6} tools: {r['tools']:<4} last: {r['last']}")
 
