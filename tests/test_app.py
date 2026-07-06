@@ -15,7 +15,11 @@ def test_home_page(tmp_path):
     assert r.status_code == 200
     assert "Your apps," in r.text                 # hero H1
     assert 'href="/garmin"' in r.text             # Garmin card links to the subpage
-    assert 'href="/rohlik"' in r.text             # Rohlík card is live now
+    # Rohlík graduated: official MCP exists, so the card moved to the
+    # "No longer missing" section and points at Rohlík directly, not /rohlik.
+    assert 'href="/rohlik"' not in r.text
+    assert "No longer missing" in r.text
+    assert "https://mcp.rohlik.cz/mcp" in r.text
     assert "never stored" in r.text               # security section
     assert r.headers["x-frame-options"] == "DENY"
 

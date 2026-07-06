@@ -64,6 +64,9 @@
             text-transform: uppercase; padding: .18rem .6rem; border-radius: 999px; }
     .pill.live { color: var(--live); background: var(--live-soft); }
     .pill.soon { color: var(--dim); background: var(--border); }
+    .pill.done { color: var(--accent); background: var(--accent-soft); }
+    code { background: var(--accent-soft); padding: .1rem .4rem; border-radius: 6px;
+           font-size: .85em; word-break: break-all; }
     .step-n { font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; }
 
     .lede { max-width: 52ch; color: var(--muted); margin-bottom: 1.3rem; margin-top: -.4rem; }
@@ -94,6 +97,7 @@
         <a href="#connectors">Connectors</a>
         <a href="#how">How it works</a>
         <a href="#security">Security</a>
+        <a href="#graduated">No longer missing</a>
         <a href="https://github.com/VelkyVenik/missingmcp">GitHub</a>
       </nav>
     </div>
@@ -120,12 +124,6 @@
           <h3>Garmin</h3>
           <p>Your training, sleep, and health data. Ask how you slept, review yesterday&rsquo;s ride, or have Claude plan next week&rsquo;s workouts.</p>
           <a class="go" href="/garmin">Connect Garmin &rarr;</a>
-        </div>
-        <div class="card">
-          <span class="pill live">Live</span>
-          <h3>Rohl&iacute;k</h3>
-          <p>Groceries from Claude. Reorder your usuals, turn a recipe into a cart, check delivery slots.</p>
-          <a class="go" href="/rohlik">Connect Rohl&iacute;k &rarr;</a>
         </div>
         <div class="card">
           <h3>Missing something?</h3>
@@ -184,6 +182,21 @@
         <div>
           <h3>Open source, run by a person</h3>
           <p>This instance is run by {OPERATOR_NAME}. The full source is <a href="https://github.com/VelkyVenik/missingmcp">on GitHub</a> &mdash; audit it, or run your own.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="graduated">
+    <div class="wrap">
+      <h2 class="sec-h">No longer missing</h2>
+      <p class="lede">The best possible ending for a connector: the service ships an official one. These apps now speak MCP themselves &mdash; connect them directly, no gateway needed.</p>
+      <div class="cards">
+        <div class="card">
+          <span class="pill done">Official MCP &check;</span>
+          <h3>Rohl&iacute;k</h3>
+          <p>Rohl&iacute;k now runs its own MCP server with proper OAuth sign-in. Add <code>https://mcp.rohlik.cz/mcp</code> as a custom connector in Claude and log in with your Rohl&iacute;k account &mdash; no password stored anywhere.</p>
+          <a class="go" href="https://www.rohlik.cz/stranka/mcp-server" target="_blank" rel="noopener noreferrer">Rohl&iacute;k&rsquo;s official guide &rarr;</a>
         </div>
       </div>
     </div>
