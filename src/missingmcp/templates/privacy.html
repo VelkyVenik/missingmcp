@@ -1,0 +1,76 @@
+  <div class="page-hero">
+    <div class="wrap">
+      <h1>Privacy</h1>
+      <p>MissingMCP stores the minimum needed to connect your accounts to Claude &mdash; and none of your actual data.</p>
+    </div>
+  </div>
+
+  <section id="who">
+    <div class="wrap">
+      <h2 class="sec-h">Who runs this</h2>
+      <div class="prose">
+        <p>This instance is operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>. MissingMCP is fully open source &mdash; the entire gateway is on <a href="https://github.com/VelkyVenik/missingmcp">GitHub</a>, so you can audit exactly what it does, or self-host your own instance instead of trusting this one.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="stored">
+    <div class="wrap">
+      <h2 class="sec-h">What we store</h2>
+      <p class="lede">Per connected account, and nothing more:</p>
+      <div class="prose">
+        <ul>
+          <li>Your sign-in identifier for the connected service (the account email).</li>
+          <li>Encrypted credentials for the connected service &mdash; <strong>AES-256-GCM</strong> at rest. For WHOOP: read-only OAuth tokens issued by WHOOP (your WHOOP password is never entered here). For Garmin: session tokens (your password is used once to sign in and never stored).</li>
+          <li>SHA-256 hashes of the gateway&rsquo;s own access tokens &mdash; never the tokens themselves.</li>
+          <li>Per-account tool-usage counters: tool name, call count, and last-used timestamp &mdash; never tool arguments or results.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="never-stored">
+    <div class="wrap">
+      <h2 class="sec-h">What we never store</h2>
+      <div class="prose">
+        <p>Your health, fitness or activity data. It passes through on demand between the connected service and your Claude client and is not written to disk. No analytics, no ads, no trackers, no cookies.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sharing">
+    <div class="wrap">
+      <h2 class="sec-h">Sharing &amp; logs</h2>
+      <div class="prose">
+        <p>Data flows only between your Claude client and the connected service &mdash; nothing is sold or shared with third parties. Operational logs (hosted on Railway) record account email, tool names, and timings for monitoring &mdash; never token values, never your data.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="revoke">
+    <div class="wrap">
+      <h2 class="sec-h">Revoke &amp; delete</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Disconnect in Claude</h3>
+          <p>Settings &rarr; Connectors &rarr; remove the connector.</p>
+        </div>
+        <div class="card">
+          <h3>Revoke at the source</h3>
+          <p>WHOOP: app settings &rarr; connected apps. Garmin: change your password or manage sessions.</p>
+        </div>
+        <div class="card">
+          <h3>Delete everything</h3>
+          <p>Email the operator{OPERATOR_EMAIL} to have every stored record of your account deleted.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="note">
+    <div class="wrap">
+      <div class="note">
+        This page may be updated as connectors are added. The source of truth is always the <a href="https://github.com/VelkyVenik/missingmcp">open-source repo</a>.
+      </div>
+    </div>
+  </section>

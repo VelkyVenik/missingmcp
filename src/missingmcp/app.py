@@ -55,6 +55,14 @@ def build_app(config: Config) -> Starlette:
     async def home(request):
         return HTMLResponse(home_page)
 
+    privacy_page = _render(
+        "privacy.html", "Privacy — MissingMCP",
+        "What MissingMCP stores, what it never stores, and how to revoke "
+        "access or delete your data.")
+
+    async def privacy(request):
+        return HTMLResponse(privacy_page)
+
     async def notfound(request):
         # Catch-all for unknown GET paths: humans get the MissingMCP home
         # (with links to every connector) but with a 404 status so
@@ -191,6 +199,7 @@ def build_app(config: Config) -> Starlette:
 
     routes = [
         Route("/", home, methods=["GET"]),
+        Route("/privacy", privacy, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),

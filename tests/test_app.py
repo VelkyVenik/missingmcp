@@ -136,3 +136,18 @@ def test_home_shows_whoop_card(tmp_path):
     r = c.get("/")
     assert 'href="/whoop"' in r.text
     assert "WHOOP" in r.text
+
+
+def test_privacy_page(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/privacy")
+    assert r.status_code == 200
+    assert "AES-256-GCM" in r.text
+    assert "never stored" in r.text or "never store" in r.text
+    assert "the operator" in r.text          # OPERATOR_NAME default filled by _render
+
+
+def test_footer_links_privacy(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/")
+    assert 'href="/privacy"' in r.text
