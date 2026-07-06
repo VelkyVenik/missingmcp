@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import json
 import os
 from pathlib import Path
 from starlette.applications import Starlette
@@ -39,17 +40,30 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     bk = backup.Backup(config)
 
-    def _render(name: str, title: str, desc: str | None = None) -> str:
-        return pages.render_page(name, title, desc).replace(
+    def _render(name: str, title: str, desc: str | None = None,
+                path: str = "/", extra_head: str = "") -> str:
+        return pages.render_page(
+            name, title, desc, public_url=config.public_url, path=path,
+            extra_head=extra_head,
+        ).replace(
             "{PUBLIC_URL}", config.public_url
         ).replace("{OPERATOR}", pages.operator_html(config)).replace(
             "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
         )
 
+    def _json_ld(data: dict) -> str:
+        # ld+json is a data block, never executed — CSP script-src doesn't apply
+        return ('<script type="application/ld+json">'
+                + json.dumps({"@context": "https://schema.org", **data})
+                + "</script>")
+
     home_page = _render(
-        "home.html", "MissingMCP — Your apps, in Claude",
-        "Connect Garmin and more to Claude in two minutes. Sign in once, "
-        "add a URL, start asking. Free and open source.")
+        "home.html", "MissingMCP — Garmin MCP Server & the Connectors Claude Is Missing",
+        "Connect Garmin to Claude in two minutes with a hosted Garmin MCP server "
+        "— sleep, training, and health data by asking. Sign in once, add a URL. "
+        "Free, open source, more connectors on the way.",
+        extra_head=_json_ld({"@type": "WebSite", "name": "MissingMCP",
+                             "url": config.public_url}))
 
     async def home(request):
         return HTMLResponse(home_page)
@@ -74,6 +88,42 @@ def build_app(config: Config) -> Starlette:
         return Response(favicon_svg, media_type="image/svg+xml",
                         headers={"Cache-Control": "public, max-age=86400"})
 
+    # --- crawler & AI-assistant surface, generated from the adapter registry
+    base = config.public_url
+    robots_txt = ("User-agent: *\nAllow: /\n"
+                  + "".join(f"Disallow: /{a.name}/oauth/\n" for a in adapters.values())
+                  + f"Sitemap: {base}/sitemap.xml\n")
+    sitemap_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "".join(f"  <url><loc>{base}{path}</loc></url>\n"
+                  for path in ["/"] + [f"/{a.name}" for a in adapters.values()])
+        + "</urlset>\n")
+    llms_txt = (
+        "# MissingMCP\n\n"
+        "> Hosted MCP connectors for Claude and other MCP clients — currently a "
+        "Garmin MCP server, with more services on the way. Users sign in once with "
+        "their own account; the gateway handles OAuth 2.1 (PKCE, dynamic client "
+        "registration) and forwards MCP traffic to a per-user upstream.\n\n"
+        "## Connectors\n"
+        + "".join(
+            f"- [{a.display_name}]({base}/{a.name}): hosted {a.display_name} MCP "
+            f"server. MCP endpoint: {base}/{a.name}/mcp (Streamable HTTP, OAuth 2.1 "
+            f"— sign in with your own {a.display_name} account).\n"
+            for a in adapters.values())
+        + "\n## How to connect\n"
+        "- In Claude: Settings → Connectors → Add custom connector → paste the "
+        "MCP endpoint URL above.\n\n"
+        "## Source\n"
+        "- Gateway: https://github.com/VelkyVenik/missingmcp\n"
+        "- Garmin worker: https://github.com/Taxuspt/garmin_mcp\n")
+
+    def _text(body: str, media_type: str):
+        async def handler(request):
+            return Response(body, media_type=media_type,
+                            headers={"Cache-Control": "public, max-age=3600"})
+        return handler
+
     def static_png(name):
         body = _assets[name]
 
@@ -85,11 +135,25 @@ def build_app(config: Config) -> Starlette:
     def adapter_routes(adapter):
         p = adapter.name
         manager = managers.get(p)          # None for remote-forward adapters
+        # SEO pattern scales per adapter: "<Name> MCP Server" is the query
+        # people actually search for ("garmin mcp", "whoop mcp", ...).
+        landing_desc = (f"Hosted {adapter.display_name} MCP server: connect your "
+                        f"{adapter.display_name} account to Claude in two minutes. "
+                        "Sign in once, add a URL, start asking. Free and open source.")
         landing_page = _render(
             adapter.landing_template,
-            f"{adapter.display_name} connector — MissingMCP",
-            f"Connect your {adapter.display_name} account to Claude — "
-            "sign in once, add a URL, start asking.")
+            f"{adapter.display_name} MCP Server — Connect {adapter.display_name} "
+            "to Claude | MissingMCP",
+            landing_desc, path=f"/{p}",
+            extra_head=_json_ld({
+                "@type": "SoftwareApplication",
+                "name": f"{adapter.display_name} MCP Server (MissingMCP)",
+                "url": f"{config.public_url}/{p}",
+                "applicationCategory": "UtilitiesApplication",
+                "operatingSystem": "Web",
+                "description": landing_desc,
+                "offers": {"@type": "Offer", "price": "0"},
+            }))
 
         async def landing(request):
             return HTMLResponse(landing_page)
@@ -181,6 +245,9 @@ def build_app(config: Config) -> Starlette:
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
+        Route("/robots.txt", _text(robots_txt, "text/plain"), methods=["GET"]),
+        Route("/sitemap.xml", _text(sitemap_xml, "application/xml"), methods=["GET"]),
+        Route("/llms.txt", _text(llms_txt, "text/plain"), methods=["GET"]),
         Route("/static/icon.png", static_png("icon.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
         Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),

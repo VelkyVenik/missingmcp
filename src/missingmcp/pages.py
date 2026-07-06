@@ -14,13 +14,44 @@ def tpl(name: str) -> str:
     return (_TPL_DIR / name).read_text()
 
 
-def render_page(fragment: str, title: str, desc: str | None = None) -> str:
+def _head_meta(title: str, desc: str, public_url: str, path: str,
+               noindex: bool, extra_head: str) -> str:
+    """SEO head block: sign-in/MFA pages get noindex, indexable pages get a
+    canonical URL (the 404 catch-all serves the home fragment, so every stray
+    URL canonicalizes to /) plus Open Graph tags for link previews."""
+    lines = []
+    if noindex:
+        lines.append('<meta name="robots" content="noindex">')
+    elif public_url:
+        url = public_url + path
+        t, d = html.escape(title, quote=True), html.escape(desc, quote=True)
+        lines += [
+            f'<link rel="canonical" href="{url}">',
+            '<meta property="og:type" content="website">',
+            '<meta property="og:site_name" content="MissingMCP">',
+            f'<meta property="og:title" content="{t}">',
+            f'<meta property="og:description" content="{d}">',
+            f'<meta property="og:url" content="{url}">',
+            f'<meta property="og:image" content="{public_url}/static/icon.png">',
+            '<meta name="twitter:card" content="summary">',
+        ]
+    if extra_head:
+        lines.append(extra_head)
+    return "\n".join(f"  {line}" for line in lines)
+
+
+def render_page(fragment: str, title: str, desc: str | None = None, *,
+                public_url: str = "", path: str = "", noindex: bool = False,
+                extra_head: str = "") -> str:
     """Wrap a template fragment in the shared site layout. Placeholders inside
     the fragment ({PUBLIC_URL}, {ERROR}, {OAUTH_FIELDS}, ...) survive for the
     caller to fill afterwards."""
+    desc = desc or _DEFAULT_DESC
     return (tpl("_layout.html")
             .replace("{TITLE}", title)
-            .replace("{DESC}", desc or _DEFAULT_DESC)
+            .replace("{DESC}", desc)
+            .replace("{HEAD_META}", _head_meta(title, desc, public_url, path,
+                                               noindex, extra_head))
             .replace("{CONTENT}", tpl(fragment)))
 
 

@@ -102,6 +102,39 @@ def test_home_shows_logo_lockup(tmp_path):
     assert '/static/favicon-32.png' in r          # PNG favicon link
 
 
+def test_seo_crawler_surface(tmp_path):
+    # generated from the adapter registry, so a new adapter shows up everywhere
+    c = _client(tmp_path)
+    robots = c.get("/robots.txt")
+    assert robots.status_code == 200 and "text/plain" in robots.headers["content-type"]
+    assert "Disallow: /garmin/oauth/" in robots.text
+    assert "Sitemap: https://gw.example.com/sitemap.xml" in robots.text
+    sitemap = c.get("/sitemap.xml").text
+    assert "<loc>https://gw.example.com/</loc>" in sitemap
+    assert "<loc>https://gw.example.com/garmin</loc>" in sitemap
+    llms = c.get("/llms.txt").text
+    assert "https://gw.example.com/garmin/mcp" in llms
+
+
+def test_seo_head_meta(tmp_path):
+    c = _client(tmp_path)
+    home = c.get("/").text
+    assert '<link rel="canonical" href="https://gw.example.com/">' in home
+    assert "Garmin MCP Server" in home                     # title targets the query
+    garmin = c.get("/garmin").text
+    assert '<link rel="canonical" href="https://gw.example.com/garmin">' in garmin
+    assert "<title>Garmin MCP Server — Connect Garmin to Claude | MissingMCP" in garmin
+    assert 'property="og:title"' in garmin
+    assert '"@type": "SoftwareApplication"' in garmin      # JSON-LD data block
+
+
+def test_home_features_garmin_first(tmp_path):
+    r = _client(tmp_path).get("/").text
+    assert 'class="card featured"' in r
+    assert "Your watch has the answers." in r              # featured tagline
+    assert 'class="pill soon"' in r                        # roadmap card (Whoop)
+
+
 def test_operator_link_comes_from_config(tmp_path):
     # OPERATOR_URL set → the operator name is a link to it; unset → plain text.
     cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
