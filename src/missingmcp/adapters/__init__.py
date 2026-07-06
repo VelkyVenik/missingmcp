@@ -8,4 +8,10 @@ def build_adapters(config) -> dict:
     # shipped its own OAuth MCP (connect https://mcp.rohlik.cz/mcp directly).
     # The remote strategy stays first-class: see tests/test_remote_forward.py.
     from .garmin import GarminAdapter
-    return {"garmin": GarminAdapter(config)}
+    adapters = {"garmin": GarminAdapter(config)}
+    # whoop needs an operator-registered WHOOP app; without credentials the
+    # connector stays off (local dev, CI) — same pattern as BACKUP_S3_*.
+    if config.whoop_client_id and config.whoop_client_secret:
+        from .whoop import WhoopAdapter
+        adapters["whoop"] = WhoopAdapter(config)
+    return adapters

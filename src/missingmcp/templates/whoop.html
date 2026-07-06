@@ -1,0 +1,142 @@
+<!-- Connector page — follows the section skeleton established by garmin.html:
+     hero → what is this → what Claude can see → how to connect
+     → tips & tricks → under the hood → all tools. -->
+  <div class="page-hero">
+    <div class="wrap">
+      <span class="pill live">Live</span>
+      <h1>WHOOP, <span class="hl">in Claude</span>.</h1>
+      <p>Recovery, sleep, and strain &mdash; every score your band computes, available in a conversation. Ask why today&rsquo;s recovery dipped, how your HRV is trending, or whether your training load matches your sleep.</p>
+      <div class="cta-row">
+        <a class="btn" href="#connect">Connect in 2 minutes</a>
+        <span class="quiet">Server URL: <code>{PUBLIC_URL}/whoop/mcp</code></span>
+      </div>
+    </div>
+  </div>
+
+  <section id="about">
+    <div class="wrap">
+      <h2 class="sec-h">What is this?</h2>
+      <div class="prose">
+        <p>The WHOOP app shows you today&rsquo;s numbers &mdash; but the questions that matter span weeks: <em>&ldquo;What does my recovery do after late workouts?&rdquo;</em>, <em>&ldquo;Is my HRV actually improving this training block?&rdquo;</em>, <em>&ldquo;How much sleep do I really need before a hard day?&rdquo;</em> This connector plugs your WHOOP account into Claude, so you can just ask.</p>
+        <p>Claude reads the same data your app does &mdash; recovery scores, sleep stages, strain, workouts, body measurements &mdash; and does what the app can&rsquo;t: correlate, summarize, and explain across any time range.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="data">
+    <div class="wrap">
+      <h2 class="sec-h">What Claude can see</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Recovery</h3>
+          <p>Daily recovery percentage with HRV, resting heart rate, SpO2, and skin temperature behind it.</p>
+        </div>
+        <div class="card">
+          <h3>Sleep</h3>
+          <p>Sleep stages, time in bed, efficiency, respiratory rate, and how much sleep you actually needed.</p>
+        </div>
+        <div class="card">
+          <h3>Strain &amp; cycles</h3>
+          <p>Day strain, average and max heart rate, and energy burned for every physiological cycle.</p>
+        </div>
+        <div class="card">
+          <h3>Workouts</h3>
+          <p>Every logged activity with sport, strain, heart-rate profile, and distance where available.</p>
+        </div>
+        <div class="card">
+          <h3>Body measurements</h3>
+          <p>Height, weight, and max heart rate on record.</p>
+        </div>
+        <div class="card">
+          <h3>Across time</h3>
+          <p>Everything is paginated by date range, so Claude can pull a week, a month, or a whole season and reason over it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="connect">
+    <div class="wrap">
+      <h2 class="sec-h">How to connect</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Step 1</span>
+          <h3>Copy the server URL</h3>
+          <p><code>{PUBLIC_URL}/whoop/mcp</code></p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 2</span>
+          <h3>Add it to Claude</h3>
+          <p>Settings &rarr; Connectors &rarr; Add custom connector. Works on phone, desktop, and web &mdash; or <code>claude mcp add --transport http whoop {PUBLIC_URL}/whoop/mcp</code> in the CLI.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 3</span>
+          <h3>Sign in at WHOOP</h3>
+          <p>You&rsquo;re sent to WHOOP&rsquo;s own sign-in page to approve read access &mdash; your WHOOP password is never typed here and never touches this server.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 4</span>
+          <h3>Start asking</h3>
+          <p>Claude picks up the WHOOP tools automatically. Try &ldquo;How recovered am I today, and why?&rdquo;</p>
+        </div>
+      </div>
+      <div class="note warn">
+        <strong>Before you connect:</strong> sign-in happens at WHOOP &mdash; this gateway <strong>never sees your password</strong>. It stores only the resulting access tokens, <strong>encrypted</strong> (AES-256-GCM), with read-only scopes; your health data passes through on demand and is not stored. You can revoke access anytime in your WHOOP app settings. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
+      </div>
+    </div>
+  </section>
+
+  <section id="tips">
+    <div class="wrap">
+      <h2 class="sec-h">Tips &amp; tricks</h2>
+      <p class="lede">Prompts that show what the connector can really do &mdash; skills and ready-made prompt packs will land here too.</p>
+      <!-- TIPS: add links to Claude skills & prompt packs here as .card items -->
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Morning check-in</h3>
+          <p>&ldquo;Look at today&rsquo;s recovery, last night&rsquo;s sleep, and this week&rsquo;s strain &mdash; how hard should I train today?&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Trend detective</h3>
+          <p>&ldquo;Pull the last 30 days of recoveries and sleeps. What correlates with my worst mornings &mdash; short sleep, late workouts, anything else?&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Training block review</h3>
+          <p>&ldquo;Summarize my strain vs. recovery balance for the past two weeks. Am I overreaching, or is there room to push?&rdquo;</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="under-the-hood">
+    <div class="wrap">
+      <h2 class="sec-h">Under the hood</h2>
+      <div class="prose">
+        <p>This connector is built into the gateway itself, on top of <a href="https://developer.whoop.com/">WHOOP&rsquo;s official developer API</a> (v2) &mdash; no reverse engineering, no password handling. Sign-in is WHOOP&rsquo;s own OAuth: the gateway receives read-only tokens, refreshes them automatically, and keeps them encrypted at rest.</p>
+        <p>Everything is open source in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a> &mdash; audit it, or self-host the whole thing with your own WHOOP developer app.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap">
+      <h2 class="sec-h">All tools</h2>
+<!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_whoop_tools.py -->
+      <p class="lede">Tools are listed here once <code>scripts/gen_whoop_tools.py</code> runs (Task 7).</p>
+<!-- GENERATED:TOOLS:END -->
+    </div>
+  </section>
+
+  <div class="final">
+    <div class="wrap">
+      <div class="inner">
+        <h2>Your band has the <span class="hl">answers</span>.</h2>
+        <p>Two minutes from now you can ask for them &mdash; free, open source, revocable anytime.</p>
+        <a class="btn" href="#connect">Connect WHOOP</a>
+        <p class="beer">Did this help you? <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></p>
+      </div>
+    </div>
+  </div>

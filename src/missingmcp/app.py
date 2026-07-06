@@ -11,7 +11,7 @@ from . import backup, store, oauth, pages, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters
-from .adapters.base import is_remote, is_local
+from .adapters.base import is_remote, is_local, is_upstream_oauth
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -114,6 +114,11 @@ def build_app(config: Config) -> Starlette:
                 return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
             return await oauth.authorize_post(request, adapter, auth_state, conn, config)
 
+        async def callback(request):
+            if not rate.check(f"login:{request.client.host}", 5, 60):
+                return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
+            return await oauth.authorize_callback(request, adapter, auth_state, conn, config)
+
         async def token(request):
             if not rate.check(f"oauth:{request.client.host}", 20, 60):
                 return JSONResponse({"error": "rate_limited"}, status_code=429)
@@ -125,18 +130,25 @@ def build_app(config: Config) -> Starlette:
                                               config, config.gateway_secret, rate)
             return handler
 
-        return [
+        routes = [
             Route(f"/{p}", landing, methods=["GET"]),
             Route(f"/.well-known/oauth-authorization-server/{p}", meta, methods=["GET"]),
             Route(f"/.well-known/oauth-protected-resource/{p}/mcp", prmeta, methods=["GET"]),
             Route(f"/{p}/oauth/register", register, methods=["POST"]),
             Route(f"/{p}/oauth/authorize", authz_get, methods=["GET"]),
-            Route(f"/{p}/oauth/authorize", authz_post, methods=["POST"]),
+        ]
+        if is_upstream_oauth(adapter):
+            # login happens at the provider: callback instead of a form POST
+            routes.append(Route(f"/{p}/oauth/callback", callback, methods=["GET"]))
+        else:
+            routes.append(Route(f"/{p}/oauth/authorize", authz_post, methods=["POST"]))
+        routes += [
             Route(f"/{p}/oauth/token", token, methods=["POST"]),
             Route(f"/{p}/mcp", mcp("POST"), methods=["POST"]),
             Route(f"/{p}/mcp", mcp("GET"), methods=["GET"]),
             Route(f"/{p}/mcp", mcp("DELETE"), methods=["DELETE"]),
         ]
+        return routes
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
