@@ -62,14 +62,17 @@ async def register_client(request, conn, adapter) -> JSONResponse:
 def _authorize_page(adapter, config) -> str:
     # {OPERATOR} is trusted HTML (escaped inside operator_html) — it must be
     # replaced into the raw template, never through _fill's escaping pass.
+    # noindex: sign-in forms must not land in search results.
     return pages.render_page(
         adapter.authorize_template, f"Connect {adapter.display_name} — MissingMCP",
+        noindex=True,
     ).replace("{OPERATOR}", pages.operator_html(config))
 
 
 def _second_factor_page(adapter, config) -> str:
     return pages.render_page(
         adapter.second_factor_template, f"{adapter.display_name} verification — MissingMCP",
+        noindex=True,
     ).replace("{OPERATOR}", pages.operator_html(config))
 
 
