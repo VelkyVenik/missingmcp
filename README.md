@@ -1,12 +1,17 @@
-# Garmin MCP Gateway
+# MissingMCP
 
-A multi-user, OAuth 2.1–protected gateway that lets a small trusted circle each
-connect their own [Garmin Connect](https://connect.garmin.com) account to Claude
-(iOS, Android, Web, Desktop). It wraps the **unmodified**
-[`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and adds OAuth,
-per-user token isolation, and a reverse proxy. The core is adapter-based and
-also supports a second forward strategy (remote MCP + header injection) for
-services with a hosted MCP that lacks its own OAuth — see [Connectors](#connectors).
+*The MCP servers exist. Connecting them shouldn't be complicated.*
+
+A multi-user, OAuth 2.1–protected gateway that hosts the connectors Claude is
+missing, so a small trusted circle can connect their own accounts from any
+Claude client (iOS, Android, Web, Desktop). The flagship connector is
+[Garmin Connect](https://connect.garmin.com): the gateway wraps the
+**unmodified** [`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and
+adds OAuth, per-user token isolation, and a reverse proxy. The core is
+adapter-based and also supports a second forward strategy (remote MCP + header
+injection) for services with a hosted MCP that lacks its own OAuth — see
+[Connectors](#connectors). The reference deployment runs at
+[missingmcp.com](https://missingmcp.com).
 
 ```
 Claude → POST /garmin/mcp (Bearer) → Gateway → 127.0.0.1:<port>/mcp (per-user garmin_mcp) → connect.garmin.com
@@ -32,10 +37,22 @@ their Garmin credentials, and never touch a terminal or a token file.
   `127.0.0.1`, started on demand and reaped when idle.
 - **Hardened** — one-time 10-min auth codes, CSRF on forms, per-IP/-token rate
   limits, the `garmin_mcp` worker pinned to a reviewed commit.
+- **Off-box backups** — periodic encrypted SQLite snapshots to an S3-compatible
+  bucket (see [Backups](#backups)).
 - **Instructional landing page** served on `/` and as a friendly fallback for
   unknown paths.
 
-## Quick start (Docker)
+## Deploy
+
+**Railway (how missingmcp.com runs):** one service built from the `Dockerfile`,
+a volume mounted at `/data`, a single replica (the gateway keeps process-local
+state by design), and TLS terminated at the Railway edge. Set the env vars from
+[Configuration](#configuration) on the service; pushes to `main` deploy
+automatically once the service is connected to the GitHub repo. An optional
+Railway bucket enables [Backups](#backups) (`railway bucket create backups`,
+then wire its credentials as the `BACKUP_S3_*` variables).
+
+**Self-hosted (Docker Compose):**
 
 ```bash
 cp .env.example .env          # set GATEWAY_SECRET, PUBLIC_URL, pin GARMIN_MCP_REF
@@ -106,7 +123,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `DATA_DIR` | no | `/data` | Where the SQLite DB and per-user token dirs live. |
 | `DB_PATH` | no | `$DATA_DIR/gateway.db` | Override the DB path. |
 | `GARMIN_MCP_CMD` | no | `garmin-mcp` | Command to spawn the worker. Use a `uvx …` invocation when `garmin-mcp` isn't on PATH. |
-| `GARMIN_MCP_REF` | no | `main` | Docker build arg: commit/ref of `garmin_mcp` to install. Pin to a SHA. |
+| `GARMIN_MCP_REF` | no | pinned SHA in `Dockerfile` | Docker build arg: commit of `garmin_mcp` to install. Bumping it is a deliberate, reviewed action. |
 | `WORKER_PORT_START` / `WORKER_PORT_END` | no | `9000` / `9099` | Port range for per-user workers. |
 | `WORKER_IDLE_TTL` | no | `900` | Seconds before an idle worker is reaped. |
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
