@@ -52,15 +52,19 @@ automatically once the service is connected to the GitHub repo. An optional
 Railway bucket enables [Backups](#backups) (`railway bucket create backups`,
 then wire its credentials as the `BACKUP_S3_*` variables).
 
-**Self-hosted (Docker Compose):**
+**Self-hosted (plain Docker):**
 
 ```bash
 cp .env.example .env          # set GATEWAY_SECRET, PUBLIC_URL, pin GARMIN_MCP_REF
-docker compose up -d --build
+docker build -t missingmcp .
+docker run -d --name missingmcp --restart unless-stopped --env-file .env \
+  -p 127.0.0.1:8080:8080 -v missingmcp-data:/data missingmcp
 ```
 
-Put nginx in front for TLS + your domain (see [`nginx.conf.example`](nginx.conf.example)),
-then add `https://<your-domain>/garmin/mcp` as a remote MCP server in Claude.
+Put any TLS-terminating proxy in front (Caddy, nginx, Traefik). One non-obvious
+requirement: `/​<adapter>/mcp` streams SSE, so disable response buffering and
+raise the read timeout (nginx: `proxy_buffering off; proxy_read_timeout 3600s;`).
+Then add `https://<your-domain>/garmin/mcp` as a remote MCP server in Claude.
 
 ## Local development
 
@@ -178,8 +182,8 @@ python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool b
 inside the container. `status.py` finds the DB under `/data` automatically:
 
 ```bash
-docker compose exec gateway python /app/scripts/status.py
-docker compose logs -f gateway              # live structured-JSON events
+docker exec missingmcp python /app/scripts/status.py
+docker logs -f missingmcp                   # live structured-JSON events
 ```
 
 **On Railway** run them over `railway ssh`; logs live in the Railway dashboard
