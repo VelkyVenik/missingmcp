@@ -135,10 +135,13 @@
     .beer { margin-top: 1.4rem; font-size: .9rem; color: var(--muted); }
 
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
-    footer .wrap > div + div { margin-top: .3rem; }
-    /* Each item keeps its trailing separator dot: lines break between items,
-       never leaving a dot stranded at the start of a wrapped line. */
+    footer .wrap > div + div { margin-top: .45rem; }
+    /* No separator dots between links — a wrapping flex row with gaps stays
+       tidy at any width; nowrap spans make prose lines break only between
+       sentences, never mid-name. */
     footer span { white-space: nowrap; }
+    .foot-links { display: flex; flex-wrap: wrap; column-gap: 1.3rem; row-gap: .3rem; }
+    .foot-links a { white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -159,8 +162,13 @@
 {CONTENT}
   <footer>
     <div class="wrap">
-      <div><span>MissingMCP &middot;</span> <span>The connectors Claude is missing.</span> <span>Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</span></div>
-      <div><span><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot;</span> <span>This instance is run by {OPERATOR} &middot;</span> <span><a href="/privacy">Privacy</a> &middot;</span> <span><a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></span></div>
+      <div><span>MissingMCP &middot; The connectors Claude is missing.</span> <span>Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</span></div>
+      <div class="foot-links">
+        <a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a>
+      </div>
+      <div><span>This instance is run by {OPERATOR}.</span></div>
     </div>
   </footer>
 </body>
