@@ -7,7 +7,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import backup, store, oauth, proxy, security
+from . import backup, store, oauth, pages, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters
@@ -39,14 +39,17 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     bk = backup.Backup(config)
 
-    def _render(name: str) -> str:
-        return (_TPL / name).read_text().replace(
+    def _render(name: str, title: str, desc: str | None = None) -> str:
+        return pages.render_page(name, title, desc).replace(
             "{PUBLIC_URL}", config.public_url
         ).replace("{OPERATOR_NAME}", config.operator_name).replace(
             "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
         )
 
-    home_page = _render("home.html")
+    home_page = _render(
+        "home.html", "MissingMCP — Your apps, in Claude",
+        "Connect Garmin and more to Claude in two minutes. Sign in once, "
+        "add a URL, start asking. Free and open source.")
 
     async def home(request):
         return HTMLResponse(home_page)
@@ -82,7 +85,11 @@ def build_app(config: Config) -> Starlette:
     def adapter_routes(adapter):
         p = adapter.name
         manager = managers.get(p)          # None for remote-forward adapters
-        landing_page = _render(adapter.landing_template)
+        landing_page = _render(
+            adapter.landing_template,
+            f"{adapter.display_name} connector — MissingMCP",
+            f"Connect your {adapter.display_name} account to Claude — "
+            "sign in once, add a URL, start asking.")
 
         async def landing(request):
             return HTMLResponse(landing_page)

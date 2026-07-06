@@ -1,63 +1,354 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Garmin MCP Gateway</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 680px; margin: 0 auto; padding: 2rem 1rem; }
-    h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
-    h2 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #555; }
-    p { margin-bottom: 0.8rem; }
-    code { background: #f4f4f4; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.9em; }
-    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; font-size: 0.85em; }
-    pre code { background: none; padding: 0; }
-    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
-    li { margin-bottom: 0.4rem; }
-    a { color: #2563eb; }
-    .subtitle { color: #666; margin-bottom: 1.5rem; }
-    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 0.8rem 1rem; border-radius: 4px; margin: 1.2rem 0; font-size: 0.9rem; color: #92400e; }
-    .warning strong { color: #78350f; }
-    hr { border: none; border-top: 1px solid #eee; margin: 1.5rem 0; }
-    .bmc { display: inline-block; margin-top: 0.5rem; padding: 0.5rem 0.9rem; background: #FF813F; color: #fff; border-radius: 6px; text-decoration: none; font-size: 0.9rem; font-weight: 600; }
-    .site-logo { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; letter-spacing: -0.02em; color: #191c23; text-decoration: none; margin-bottom: 1.5rem; }
-    .site-logo img { width: 28px; height: 28px; display: block; }
-    .site-logo .mcp { color: #4f46e5; }
-    .site-logo .tld { color: #99a0b0; font-weight: 700; }
-  </style>
-</head>
-<body>
-  <a class="site-logo" href="/">
-    <img src="/static/icon.png" alt="MissingMCP" width="28" height="28">
-    <span>missing<span class="mcp">mcp</span><span class="tld">.com</span></span>
-  </a>
-  <h1>Garmin MCP Gateway</h1>
-  <p class="subtitle">Connect your <a href="https://connect.garmin.com">Garmin Connect</a> account to Claude (iOS, Android, Web, Desktop).</p>
-
-  <h2>What is this?</h2>
-  <p>This gateway lets you use your Garmin Connect data from Claude. It wraps the unmodified <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> server and adds OAuth so you can sign in securely &mdash; you authenticate once with your Garmin credentials and Claude handles the rest.</p>
-
-  <h2>How to connect</h2>
-  <ol>
-    <li>In any Claude client, go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> (or run <code>claude mcp add --transport http garmin {PUBLIC_URL}/garmin/mcp</code> in the CLI).</li>
-    <li>Set the Server URL to: <code>{PUBLIC_URL}/garmin/mcp</code></li>
-    <li>Claude opens a sign-in page &mdash; enter your Garmin Connect email and password (and an MFA code if prompted).</li>
-    <li>Once authenticated, Claude has access to your Garmin tools. Done!</li>
-  </ol>
-
-  <div class="warning">
-    <strong>Important:</strong> Your Garmin password is used once to sign in and is <strong>never stored</strong>. Only the resulting Garmin session tokens are kept on this server, encrypted with AES-256-GCM. <strong>Only use this gateway if you trust the server operator.</strong> This instance is operated by {OPERATOR_NAME}{OPERATOR_EMAIL}.
+<!-- Connector page template — every adapter's landing follows this section
+     order, so the site reads the same everywhere. Copy this skeleton for new
+     connectors: hero → what is this → what Claude can see → how to connect
+     → tips & tricks → under the hood → all tools. -->
+  <div class="page-hero">
+    <div class="wrap">
+      <span class="pill live">Live</span>
+      <h1>Garmin, <span class="hl">in Claude</span>.</h1>
+      <p>Everything your watch knows &mdash; training, sleep, recovery, health &mdash; available in a conversation. Ask questions, spot trends, and let Claude plan workouts that land right back on your wrist.</p>
+      <div class="cta-row">
+        <a class="btn" href="#connect">Connect in 2 minutes</a>
+        <span class="quiet">Server URL: <code>{PUBLIC_URL}/garmin/mcp</code></span>
+      </div>
+    </div>
   </div>
 
-  <p>Authentication uses OAuth 2.1 with PKCE. Your credentials are never shared with Claude &mdash; they are only used server-side to authenticate with Garmin. Your Garmin health &amp; activity data is passed through to Claude on demand and is <strong>not stored</strong> by this gateway.</p>
+  <section id="about">
+    <div class="wrap">
+      <h2 class="sec-h">What is this?</h2>
+      <div class="prose">
+        <p>Garmin Connect collects an enormous amount of data about you &mdash; but exploring it means tapping through app screens, one metric at a time. This connector plugs your Garmin account into Claude, so you can just ask: <em>&ldquo;How did I sleep this week?&rdquo;</em>, <em>&ldquo;Compare my last three long runs&rdquo;</em>, <em>&ldquo;Why is my training readiness low today?&rdquo;</em></p>
+        <p>Claude sees the same numbers your watch does, and can do what the app can&rsquo;t: correlate sleep with performance, summarize a season, or build next week&rsquo;s training plan and schedule it straight to your device.</p>
+      </div>
+    </div>
+  </section>
 
-  <p>If this gateway helped you, you can buy me a beer 🙂<br>
-  <a class="bmc" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">🍺 Buy me a beer</a></p>
+  <section id="data">
+    <div class="wrap">
+      <h2 class="sec-h">What Claude can see &amp; do</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Activities</h3>
+          <p>Runs, rides, swims, strength &mdash; with splits, heart-rate zones, power, weather, and gear for every activity.</p>
+        </div>
+        <div class="card">
+          <h3>Sleep &amp; recovery</h3>
+          <p>Sleep stages and scores, HRV, Body Battery, stress, and morning training readiness.</p>
+        </div>
+        <div class="card">
+          <h3>Health metrics</h3>
+          <p>Steps, heart rate, respiration, SpO2, blood pressure, hydration, and weight trends.</p>
+        </div>
+        <div class="card">
+          <h3>Training &amp; performance</h3>
+          <p>Training status and load, VO2max trend, race predictions, endurance and hill scores, personal records.</p>
+        </div>
+        <div class="card">
+          <h3>Workouts &amp; planning</h3>
+          <p>Not just reading: Claude can build interval, strength, and Zone&nbsp;2 workouts and schedule them onto your Garmin calendar.</p>
+        </div>
+        <div class="card">
+          <h3>Nutrition &amp; more</h3>
+          <p>Food logging, weigh-ins, body composition, gear tracking, devices, badges, and challenges.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  <hr>
-  <p><small><a href="https://github.com/VelkyVenik/missingmcp">Source code on GitHub</a> &middot; built on <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a></small></p>
-</body>
-</html>
+  <section id="connect">
+    <div class="wrap">
+      <h2 class="sec-h">How to connect</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Step 1</span>
+          <h3>Copy the server URL</h3>
+          <p><code>{PUBLIC_URL}/garmin/mcp</code></p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 2</span>
+          <h3>Add it to Claude</h3>
+          <p>Settings &rarr; Connectors &rarr; Add custom connector. Works on phone, desktop, and web &mdash; or <code>claude mcp add --transport http garmin {PUBLIC_URL}/garmin/mcp</code> in the CLI.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 3</span>
+          <h3>Sign in once</h3>
+          <p>Claude opens a sign-in page &mdash; enter your Garmin Connect email and password (and an MFA code if prompted).</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 4</span>
+          <h3>Start asking</h3>
+          <p>Claude picks up all the Garmin tools automatically. Try &ldquo;How did I sleep last night?&rdquo;</p>
+        </div>
+      </div>
+      <div class="note warn">
+        <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
+      </div>
+    </div>
+  </section>
+
+  <section id="tips">
+    <div class="wrap">
+      <h2 class="sec-h">Tips &amp; tricks</h2>
+      <p class="lede">Prompts that show what the connector can really do &mdash; skills and ready-made prompt packs will land here too.</p>
+      <!-- TIPS: add links to Claude skills & prompt packs here as .card items -->
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Weekly review</h3>
+          <p>&ldquo;Summarize my training week: volume, intensity, sleep quality, and how my body handled the load. What should I change next week?&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Coach mode</h3>
+          <p>&ldquo;Build me a 3-run week targeting a sub-50 10k &mdash; base it on my recent training load and schedule the workouts to my watch.&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Sleep detective</h3>
+          <p>&ldquo;Look at the last month: which habits correlate with my worst sleep scores &mdash; late workouts, stress peaks, anything else?&rdquo;</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="under-the-hood">
+    <div class="wrap">
+      <h2 class="sec-h">Under the hood</h2>
+      <div class="prose">
+        <p>The Garmin smarts come from <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a>, an open-source MCP server by Taxuspt &mdash; full credit to that project. It runs here <strong>unmodified</strong>; this site only operates it and adds the missing piece: a secure multi-user sign-in (OAuth 2.1), so you can connect from any Claude app without running a server or touching a config file yourself.</p>
+        <p>Everything is open source: the connector logic in <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a>, the gateway in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a>. Audit either &mdash; or self-host the whole thing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap">
+      <h2 class="sec-h">All tools</h2>
+<!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_garmin_tools.py -->
+      <p class="lede">All <strong>134 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/2974244bfda1595b00836b3f942f579ec2d6f7d6"><code>2974244</code></a>). Click a group to expand.</p>
+      <div class="tools">
+        <details>
+          <summary>Activities <span class="count">&middot; 21 tools</span></summary>
+          <dl>
+            <dt><code>get_activities_by_date</code></dt><dd>Get activities between specified dates with pagination support.</dd>
+            <dt><code>get_activities_fordate</code></dt><dd>Get activities for a specific date</dd>
+            <dt><code>get_activity</code></dt><dd>Get detailed information for a single activity.</dd>
+            <dt><code>set_activity_name</code></dt><dd>Set or update the name of an activity.</dd>
+            <dt><code>set_activity_type</code></dt><dd>Change the activity type (sport) of an activity.</dd>
+            <dt><code>set_activity_description</code></dt><dd>Set or update the free-text description (notes) of an activity.</dd>
+            <dt><code>set_activity_event_type</code></dt><dd>Set the event type of an activity.</dd>
+            <dt><code>set_perceived_effort</code></dt><dd>Set the perceived effort (RPE) for an activity.</dd>
+            <dt><code>set_activity_feel</code></dt><dd>Set how an activity felt (&#x27;How did you feel?&#x27;).</dd>
+            <dt><code>get_activity_splits</code></dt><dd>Get splits for an activity</dd>
+            <dt><code>get_activity_typed_splits</code></dt><dd>Get typed splits for an activity</dd>
+            <dt><code>get_activity_split_summaries</code></dt><dd>Get split summaries for an activity</dd>
+            <dt><code>get_activity_weather</code></dt><dd>Get weather data for an activity</dd>
+            <dt><code>get_activity_hr_in_timezones</code></dt><dd>Get heart rate data in different time zones for an activity</dd>
+            <dt><code>get_activity_power_in_timezones</code></dt><dd>Get power distribution across training zones for an activity.</dd>
+            <dt><code>get_activity_gear</code></dt><dd>Get gear data used for an activity</dd>
+            <dt><code>get_activity_exercise_sets</code></dt><dd>Get exercise sets for strength training activities</dd>
+            <dt><code>count_activities</code></dt><dd>Get total count of activities in the user&#x27;s Garmin account</dd>
+            <dt><code>get_activities</code></dt><dd>Get activities with pagination support.</dd>
+            <dt><code>create_manual_activity</code></dt><dd>Log a manual activity in Garmin Connect — useful for activities done without a watch.</dd>
+            <dt><code>get_activity_types</code></dt><dd>Get all available activity types</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Health &amp; wellness <span class="count">&middot; 29 tools</span></summary>
+          <dl>
+            <dt><code>get_stats</code></dt><dd>Get daily activity stats with curated essential metrics</dd>
+            <dt><code>get_user_summary</code></dt><dd>Get user summary data (compatible with garminconnect-ha)</dd>
+            <dt><code>get_body_composition</code></dt><dd>Get body composition data for a single date or date range</dd>
+            <dt><code>get_stats_and_body</code></dt><dd>Get stats and body composition data</dd>
+            <dt><code>get_steps_data</code></dt><dd>Get detailed steps data with 15-minute intervals</dd>
+            <dt><code>get_daily_steps</code></dt><dd>Get steps data for a date range</dd>
+            <dt><code>get_training_readiness</code></dt><dd>Get training readiness data with curated metrics</dd>
+            <dt><code>get_body_battery</code></dt><dd>Get body battery data with events</dd>
+            <dt><code>get_body_battery_events</code></dt><dd>Get body battery events data</dd>
+            <dt><code>get_blood_pressure</code></dt><dd>Get blood pressure data</dd>
+            <dt><code>get_floors</code></dt><dd>Get floors climbed data</dd>
+            <dt><code>get_rhr_day</code></dt><dd>Get resting heart rate data</dd>
+            <dt><code>get_heart_rates</code></dt><dd>Get full heart rate time-series data</dd>
+            <dt><code>get_heart_rates_summary</code></dt><dd>Get heart rate summary with essential metrics (lightweight version)</dd>
+            <dt><code>get_hydration_data</code></dt><dd>Get hydration data</dd>
+            <dt><code>get_sleep_data</code></dt><dd>Get full sleep data with all details</dd>
+            <dt><code>get_sleep_summary</code></dt><dd>Get sleep summary with only essential metrics (lightweight version)</dd>
+            <dt><code>get_stress_data</code></dt><dd>Get full stress time-series data</dd>
+            <dt><code>get_stress_summary</code></dt><dd>Get stress summary with essential metrics (lightweight version)</dd>
+            <dt><code>get_respiration_data</code></dt><dd>Get full respiration time-series data</dd>
+            <dt><code>get_respiration_summary</code></dt><dd>Get respiration summary with essential metrics (lightweight version)</dd>
+            <dt><code>get_spo2_data</code></dt><dd>Get SpO2 (blood oxygen) data</dd>
+            <dt><code>get_all_day_stress</code></dt><dd>Get all-day stress data</dd>
+            <dt><code>get_all_day_events</code></dt><dd>Get daily wellness events data</dd>
+            <dt><code>get_lifestyle_logging_data</code></dt><dd>Get lifestyle logging data for a specific date</dd>
+            <dt><code>get_weekly_steps</code></dt><dd>Get weekly step data aggregates</dd>
+            <dt><code>get_weekly_stress</code></dt><dd>Get weekly stress data aggregates</dd>
+            <dt><code>get_weekly_intensity_minutes</code></dt><dd>Get weekly intensity minutes data aggregates</dd>
+            <dt><code>get_morning_training_readiness</code></dt><dd>Get morning training readiness score</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Profile &amp; settings <span class="count">&middot; 4 tools</span></summary>
+          <dl>
+            <dt><code>get_full_name</code></dt><dd>Get user&#x27;s full name from profile</dd>
+            <dt><code>get_unit_system</code></dt><dd>Get user&#x27;s preferred unit system from profile</dd>
+            <dt><code>get_user_profile</code></dt><dd>Get user profile information</dd>
+            <dt><code>get_userprofile_settings</code></dt><dd>Get user profile settings</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Devices <span class="count">&middot; 6 tools</span></summary>
+          <dl>
+            <dt><code>get_devices</code></dt><dd>Get all Garmin devices associated with the user account</dd>
+            <dt><code>get_device_last_used</code></dt><dd>Get information about the last used Garmin device</dd>
+            <dt><code>get_device_settings</code></dt><dd>Get settings for a specific Garmin device</dd>
+            <dt><code>get_primary_training_device</code></dt><dd>Get information about the primary training device</dd>
+            <dt><code>get_device_solar_data</code></dt><dd>Get solar data for a specific device</dd>
+            <dt><code>get_device_alarms</code></dt><dd>Get alarms from all Garmin devices</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Gear <span class="count">&middot; 3 tools</span></summary>
+          <dl>
+            <dt><code>get_gear</code></dt><dd>Get all gear registered with the user account</dd>
+            <dt><code>add_gear_to_activity</code></dt><dd>Associate gear with an activity</dd>
+            <dt><code>remove_gear_from_activity</code></dt><dd>Remove gear association from an activity</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Weight &amp; body composition <span class="count">&middot; 5 tools</span></summary>
+          <dl>
+            <dt><code>get_weigh_ins</code></dt><dd>Get weight measurements between specified dates</dd>
+            <dt><code>get_daily_weigh_ins</code></dt><dd>Get weight measurements for a specific date</dd>
+            <dt><code>delete_weigh_ins</code></dt><dd>Delete weight measurements for a specific date</dd>
+            <dt><code>add_weigh_in</code></dt><dd>Add a new weight measurement</dd>
+            <dt><code>add_weigh_in_with_timestamps</code></dt><dd>Add a new weight measurement with specific timestamps</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Challenges &amp; badges <span class="count">&middot; 9 tools</span></summary>
+          <dl>
+            <dt><code>get_goals</code></dt><dd>Get Garmin Connect goals (active, future, or past)</dd>
+            <dt><code>get_personal_record</code></dt><dd>Get personal records for user</dd>
+            <dt><code>get_earned_badges</code></dt><dd>Get earned badges for user</dd>
+            <dt><code>get_adhoc_challenges</code></dt><dd>Get user-created social/group challenges (e.g., step competitions with friends)</dd>
+            <dt><code>get_available_badge_challenges</code></dt><dd>Get official Garmin badge challenges available to join</dd>
+            <dt><code>get_badge_challenges</code></dt><dd>Get all badge challenges the user has joined (completed and in-progress)</dd>
+            <dt><code>get_non_completed_badge_challenges</code></dt><dd>Get badge challenges currently in progress (not yet completed)</dd>
+            <dt><code>get_race_predictions</code></dt><dd>Get predicted race times based on current fitness level</dd>
+            <dt><code>get_inprogress_virtual_challenges</code></dt><dd>Get in-progress virtual challenges/expeditions</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Training &amp; performance <span class="count">&middot; 14 tools</span></summary>
+          <dl>
+            <dt><code>get_progress_summary_between_dates</code></dt><dd>Get progress summary for a metric between dates</dd>
+            <dt><code>get_hill_score</code></dt><dd>Get hill score data between dates</dd>
+            <dt><code>get_endurance_score</code></dt><dd>Get endurance score data between dates</dd>
+            <dt><code>get_training_effect</code></dt><dd>Get training effect data for a specific activity</dd>
+            <dt><code>get_hrv_data</code></dt><dd>Get Heart Rate Variability (HRV) data</dd>
+            <dt><code>get_fitnessage_data</code></dt><dd>Get fitness age data</dd>
+            <dt><code>get_training_status</code></dt><dd>Get training status with curated metrics</dd>
+            <dt><code>get_cycling_ftp</code></dt><dd>Get the latest cycling Functional Threshold Power (FTP) data.</dd>
+            <dt><code>get_lactate_threshold</code></dt><dd>Get lactate threshold data</dd>
+            <dt><code>request_reload</code></dt><dd>Request reload of epoch data</dd>
+            <dt><code>get_training_load_trend</code></dt><dd>Get the Performance Management Chart (CTL/ATL/TSB) over a date range.</dd>
+            <dt><code>get_hrv_trend</code></dt><dd>Get HRV (Heart Rate Variability) trend over a date range.</dd>
+            <dt><code>get_vo2max_trend</code></dt><dd>Get VO2 max trend over a date range.</dd>
+            <dt><code>get_respiration_trend</code></dt><dd>Get overnight respiration rate trend over a date range.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Workouts <span class="count">&middot; 13 tools</span></summary>
+          <dl>
+            <dt><code>get_workouts</code></dt><dd>Get all workouts with curated summary list</dd>
+            <dt><code>get_workout_by_id</code></dt><dd>Get detailed information for a specific workout</dd>
+            <dt><code>download_workout</code></dt><dd>Download a workout as a FIT file</dd>
+            <dt><code>upload_workout</code></dt><dd>Upload a workout from JSON data</dd>
+            <dt><code>upload_workouts</code></dt><dd>Upload multiple workouts from JSON data in a single call</dd>
+            <dt><code>delete_workout</code></dt><dd>Delete a workout from Garmin Connect</dd>
+            <dt><code>delete_workouts</code></dt><dd>Delete multiple workouts from Garmin Connect in a single call</dd>
+            <dt><code>get_scheduled_workouts</code></dt><dd>Get scheduled workouts between two dates with curated summary list</dd>
+            <dt><code>get_training_plan_workouts</code></dt><dd>Get training plan workouts for the week containing the given date</dd>
+            <dt><code>schedule_workout</code></dt><dd>Schedule a workout to a specific calendar date</dd>
+            <dt><code>schedule_workouts</code></dt><dd>Schedule multiple workouts to specific calendar dates</dd>
+            <dt><code>unschedule_workout</code></dt><dd>Remove a scheduled workout from the Garmin Connect calendar</dd>
+            <dt><code>unschedule_workouts</code></dt><dd>Remove multiple scheduled workouts from the Garmin Connect calendar</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Data management <span class="count">&middot; 3 tools</span></summary>
+          <dl>
+            <dt><code>add_body_composition</code></dt><dd>Add body composition data</dd>
+            <dt><code>set_blood_pressure</code></dt><dd>Set blood pressure values</dd>
+            <dt><code>add_hydration_data</code></dt><dd>Add hydration data</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Women&#x27;s health <span class="count">&middot; 3 tools</span></summary>
+          <dl>
+            <dt><code>get_pregnancy_summary</code></dt><dd>Get pregnancy summary data</dd>
+            <dt><code>get_menstrual_data_for_date</code></dt><dd>Get menstrual data for a specific date</dd>
+            <dt><code>get_menstrual_calendar_data</code></dt><dd>Get menstrual calendar data between specified dates</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Nutrition <span class="count">&middot; 12 tools</span></summary>
+          <dl>
+            <dt><code>get_nutrition_daily_food_log</code></dt><dd>Get daily food consumption records for a date</dd>
+            <dt><code>get_nutrition_daily_meals</code></dt><dd>Get daily meal summaries for a date</dd>
+            <dt><code>get_nutrition_daily_settings</code></dt><dd>Get nutrition plan/settings for a date</dd>
+            <dt><code>get_custom_foods</code></dt><dd>Search or list user&#x27;s custom foods</dd>
+            <dt><code>get_custom_food_serving_units</code></dt><dd>Get available serving units for custom foods</dd>
+            <dt><code>create_custom_food</code></dt><dd>Create a custom food in the user&#x27;s Garmin nutrition library</dd>
+            <dt><code>update_custom_food</code></dt><dd>Update an existing custom food in the user&#x27;s Garmin nutrition library</dd>
+            <dt><code>delete_custom_food</code></dt><dd>Delete a custom food from the user&#x27;s Garmin nutrition library</dd>
+            <dt><code>log_custom_food</code></dt><dd>Log a custom food item to a meal on a date</dd>
+            <dt><code>log_food</code></dt><dd>Quick-add a food entry with macro values to the nutrition log</dd>
+            <dt><code>delete_food_log</code></dt><dd>Delete a food log entry</dd>
+            <dt><code>upsert_and_log</code></dt><dd>Find-or-create a custom food then log it in one step</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Workout builders <span class="count">&middot; 5 tools</span></summary>
+          <dl>
+            <dt><code>create_walk_run_workout</code></dt><dd>Create a walk/run interval workout and upload it to Garmin Connect.</dd>
+            <dt><code>create_run_workout</code></dt><dd>Create a continuous run workout and upload it to Garmin Connect.</dd>
+            <dt><code>create_z2_walk_workout</code></dt><dd>Create a steady Z2 walking workout and upload it to Garmin Connect.</dd>
+            <dt><code>create_strength_workout</code></dt><dd>Create a strength workout and upload it to Garmin Connect.</dd>
+            <dt><code>schedule_week</code></dt><dd>Schedule a list of workouts for the week in a single call.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Courses <span class="count">&middot; 3 tools</span></summary>
+          <dl>
+            <dt><code>get_courses</code></dt><dd>List all courses saved on Garmin Connect.</dd>
+            <dt><code>upload_course</code></dt><dd>Upload a GPX file as a Garmin Connect Course.</dd>
+            <dt><code>delete_course</code></dt><dd>Delete a course from Garmin Connect.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Activity analysis <span class="count">&middot; 4 tools</span></summary>
+          <dl>
+            <dt><code>get_activity_fit_data</code></dt><dd>Download and parse FIT file for an activity to expose advanced cycling data.</dd>
+            <dt><code>get_power_duration_curve</code></dt><dd>Get season-best Power Duration Curve across recent activities.</dd>
+            <dt><code>download_activity_file</code></dt><dd>Download an activity and save it to disk as a file.</dd>
+            <dt><code>set_fit_download_dir</code></dt><dd>Set and persist the default directory for downloaded activity files.</dd>
+          </dl>
+        </details>
+      </div>
+<!-- GENERATED:TOOLS:END -->
+    </div>
+  </section>
+
+  <div class="final">
+    <div class="wrap">
+      <div class="inner">
+        <h2>Your watch has the <span class="hl">answers</span>.</h2>
+        <p>Two minutes from now you can ask for them &mdash; free, open source, revocable anytime.</p>
+        <a class="btn" href="#connect">Connect Garmin</a>
+        <p class="beer">Did this help you? <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></p>
+      </div>
+    </div>
+  </div>

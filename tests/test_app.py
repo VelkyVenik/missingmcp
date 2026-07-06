@@ -74,6 +74,14 @@ def test_garmin_page(tmp_path):
     assert r.status_code == 200
     assert "How to connect" in r.text
     assert "https://gw.example.com/garmin/mcp" in r.text
+    # connector-template sections: tips (skills/prompts land there later) and
+    # the generated all-tools listing
+    assert 'id="tips"' in r.text
+    assert 'id="tools"' in r.text and "<details>" in r.text
+    assert "get_sleep_data" in r.text                 # a stable generated tool entry
+    # credit where due: built on the unmodified OS garmin_mcp, we only operate it
+    assert "https://github.com/Taxuspt/garmin_mcp" in r.text
+    assert "unmodified" in r.text
 
 
 def test_static_logo_assets_served(tmp_path):
@@ -94,8 +102,13 @@ def test_home_shows_logo_lockup(tmp_path):
     assert '/static/favicon-32.png' in r          # PNG favicon link
 
 
-def test_garmin_shows_logo_linking_home(tmp_path):
+def test_subpages_share_site_chrome(tmp_path):
+    # one _layout.html wraps every page: same header (logo linking home, nav)
+    # and footer on the home page and the connector landing alike
     c = _client(tmp_path)
-    r = c.get("/garmin").text
-    assert 'class="site-logo" href="/"' in r      # logo links back to the home
-    assert 'src="/static/icon.png"' in r
+    for path in ("/", "/garmin"):
+        r = c.get(path).text
+        assert 'class="logo" href="/"' in r, path
+        assert 'src="/static/icon.png"' in r, path
+        assert 'href="/#security"' in r, path         # shared nav
+        assert "The connectors Claude is missing." in r, path   # shared footer

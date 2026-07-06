@@ -127,7 +127,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `DATA_DIR` | no | `/data` | Where the SQLite DB and per-user token dirs live. |
 | `DB_PATH` | no | `$DATA_DIR/gateway.db` | Override the DB path. |
 | `GARMIN_MCP_CMD` | no | `garmin-mcp` | Command to spawn the worker. Use a `uvx …` invocation when `garmin-mcp` isn't on PATH. |
-| `GARMIN_MCP_REF` | no | pinned SHA in `Dockerfile` | Docker build arg: commit of `garmin_mcp` to install. Bumping it is a deliberate, reviewed action. |
+| `GARMIN_MCP_REF` | no | pinned SHA in `Dockerfile` | Docker build arg: commit of `garmin_mcp` to install. Bumping it is a deliberate, reviewed action — afterwards run `python scripts/gen_garmin_tools.py` to refresh the tool listing on the `/garmin` page. |
 | `WORKER_PORT_START` / `WORKER_PORT_END` | no | `9000` / `9099` | Port range for per-user workers. |
 | `WORKER_IDLE_TTL` | no | `900` | Seconds before an idle worker is reaped. |
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
