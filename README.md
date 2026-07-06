@@ -274,8 +274,11 @@ gateway refreshes the account's rotating WHOOP tokens itself as needed.
 
 ## Security
 
-- Garmin password is never persisted.
+- Garmin password is never persisted; WHOOP passwords are never even seen
+  (sign-in happens on WHOOP's own OAuth page, read-only scopes).
 - Tokens encrypted at rest (AES-256-GCM); the DB is useless without `GATEWAY_SECRET`.
+- A member revoking the app at WHOOP is detected on the next refresh and their
+  stored tokens are purged automatically.
 - Bearer tokens stored only as SHA-256 hashes.
 - OAuth 2.1 PKCE (S256), one-time 10-min codes, CSRF on forms, per-IP/-token rate limits.
 - Workers bind `127.0.0.1` only; `garmin_mcp` is pinned to a reviewed commit.

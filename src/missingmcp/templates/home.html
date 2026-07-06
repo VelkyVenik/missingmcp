@@ -53,7 +53,7 @@
         <div class="card">
           <span class="step-n">Step 3</span>
           <h3>Sign in once</h3>
-          <p>Claude opens a sign-in page &mdash; log in with your own account. Your password is used once and never stored.</p>
+          <p>Claude opens a sign-in page &mdash; log in with your own account. Where the service has its own OAuth (WHOOP), you sign in there; elsewhere (Garmin) your password is used once and never stored.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 4</span>
@@ -70,8 +70,8 @@
       <p class="lede">You&rsquo;re signing in with real credentials &mdash; here&rsquo;s exactly how they&rsquo;re handled.</p>
       <div class="trust">
         <div>
-          <h3>Password: used once, never stored</h3>
-          <p>Your password signs you in to the service and is immediately discarded. Only the resulting session tokens are kept &mdash; encrypted with AES-256-GCM.</p>
+          <h3>Passwords: never stored &mdash; often never seen</h3>
+          <p>Where the service offers its own OAuth (WHOOP), you sign in there and this gateway never sees a password. Where it doesn&rsquo;t (Garmin), your password signs you in once and is immediately discarded. Either way, only the resulting tokens are kept &mdash; encrypted with AES-256-GCM.</p>
         </div>
         <div>
           <h3>Standard OAuth 2.1</h3>
@@ -79,7 +79,7 @@
         </div>
         <div>
           <h3>Your data passes through, nothing sticks</h3>
-          <p>Your health and shopping data flows from the service to Claude on demand. The gateway stores none of it.</p>
+          <p>Your health and fitness data flows from the service to Claude only when you ask, and only to you. The gateway stores none of it &mdash; details in the <a href="/privacy">privacy policy</a>.</p>
         </div>
         <div>
           <h3>Open source, run by a person</h3>
