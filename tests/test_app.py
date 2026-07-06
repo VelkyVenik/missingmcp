@@ -1,6 +1,6 @@
 from starlette.testclient import TestClient
-from garmin_gateway.app import build_app
-from garmin_gateway.config import load_config
+from missingmcp.app import build_app
+from missingmcp.config import load_config
 
 
 def _client(tmp_path):

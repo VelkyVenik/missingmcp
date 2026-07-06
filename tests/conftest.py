@@ -181,7 +181,7 @@ class StubRemoteAdapter:
 
     def start_login(self, form):
         import json
-        from garmin_gateway.adapters.base import LoginError, LoginOk, normalize_account_key
+        from missingmcp.adapters.base import LoginError, LoginOk, normalize_account_key
         user, password = form.get("acme_user", ""), form.get("acme_pass", "")
         if "@" not in user:
             raise LoginError("Please enter a valid email address.", reason="auth")
@@ -189,13 +189,13 @@ class StubRemoteAdapter:
                        blob=json.dumps({"user": user, "pass": password}))
 
     def resume_second_factor(self, state, form):
-        from garmin_gateway.adapters.base import LoginError
+        from missingmcp.adapters.base import LoginError
         raise LoginError("Acme sign-in does not use a verification code")
 
     def verify(self, blob):
         import json
         import httpx
-        from garmin_gateway.adapters.base import LoginError
+        from missingmcp.adapters.base import LoginError
         try:
             r = httpx.post(self.forward.upstream_url, headers=self.forward.headers(blob),
                            content=b"{}", timeout=5.0)

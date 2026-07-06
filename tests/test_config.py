@@ -1,5 +1,5 @@
 import pytest
-from garmin_gateway.config import load_config
+from missingmcp.config import load_config
 
 BASE = {"GATEWAY_SECRET": "x" * 32, "PUBLIC_URL": "https://gw.example.com"}
 

@@ -56,7 +56,7 @@ uv run --extra dev pytest -q                 # run the test suite
 GATEWAY_SECRET="$(openssl rand -base64 48)" \
 PUBLIC_URL=http://localhost:8088 PORT=8088 DATA_DIR=./.localdata \
 GARMIN_MCP_CMD="uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp" \
-  uv run garmin-gateway
+  uv run missingmcp
 ```
 
 A `.env` file in the working directory is loaded automatically (real environment
