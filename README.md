@@ -7,10 +7,12 @@ missing, so a small trusted circle can connect their own accounts from any
 Claude client (iOS, Android, Web, Desktop). The flagship connector is
 [Garmin Connect](https://connect.garmin.com): the gateway wraps the
 **unmodified** [`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and
-adds OAuth, per-user token isolation, and a reverse proxy. The core is
-adapter-based and also supports a second forward strategy (remote MCP + header
-injection) for services with a hosted MCP that lacks its own OAuth — see
-[Connectors](#connectors). The reference deployment runs at
+adds OAuth, per-user token isolation, and a reverse proxy. [WHOOP](https://www.whoop.com)
+is served the same way but in-process, on WHOOP's own official OAuth v2 API.
+The core is adapter-based and supports three forward strategies — **worker**
+(garmin), **local** (whoop, in-process, no subprocess), and **remote** (MCP +
+header injection, for services with a hosted MCP that lacks its own OAuth) —
+see [Connectors](#connectors). The reference deployment runs at
 [missingmcp.com](https://missingmcp.com).
 
 ```
@@ -97,6 +99,15 @@ session tokens are stored (AES-256-GCM encrypted). Each account gets its own
 `garmin_mcp` worker process, bound to `127.0.0.1`, started on demand and reaped
 when idle.
 
+### WHOOP — `/whoop/mcp`
+
+Sign in on WHOOP's own OAuth page — the gateway never sees your WHOOP password,
+only the resulting (encrypted, read-only) tokens. Covers recovery, sleep,
+strain & daily cycles, workouts, and body measurements. Served in-process on
+WHOOP's official v2 API (no worker subprocess, no shared upstream). Requires
+the operator to register a WHOOP developer app — see [WHOOP connector
+setup](#whoop-connector-setup) in Configuration.
+
 ### Rohlík — no longer missing
 
 The gateway briefly served a Rohlík connector (remote strategy: credential
@@ -110,9 +121,11 @@ The remote-forward strategy remains a first-class, tested part of the core
 ## Connecting from Claude
 
 1. In any Claude client: **Settings → Connectors → Add custom connector**, or in
-   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`.
+   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`
+   (whoop: `claude mcp add --transport http whoop https://<your-domain>/whoop/mcp`).
 2. Claude opens the gateway's sign-in page — enter the service's email +
-   password (Garmin also prompts for an MFA code when needed).
+   password (Garmin also prompts for an MFA code when needed), or for WHOOP,
+   sign in on WHOOP's own OAuth page.
 3. Done — the service's tools are now available in Claude.
 
 ## Configuration
@@ -232,6 +245,13 @@ lists the running workers.
 
 Adapters using the remote strategy replace steps 2 and 4 with a probe-verify
 against the upstream MCP and a direct header-injected forward — no worker.
+
+Adapters using an upstream-OAuth login (whoop) replace step 2 with a redirect
+to the provider's own OAuth page; the provider calls back with tokens, which
+the gateway verifies and persists the same way (verify-then-persist is
+unchanged). Adapters using the local strategy (whoop) replace step 4: the
+request is handled in-process — no worker, no shared upstream — and the
+gateway refreshes the account's rotating WHOOP tokens itself as needed.
 
 ## Security
 
