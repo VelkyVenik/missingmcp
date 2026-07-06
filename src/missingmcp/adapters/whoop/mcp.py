@@ -5,6 +5,7 @@ initialize / notifications/* / tools/list / tools/call / ping. Tool payloads
 are WHOOP's v2 JSON passed through verbatim as text content."""
 from __future__ import annotations
 import json
+from urllib.parse import quote
 import httpx
 from ..base import SessionExpired
 from .api import WhoopApi, WhoopAuthError
@@ -60,7 +61,7 @@ def _collection(path: str):
 
 
 def _by_id(path_tpl: str):
-    return lambda args: (path_tpl.format(id=args["id"]), {})
+    return lambda args: (path_tpl.format(id=quote(str(args["id"]), safe="")), {})
 
 
 # (name, description, input schema, resolve(args) -> (path, query)).

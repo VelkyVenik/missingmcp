@@ -99,6 +99,9 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         except SessionExpired:
             log_error("local-forward-auth-stale", adapter=adapter.name, account=key)
             return _session_expired(adapter)
+        except Exception as e:  # noqa: BLE001 - a local forward must never leak a raw 500
+            log_exc("local-forward-error", e, adapter=adapter.name, account=key, tool=tool)
+            return JSONResponse({"error": "bad_gateway"}, status_code=502)
         ms = int((time.monotonic() - t0) * 1000)
         log("mcp-response", adapter=adapter.name, account=key, tool=tool,
             status=status, ttfb_ms=ms, total_ms=ms, bytes=len(payload))

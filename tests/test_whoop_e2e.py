@@ -3,11 +3,8 @@ authorize → callback, downstream token exchange, and MCP tool calls, all
 against the fake WHOOP upstream."""
 import base64
 import hashlib
-import json
-import time
 from urllib.parse import urlparse, parse_qs
 from starlette.testclient import TestClient
-from missingmcp import store
 from missingmcp.app import build_app
 from missingmcp.config import load_config
 
@@ -93,10 +90,9 @@ def test_full_connect_flow_and_tool_call(fake_whoop):
     assert "User@Example.com" in result["content"][0]["text"]
 
 
-def test_account_key_is_normalized_email(fake_whoop):
+def test_reconnect_same_account_succeeds(fake_whoop):
     client, cfg = _client(fake_whoop)
     _connect(client)
-    conn = store.init_db(":memory:")   # fresh conn won't see the app's DB; assert via app instead
     r = client.get("/whoop")           # landing renders → the app itself is the oracle:
     assert r.status_code == 200
     # the persisted row is observable through a second connect: same account, no dup

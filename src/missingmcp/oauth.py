@@ -314,7 +314,7 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
     q = request.query_params
     popped = state.pop_mfa(q.get("state", ""), adapter.name)
     if popped is None:
-        log_error("upstream-oauth-callback", adapter=adapter.name, status="expired")
+        log_warn("upstream-oauth-callback", adapter=adapter.name, status="expired")
         return _upstream_error(config, adapter,
                                "This sign-in link expired — go back to Claude and try connecting again.")
     _pending, params = popped

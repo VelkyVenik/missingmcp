@@ -114,7 +114,7 @@ class Adapter(Protocol):
     authorize_template: str      # template filename for the credential form
     second_factor_template: str  # template filename for the second-factor form
     landing_template: str        # template filename for the connector landing page
-    forward: WorkerForward | RemoteForward
+    forward: WorkerForward | RemoteForward | LocalForward
 
     def login_hint(self, form: Mapping[str, str]) -> str:
         """The login identity as typed (for the login-start log line)."""

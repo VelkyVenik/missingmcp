@@ -101,6 +101,10 @@ def test_by_id_tool_builds_path_and_requires_id(fake_whoop):
     assert "/v2/activity/sleep/uuid-1" in body["result"]["content"][0]["text"]
     _s, _h, body = _rpc(fwd, conn, "tools/call", {"name": "get_sleep", "arguments": {}})
     assert body["result"]["isError"] is True                   # missing id → tool error
+    _s, _h, body = _rpc(fwd, conn, "tools/call",
+                        {"name": "get_sleep", "arguments": {"id": "a/b"}})
+    assert body["result"]["isError"] is False
+    assert "a%2Fb" in body["result"]["content"][0]["text"]      # id path-encoded
 
 
 def test_unknown_tool_is_invalid_params(fake_whoop):

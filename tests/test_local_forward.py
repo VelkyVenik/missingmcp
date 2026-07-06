@@ -71,6 +71,18 @@ def test_session_expired_maps_to_502_shape():
     }
 
 
+def test_local_forward_exception_maps_to_502_shape(monkeypatch):
+    _conn, adapter, c = _setup()
+
+    async def _boom(conn, account_key, blob, body):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(adapter.forward, "handle", _boom)
+    r = _post(c)
+    assert r.status_code == 502
+    assert r.json() == {"error": "bad_gateway"}
+
+
 def test_usage_and_response_event_recorded(capsys):
     conn, _adapter, c = _setup()
     r = _post(c, body={"jsonrpc": "2.0", "method": "tools/call",

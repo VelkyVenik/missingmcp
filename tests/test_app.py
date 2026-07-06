@@ -106,7 +106,7 @@ def test_subpages_share_site_chrome(tmp_path):
     # one _layout.html wraps every page: same header (logo linking home, nav)
     # and footer on the home page and the connector landing alike
     c = _client(tmp_path)
-    for path in ("/", "/garmin"):
+    for path in ("/", "/garmin", "/privacy"):
         r = c.get(path).text
         assert 'class="logo" href="/"' in r, path
         assert 'src="/static/icon.png"' in r, path
