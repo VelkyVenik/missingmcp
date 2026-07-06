@@ -150,3 +150,59 @@ def fake_remote():
     _wait_listening(u.port)
     yield u
     u.stop()
+
+
+class StubRemoteAdapter:
+    """A complete Adapter implementing the remote-forward strategy (A) against
+    FakeRemoteUpstream. The strategy stays a first-class, tested part of the
+    core even with no in-tree remote adapter (rohlik graduated to its official
+    MCP); this stub pins the seam's contract for the next real one."""
+
+    name = "acme"
+    display_name = "Acme"
+    authorize_template = "authorize.html"   # any real template; the stub reads its own fields
+    second_factor_template = ""
+    landing_template = "home.html"
+
+    class _Forward:
+        def __init__(self, upstream_url):
+            self.upstream_url = upstream_url
+
+        def headers(self, blob):
+            import json
+            d = json.loads(blob)
+            return {"x-acme-user": d["user"], "x-acme-pass": d["pass"]}
+
+    def __init__(self, upstream_url):
+        self.forward = self._Forward(upstream_url)
+
+    def login_hint(self, form):
+        return form.get("acme_user", "")
+
+    def start_login(self, form):
+        import json
+        from garmin_gateway.adapters.base import LoginError, LoginOk, normalize_account_key
+        user, password = form.get("acme_user", ""), form.get("acme_pass", "")
+        if "@" not in user:
+            raise LoginError("Please enter a valid email address.", reason="auth")
+        return LoginOk(account_key=normalize_account_key(user),
+                       blob=json.dumps({"user": user, "pass": password}))
+
+    def resume_second_factor(self, state, form):
+        from garmin_gateway.adapters.base import LoginError
+        raise LoginError("Acme sign-in does not use a verification code")
+
+    def verify(self, blob):
+        import json
+        import httpx
+        from garmin_gateway.adapters.base import LoginError
+        try:
+            r = httpx.post(self.forward.upstream_url, headers=self.forward.headers(blob),
+                           content=b"{}", timeout=5.0)
+        except httpx.HTTPError as e:
+            raise LoginError("Acme could not be reached") from e
+        if r.status_code in (401, 403):
+            raise LoginError("Acme sign-in failed — check your credentials.", reason="auth")
+        if r.status_code >= 400:
+            raise LoginError("Acme could not be reached")
+        return json.loads(blob)["user"]

@@ -4,13 +4,12 @@ A multi-user, OAuth 2.1–protected gateway that lets a small trusted circle eac
 connect their own [Garmin Connect](https://connect.garmin.com) account to Claude
 (iOS, Android, Web, Desktop). It wraps the **unmodified**
 [`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and adds OAuth,
-per-user token isolation, and a reverse proxy. It also serves a second
-connector, [Rohlík](https://www.rohlik.cz), which forwards to the hosted Rohlík
-MCP instead of spawning a worker (see [Connectors](#connectors)).
+per-user token isolation, and a reverse proxy. The core is adapter-based and
+also supports a second forward strategy (remote MCP + header injection) for
+services with a hosted MCP that lacks its own OAuth — see [Connectors](#connectors).
 
 ```
 Claude → POST /garmin/mcp (Bearer) → Gateway → 127.0.0.1:<port>/mcp (per-user garmin_mcp) → connect.garmin.com
-Claude → POST /rohlik/mcp (Bearer) → Gateway → ROHLIK_MCP_URL (per-account headers injected) → mcp.rohlik.cz
 ```
 
 ## Why
@@ -26,8 +25,7 @@ their Garmin credentials, and never touch a terminal or a token file.
 - **OAuth 2.1** — Authorization Code + PKCE (S256) with Dynamic Client
   Registration. Connect from any Claude client; no manual token wrangling.
 - **Garmin password is never stored** — used once to sign in (MFA supported);
-  only the resulting session tokens are persisted. (Rohlík necessarily differs —
-  see [Connectors](#connectors).)
+  only the resulting session tokens are persisted.
 - **Encrypted at rest** — tokens sealed with AES-256-GCM; the DB is useless without
   `GATEWAY_SECRET`. Bearer tokens are stored only as SHA-256 hashes.
 - **Per-user isolation** — each account gets its own `garmin_mcp` worker bound to
@@ -45,8 +43,7 @@ docker compose up -d --build
 ```
 
 Put nginx in front for TLS + your domain (see [`nginx.conf.example`](nginx.conf.example)),
-then add `https://<your-domain>/garmin/mcp` (and/or `/rohlik/mcp`) as a remote
-MCP server in Claude.
+then add `https://<your-domain>/garmin/mcp` as a remote MCP server in Claude.
 
 ## Local development
 
@@ -79,23 +76,20 @@ session tokens are stored (AES-256-GCM encrypted). Each account gets its own
 `garmin_mcp` worker process, bound to `127.0.0.1`, started on demand and reaped
 when idle.
 
-### Rohlík — `/rohlik/mcp`
+### Rohlík — no longer missing
 
-Sign in with your Rohlík email + password (Rohlík has no MFA step). No worker is
-spawned: the gateway forwards each call to the hosted Rohlík MCP
-(`ROHLIK_MCP_URL`), injecting the account's credentials as headers. Because
-that upstream authenticates **every request** with them, the gateway must store
-**both email and password** — AES-256-GCM encrypted, never logged, never
-written outside the store. This is a deliberate, spec-documented asymmetry vs
-Garmin (`docs/superpowers/specs/2026-07-05-multi-adapter-gateway-design.md`).
-If Rohlík rejects the stored credentials (e.g. after a password change), tool
-calls fail with a "reconnect" error — remove and re-add the connector in Claude.
+The gateway briefly served a Rohlík connector (remote strategy: credential
+headers injected into the hosted Rohlík MCP). It was retired in 2026-07 when
+Rohlík shipped **its own OAuth-protected MCP** — add
+`https://mcp.rohlik.cz/mcp` directly as a custom connector in Claude and sign
+in in the browser ([Rohlík's guide](https://www.rohlik.cz/stranka/mcp-server)).
+The remote-forward strategy remains a first-class, tested part of the core
+(`tests/test_remote_forward.py`) for the next service that needs it.
 
 ## Connecting from Claude
 
 1. In any Claude client: **Settings → Connectors → Add custom connector**, or in
-   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`
-   (use `.../rohlik/mcp` for Rohlík).
+   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`.
 2. Claude opens the gateway's sign-in page — enter the service's email +
    password (Garmin also prompts for an MFA code when needed).
 3. Done — the service's tools are now available in Claude.
@@ -113,7 +107,6 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `DB_PATH` | no | `$DATA_DIR/gateway.db` | Override the DB path. |
 | `GARMIN_MCP_CMD` | no | `garmin-mcp` | Command to spawn the worker. Use a `uvx …` invocation when `garmin-mcp` isn't on PATH. |
 | `GARMIN_MCP_REF` | no | `main` | Docker build arg: commit/ref of `garmin_mcp` to install. Pin to a SHA. |
-| `ROHLIK_MCP_URL` | no | `https://mcp.rohlik.cz/mcp` | Upstream hosted Rohlík MCP that `/rohlik/mcp` forwards to (remote strategy — no worker). |
 | `WORKER_PORT_START` / `WORKER_PORT_END` | no | `9000` / `9099` | Port range for per-user workers. |
 | `WORKER_IDLE_TTL` | no | `900` | Seconds before an idle worker is reaped. |
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
@@ -182,8 +175,7 @@ railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
 
 The gateway's own log is structured JSON (one event per line). Each per-user
 worker's verbose output is kept out of it, in `DATA_DIR/users/<account>/worker.log`
-(look there to debug a specific worker; Garmin only — Rohlík forwards to a
-remote MCP and spawns no workers). The gateway also logs a `stats` event
+(look there to debug a specific worker). The gateway also logs a `stats` event
 (accounts / tokens / people-with-token / clients / active-workers) on startup and
 whenever those counts change, and `status.py` lists the running workers.
 
@@ -197,17 +189,12 @@ whenever those counts change, and `status.py` lists the running workers.
 4. On each `/garmin/mcp` call the gateway ensures the user's `garmin_mcp` worker is running
    (its own tokens, bound to `127.0.0.1`) and reverse-proxies to it.
 
-For Rohlík, steps 2 and 4 differ: the credentials are verified with a probe
-call against the upstream MCP and then stored encrypted (the upstream needs
-them on every request), and each `/rohlik/mcp` call is forwarded straight to
-`ROHLIK_MCP_URL` with the credentials injected as headers — no worker.
+Adapters using the remote strategy replace steps 2 and 4 with a probe-verify
+against the upstream MCP and a direct header-injected forward — no worker.
 
 ## Security
 
 - Garmin password is never persisted.
-- Rohlík credentials (email + password) live **only** inside the encrypted
-  account blob — the upstream MCP authenticates every request with them; they
-  are never logged and never written anywhere else.
 - Tokens encrypted at rest (AES-256-GCM); the DB is useless without `GATEWAY_SECRET`.
 - Bearer tokens stored only as SHA-256 hashes.
 - OAuth 2.1 PKCE (S256), one-time 10-min codes, CSRF on forms, per-IP/-token rate limits.
@@ -227,8 +214,8 @@ them on every request), and each `/rohlik/mcp` call is forwarded straight to
   or a removed user — run `python scripts/revoke.py --account [<adapter>:]<email>` (kill-switch
   for all of that account's tokens). A single device can be revoked with `--device <hash-prefix>` (prefixes are shown by `status.py`).
 - **Run a manual end-to-end smoke test** with a real Garmin account (including the
-  MFA path) and a real Rohlík login + one tool call before connecting real users —
-  both upstreams are mocked/faked in the automated tests.
+  MFA path) before connecting real users — the upstream is mocked in the
+  automated tests.
 
 ## Support
 
