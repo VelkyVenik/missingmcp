@@ -112,3 +112,27 @@ def test_subpages_share_site_chrome(tmp_path):
         assert 'src="/static/icon.png"' in r, path
         assert 'href="/#security"' in r, path         # shared nav
         assert "The connectors Claude is missing." in r, path   # shared footer
+
+
+def _whoop_client():
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "DB_PATH": ":memory:", "DATA_DIR": "/tmp",
+                       "WHOOP_CLIENT_ID": "cid-1", "WHOOP_CLIENT_SECRET": "sec-1"})
+    return TestClient(build_app(cfg))
+
+
+def test_whoop_page_lists_generated_tools():
+    c = _whoop_client()
+    r = c.get("/whoop")
+    assert r.status_code == 200
+    from missingmcp.adapters.whoop.mcp import TOOLS
+    for name, _desc, _schema, _resolve in TOOLS:
+        assert f"<code>{name}</code>" in r.text
+    assert "gw.example.com/whoop/mcp" in r.text          # hero server URL filled
+
+
+def test_home_shows_whoop_card(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/")
+    assert 'href="/whoop"' in r.text
+    assert "WHOOP" in r.text

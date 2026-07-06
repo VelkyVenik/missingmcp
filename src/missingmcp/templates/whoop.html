@@ -125,7 +125,22 @@
     <div class="wrap">
       <h2 class="sec-h">All tools</h2>
 <!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_whoop_tools.py -->
-      <p class="lede">Tools are listed here once <code>scripts/gen_whoop_tools.py</code> runs (Task 7).</p>
+      <p class="lede">All <strong>8 tools</strong> this connector exposes &mdash; read-only, straight from WHOOP&rsquo;s official v2 API.</p>
+      <div class="tools">
+        <details open>
+          <summary>WHOOP data <span class="count">&middot; 8 tools</span></summary>
+          <dl>
+            <dt><code>get_profile</code></dt><dd>The connected user&#x27;s WHOOP profile: name and account email.</dd>
+            <dt><code>get_body_measurements</code></dt><dd>Height, weight, and max heart rate on record.</dd>
+            <dt><code>get_cycles</code></dt><dd>Physiological (day) cycles: strain, average/max heart rate, energy burned. Paginated.</dd>
+            <dt><code>get_recoveries</code></dt><dd>Recovery scores: recovery %, HRV (rmssd), resting heart rate, SpO2, skin temp. Paginated.</dd>
+            <dt><code>get_sleeps</code></dt><dd>Sleep activities: stages, time in bed, efficiency, respiratory rate, sleep need. Paginated.</dd>
+            <dt><code>get_sleep</code></dt><dd>One sleep activity by its UUID.</dd>
+            <dt><code>get_workouts</code></dt><dd>Workouts: sport, strain, heart rate, energy, distance where available. Paginated.</dd>
+            <dt><code>get_workout</code></dt><dd>One workout by its UUID.</dd>
+          </dl>
+        </details>
+      </div>
 <!-- GENERATED:TOOLS:END -->
     </div>
   </section>
