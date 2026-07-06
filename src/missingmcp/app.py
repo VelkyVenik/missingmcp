@@ -11,7 +11,7 @@ from . import backup, store, oauth, pages, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters
-from .adapters.base import is_remote
+from .adapters.base import is_remote, is_local
 from .log import log
 
 _TPL = Path(__file__).parent / "templates"
@@ -29,12 +29,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
     adapters = build_adapters(config)
-    # One WorkerManager per worker-based adapter; remote adapters need none.
+    # One WorkerManager per worker-based adapter; remote and local adapters need none.
     # NOTE: managers share one port range, one DATA_DIR/users/<key> namespace and
     # one workers.json snapshot — safe while garmin is the only worker-based
     # adapter; scope those per adapter before ever adding a second one.
     managers = {a.name: WorkerManager(config, a.forward)
-                for a in adapters.values() if not is_remote(a.forward)}
+                for a in adapters.values()
+                if not is_remote(a.forward) and not is_local(a.forward)}
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
     bk = backup.Backup(config)

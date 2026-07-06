@@ -335,3 +335,47 @@ class StubUpstreamOAuthAdapter:
 
     def verify(self, blob):
         return "Acme User"
+
+
+class StubLocalAdapter:
+    """Adapter with the local (in-process) forward strategy: echoes the JSON-RPC
+    method back and records what it was handed. Pins proxy.handle_mcp's local
+    branch. Set forward.expire = True to raise SessionExpired."""
+
+    name = "acmelocal"
+    display_name = "AcmeLocal"
+    authorize_template = ""
+    second_factor_template = ""
+    landing_template = "home.html"
+
+    class _Forward:
+        def __init__(self):
+            self.handled = []
+            self.expire = False
+
+        async def handle(self, conn, account_key, blob, body):
+            import json
+            from missingmcp.adapters.base import SessionExpired
+            if self.expire:
+                raise SessionExpired("stale")
+            self.handled.append((account_key, blob, body))
+            payload = json.dumps({"jsonrpc": "2.0", "id": 1,
+                                  "result": {"echo": json.loads(body)["method"]}}).encode()
+            return 200, {"Content-Type": "application/json"}, payload
+
+    def __init__(self):
+        self.forward = self._Forward()
+
+    def login_hint(self, form):
+        return ""
+
+    def start_login(self, form):
+        from missingmcp.adapters.base import LoginError
+        raise LoginError("AcmeLocal signs in at the provider, not here.")
+
+    def resume_second_factor(self, state, form):
+        from missingmcp.adapters.base import LoginError
+        raise LoginError("AcmeLocal signs in at the provider, not here.")
+
+    def verify(self, blob):
+        return "Acme Local"

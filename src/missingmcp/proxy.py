@@ -4,7 +4,7 @@ import time
 import httpx
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import store, security
-from .adapters.base import is_remote
+from .adapters.base import is_remote, is_local, SessionExpired
 from .workers import WorkerStartError
 from .log import log, log_error, log_exc
 
@@ -74,6 +74,10 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         return auth
     key = auth
 
+    if is_local(adapter.forward) and method != "POST":
+        # stateless in-process server: no SSE listen stream, no sessions
+        return JSONResponse({"error": "method_not_allowed"}, status_code=405)
+
     body = await security.read_body_limited(request)
     if body is None:
         return JSONResponse({"error": "request_too_large"}, status_code=413)
@@ -88,6 +92,17 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
             store.record_usage(conn, adapter.name, key, tool)
         except Exception:  # noqa: BLE001 - usage metrics must never break a request
             pass
+
+    if is_local(adapter.forward):
+        try:
+            status, headers, payload = await adapter.forward.handle(conn, key, tokens, body)
+        except SessionExpired:
+            log_error("local-forward-auth-stale", adapter=adapter.name, account=key)
+            return _session_expired(adapter)
+        ms = int((time.monotonic() - t0) * 1000)
+        log("mcp-response", adapter=adapter.name, account=key, tool=tool,
+            status=status, ttfb_ms=ms, total_ms=ms, bytes=len(payload))
+        return Response(payload, status_code=status, headers=headers)
 
     # --- strategy dispatch: where the upstream is and what extra headers it needs
     remote = is_remote(adapter.forward)

@@ -85,6 +85,29 @@ def is_upstream_oauth(adapter) -> bool:
     return hasattr(adapter, "authorize_redirect_url")
 
 
+class SessionExpired(Exception):
+    """A local forward's stored credentials went stale beyond repair (e.g. a
+    rotated-away refresh token). The proxy surfaces the standard
+    <adapter>_session_expired 502 so the client prompts a reconnect."""
+
+
+class LocalForward(Protocol):
+    """Forward strategy C: handled in-process — no subprocess, no shared
+    upstream. Receives conn + account_key (serving a request may rotate
+    upstream tokens, which must be persisted immediately) and the decrypted
+    blob the proxy already fetched. Returns (status, headers, body).
+    Raises SessionExpired when the credentials are beyond saving."""
+
+    async def handle(self, conn, account_key: str, blob: str,
+                     body: bytes) -> "tuple[int, dict, bytes]": ...
+
+
+def is_local(forward) -> bool:
+    """Strategy dispatch, beside is_remote (worker forwards have neither
+    `upstream_url` nor `handle`)."""
+    return hasattr(forward, "handle")
+
+
 class Adapter(Protocol):
     name: str                    # registry key, log field; path prefix from spec step 3
     display_name: str            # user-facing service name in error copy
