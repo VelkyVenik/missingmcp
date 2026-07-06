@@ -1,9 +1,9 @@
 server {
     listen 443 ssl http2;
-    server_name garmin-gw.example.com;
+    server_name gateway.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/garmin-gw.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/garmin-gw.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/gateway.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gateway.example.com/privkey.pem;
 
     client_max_body_size 1m;
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A multi-user, OAuth 2.1–protected **remote MCP gateway** that lets a small trusted circle each connect their own upstream-service accounts to Claude (mobile/desktop/web). The gateway terminates OAuth, performs the adapter-specific login, stores per-account encrypted blobs, and forwards `/<adapter>/mcp` via one of two strategies: **worker** (garmin — spawns + reverse-proxies to a per-user subprocess of the **unmodified** `garmin_mcp` worker, `github.com/Taxuspt/garmin_mcp`) or **remote** (no subprocess; forwards to a hosted upstream MCP, injecting the account's credentials as headers). No in-tree adapter uses the remote strategy today — rohlik used it until Rohlík shipped its own OAuth MCP (2026-07); the strategy stays covered by `tests/test_remote_forward.py` via a stub adapter.
 
-The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `revoke`, `usage`) live in `scripts/` and are documented in README → Monitoring.
+The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow, but treat them as dated design records: the 2026-07-05 multi-adapter spec still describes a rohlik adapter that was implemented and then retired (2026-07-06, Rohlík ships its own OAuth MCP) — don't re-add it. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `revoke`, `usage`) live in `scripts/` and are documented in README → Monitoring.
 
 ## Commands
 
@@ -28,6 +28,9 @@ GATEWAY_SECRET="$(openssl rand -base64 48)" PUBLIC_URL=http://localhost:8088 POR
 # Full deployment (installs the pinned garmin-mcp worker, spawns per-user workers).
 cp .env.example .env   # set a real GATEWAY_SECRET, PUBLIC_URL, and pin GARMIN_MCP_REF to a commit SHA
 docker compose up -d --build
+
+# Production (missingmcp.com) runs on Railway and auto-deploys on every push to
+# main — pushing = deploying. Verify after push: railway deployment list --json.
 ```
 
 There is no separate lint step configured.
@@ -69,14 +72,14 @@ Modules (`src/missingmcp/`), in dependency order — each has one responsibility
 
 - **`account_key`** = the normalized **lowercased login email**, scoped by `adapter`. `(adapter, account_key)` is the join key across every table *and* (with `account_key` alone) the worker registry. A Bearer token carries its `adapter`; the proxy rejects a token used on a different adapter's `/mcp`.
 - **Secret handling:** the Garmin **password is never persisted or logged** (held in a local, `del`-ed right after `start_login`). **Bearer tokens and client secrets are stored only as SHA-256 hashes.** Garmin tokens are AES-256-GCM encrypted at rest (`token files 0600`, `dirs 0700`). Logs carry at most an 8-char hash prefix. (A remote-strategy adapter may need to keep login credentials in its blob — the upstream authenticates every request — but they still live only inside the encrypted blob, never logged, never materialized to files.)
-- **Verify-then-persist:** in `oauth.py`, `verify_tokens` is the only "expectedly failing" step and gates `_finish` (which does upsert + code-mint + redirect) on **every** authorize path. A login/verify failure re-renders the form; a wrong MFA code re-prompts. Don't move `verify_tokens` back into `_finish`.
+- **Verify-then-persist:** in `oauth.py`, `adapter.verify` is the only "expectedly failing" step and gates `_finish` (which does upsert + code-mint + redirect) on **every** authorize path. A login/verify failure re-renders the form; a wrong MFA code re-prompts. Don't move `adapter.verify` back into `_finish`.
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.
-- **Workers bind `127.0.0.1` only**; the compose file publishes `127.0.0.1:8080:8080`. Only the gateway reaches workers; nginx (operator-managed) terminates TLS in front.
+- **Workers bind `127.0.0.1` only** — only the gateway reaches them. TLS terminates in front of the gateway: at the Railway edge in production, or operator-managed nginx for the compose self-host path (which publishes `127.0.0.1:8080:8080`).
 - **Process-local state** (worker registry, `AuthState`, `CsrfStore`, `RateLimiter`) means the gateway is **single-node by design**. The durable record is SQLite on `/data`; the worker registry is ephemeral and rebuilt lazily from persisted tokens after a restart.
-- **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized (lowercased email); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (operators query them in Railway logs) — refactors must not rename events or the `status`/`reason` values.
+- **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized via `base.normalize_account_key` (strip + lowercase — the single owner of the rule); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (operators query them in Railway logs) — refactors must not rename events or the `status`/`reason` values.
 - **Path-scoped connectors:** each adapter is mounted under `/<adapter>` — the connector is `/<adapter>/mcp` (e.g. `/garmin/mcp`), OAuth endpoints are `/<adapter>/oauth/*`, and discovery is path-scoped: `/.well-known/oauth-authorization-server/<adapter>` (RFC 8414, issuer `PUBLIC_URL/<adapter>`) and `/.well-known/oauth-protected-resource/<adapter>/mcp` (RFC 9728). There is no bare `/mcp` alias.
 
 ## Testing approach
 
-- `garminconnect` is **fully mocked** — the unit/integration suite never touches real Garmin. The worker manager and proxy are tested against a **fake worker HTTP server** (`tests/conftest.py::fake_worker`).
+- `garminconnect` is **fully mocked** — the unit/integration suite never touches real Garmin. The worker manager and proxy are tested against a **fake worker HTTP server** (`tests/conftest.py::fake_worker`); the remote strategy against a **fake remote upstream** (`fake_remote`) driven through `conftest.StubRemoteAdapter` (`tests/test_remote_forward.py` + the generic authorize-flow tests in `test_oauth.py`); backups against the same fake upstream posing as S3 (`tests/test_backup.py` — the SigV4 signer was additionally verified once against a real bucket).
 - Consequently the **real `garminconnect` login/token-dump/resume path is not covered by automated tests**. A manual end-to-end smoke test with a real Garmin account (including the MFA path) is the release gate before connecting real users.
