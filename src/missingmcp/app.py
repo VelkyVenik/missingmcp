@@ -214,5 +214,8 @@ def main() -> None:
     config = load_config()
     # access_log off: we emit our own structured mcp-request events; uvicorn's
     # per-request "POST /mcp 200" lines would just duplicate them.
+    # log_config=None: don't let uvicorn install its own STDERR handlers — its
+    # records propagate to the root logger, where log.py's _StructuredHandler
+    # turns them into JSON on stdout (Railway reads plain stderr as error).
     uvicorn.run(build_app(config), host="0.0.0.0", port=config.port,
-                log_level=resolve_log_level(), access_log=False)
+                log_level=resolve_log_level(), access_log=False, log_config=None)

@@ -210,8 +210,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             log_exc("mfa-resume-fatal", e, error=str(e))
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         try:
+            t0 = time.monotonic()
             name = adapter.verify(result.blob)
-            log("mfa-verify-ok", name=name)
+            log("mfa-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
         except LoginError as e:  # blob didn't authenticate: start over
             log_exc("mfa-verify-failed", e, error=str(e))
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
@@ -225,9 +226,11 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         return HTMLResponse("invalid client/redirect_uri", status_code=400)
     try:
         log("login-start", email=adapter.login_hint(form))
+        t0 = time.monotonic()
         result = adapter.start_login(form)
         log("login-start-result",
-            status="needs_mfa" if isinstance(result, SecondFactorNeeded) else "ok")
+            status="needs_mfa" if isinstance(result, SecondFactorNeeded) else "ok",
+            ms=int((time.monotonic() - t0) * 1000))
     except LoginError as e:
         log_exc("login-start-failed", e, reason=e.reason, error=str(e))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
@@ -243,8 +246,9 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
                       **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:
+        t0 = time.monotonic()
         name = adapter.verify(result.blob)
-        log("login-verify-ok", name=name)
+        log("login-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
     except LoginError as e:
         log_exc("login-verify-failed", e, error=str(e))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))

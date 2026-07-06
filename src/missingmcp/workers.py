@@ -4,13 +4,39 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 import httpx
-from .log import log, log_exc
+from .log import log, log_error, log_exc
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.@-]")
+# Worker lines that indicate a real problem get error severity so Railway
+# surfaces them; everything else is info. Deliberately loose — false negatives
+# just stay info-level and remain searchable.
+_WORKER_ERROR = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b")
+
+
+def _pump_worker_output(stream, account: str) -> None:
+    """Forward a worker's merged stdout/stderr line-by-line into the structured
+    log (event `worker-log`, filterable by account in Railway). Runs on a daemon
+    thread until the pipe closes; replaces the old per-user worker.log files on
+    the volume (unbounded, only reachable over ssh)."""
+    try:
+        for raw in stream:
+            line = raw.rstrip()
+            if not line:
+                continue
+            emit = log_error if _WORKER_ERROR.search(line) else log
+            emit("worker-log", account=account, line=line)
+    except Exception:  # noqa: BLE001 - a logging pump must never take anything down
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class WorkerStartError(Exception):
@@ -56,8 +82,9 @@ class WorkerManager:
             port = self._alloc_port()
             self._reserved.add(port)
             try:
-                log("worker-spawn", port=port, cmd=" ".join(self._forward.command()),
-                    token_dir=token_dir)
+                t0 = self._clock()
+                log("worker-spawn", port=port, account=key,
+                    cmd=" ".join(self._forward.command()), token_dir=token_dir)
                 try:
                     proc = self._spawn_fn(key, port, token_dir)
                 except Exception as e:  # noqa: BLE001 - spawn failed (e.g. binary not on PATH)
@@ -74,7 +101,8 @@ class WorkerManager:
                         pass
                     raise WorkerStartError(f"worker for {key[:3]}*** failed to become healthy")
                 self._workers[key] = WorkerHandle(key, port, proc, self._clock())
-                log("worker-started", port=port)
+                log("worker-started", port=port, account=key,
+                    ms=int((self._clock() - t0) * 1000))
                 self.write_snapshot()
                 return port
             finally:
@@ -91,7 +119,7 @@ class WorkerManager:
             if dead or (idle_expired and h.inflight == 0):
                 self._terminate(h)
                 self._workers.pop(key, None)
-                log("worker-reaped", port=h.port)
+                log("worker-reaped", port=h.port, account=h.key)
                 reaped = True
         if reaped:
             self.write_snapshot()
@@ -161,7 +189,7 @@ class WorkerManager:
             oldest = min(idle, key=lambda h: h.last_active)
             self._terminate(oldest)
             self._workers.pop(oldest.key, None)
-            log("worker-evicted", port=oldest.port)
+            log("worker-evicted", port=oldest.port, account=oldest.key)
 
     def _materialize(self, key: str, blob: str) -> str:
         safe = _SAFE.sub("_", key)
@@ -183,16 +211,12 @@ class WorkerManager:
     def _default_spawn(self, key: str, port: int, workdir: str):
         env = dict(os.environ)
         env.update(self._forward.env(port, workdir))
-        # Redirect the worker's own (chatty, unstructured) stdout/stderr to a
-        # per-user file so it doesn't interleave with the gateway's structured
-        # log. The child inherits the fd; we close our copy after spawning.
-        log_path = os.path.join(os.path.dirname(workdir), "worker.log")
-        logf = open(log_path, "a", encoding="utf-8")
-        try:
-            return subprocess.Popen(self._forward.command(), env=env,
-                                    stdout=logf, stderr=subprocess.STDOUT)
-        finally:
-            logf.close()
+        proc = subprocess.Popen(self._forward.command(), env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace", bufsize=1)
+        threading.Thread(target=_pump_worker_output, args=(proc.stdout, key),
+                         name=f"worker-log-{key[:8]}", daemon=True).start()
+        return proc
 
     def _terminate(self, h: WorkerHandle) -> None:
         try:

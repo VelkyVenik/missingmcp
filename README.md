@@ -194,11 +194,18 @@ railway ssh --service gateway "python3 /app/scripts/status.py"
 railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
 ```
 
-The gateway's own log is structured JSON (one event per line). Each per-user
-worker's verbose output is kept out of it, in `DATA_DIR/users/<account>/worker.log`
-(look there to debug a specific worker). The gateway also logs a `stats` event
-(accounts / tokens / people-with-token / clients / active-workers) on startup and
-whenever those counts change, and `status.py` lists the running workers.
+All logging is structured JSON on stdout (one event per line) with a proper
+`level` attribute — including uvicorn/stdlib records (event `stdlib-log`) and
+each worker's own output (event `worker-log`, with an `account` attribute;
+lines matching ERROR/Traceback are elevated to error severity). On Railway
+that makes everything searchable in the log explorer — filter e.g.
+`@event:worker-log @account:<email>` to trace one user's worker, or
+`@level:error` for problems. Request latency is recorded per call in the
+`mcp-response` event (`ttfb_ms`, `total_ms`, `bytes`, `tool`, `account`);
+login/verify and worker-spawn events carry `ms` durations. The gateway also
+logs a `stats` event (accounts / tokens / people-with-token / clients /
+active-workers) on startup and whenever those counts change, and `status.py`
+lists the running workers.
 
 ## How it works
 

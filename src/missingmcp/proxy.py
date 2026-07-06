@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import time
 import httpx
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import store, security
@@ -64,6 +65,7 @@ def _session_expired(adapter) -> JSONResponse:
 
 
 async def handle_mcp(request, method, adapter, conn, manager, config, secret, rate) -> Response:
+    t0 = time.monotonic()
     log("mcp-request", adapter=adapter.name, method=method,
         has_session=bool(request.headers.get("mcp-session-id")))
     auth = await authenticate(request, adapter.name, conn, rate)
@@ -94,11 +96,12 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         extra_headers = adapter.forward.headers(tokens)
     else:
         try:
-            log("worker-ensure-start")
+            log("worker-ensure-start", account=key)
             port = await manager.ensure_worker(key, tokens)
-            log("worker-ensure-ok", port=port)
+            log("worker-ensure-ok", port=port, account=key,
+                ms=int((time.monotonic() - t0) * 1000))
         except WorkerStartError as e:
-            log_exc("worker-start-failed", e, error=str(e))
+            log_exc("worker-start-failed", e, error=str(e), account=key)
             return _session_expired(adapter)
         url = f"http://127.0.0.1:{port}/mcp"
         extra_headers = {}
@@ -129,18 +132,23 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     except httpx.TimeoutException:
         await client.aclose()
         finish()
+        log_error("mcp-timeout", adapter=adapter.name, account=key, tool=tool,
+                  ms=int((time.monotonic() - t0) * 1000))
         return JSONResponse({"error": "gateway_timeout"}, status_code=504)
     except httpx.HTTPError as e:
         await client.aclose()
         finish()
-        log_error("mcp-forward-error", error=type(e).__name__)
+        log_error("mcp-forward-error", error=type(e).__name__,
+                  adapter=adapter.name, account=key, tool=tool,
+                  ms=int((time.monotonic() - t0) * 1000))
         return JSONResponse({"error": "bad_gateway"}, status_code=502)
+    ttfb_ms = int((time.monotonic() - t0) * 1000)   # request in → upstream headers out
 
     if remote and upstream.status_code in (401, 403):
         # The shared upstream rejected the injected credentials — don't stream
         # the raw 401/403 through; surface it like a worker start failure.
         log_error("remote-forward-auth-stale", adapter=adapter.name,
-                  status=upstream.status_code)
+                  status=upstream.status_code, account=key)
         await upstream.aclose()
         await client.aclose()
         return _session_expired(adapter)
@@ -154,12 +162,19 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         resp_headers["Mcp-Session-Id"] = up_sid
 
     async def stream():
+        sent = 0
         try:
             async for chunk in upstream.aiter_raw():
+                sent += len(chunk)
                 yield chunk
         finally:
             await upstream.aclose()
             await client.aclose()
             finish()
+            # The per-request latency record: ttfb_ms = gateway overhead +
+            # upstream time to headers, total_ms includes streaming the body.
+            log("mcp-response", adapter=adapter.name, account=key, tool=tool,
+                status=upstream.status_code, ttfb_ms=ttfb_ms,
+                total_ms=int((time.monotonic() - t0) * 1000), bytes=sent)
 
     return StreamingResponse(stream(), status_code=upstream.status_code, headers=resp_headers)

@@ -121,6 +121,7 @@ class Backup:
 
     def run(self) -> None:   # blocking: call via asyncio.to_thread
         c = self._cfg
+        t0 = time.monotonic()
         try:
             body = snapshot_db(c.db_path)
             weekday = _WEEKDAYS[datetime.datetime.now(datetime.timezone.utc).weekday()]
@@ -129,7 +130,7 @@ class Backup:
                    region=c.backup_s3_region, access_key=c.backup_s3_access_key,
                    secret_key=c.backup_s3_secret_key, key=key, body=body,
                    url_style=c.backup_s3_url_style)
-            log("backup-ok", key=key, bytes=len(body))
+            log("backup-ok", key=key, bytes=len(body), ms=int((time.monotonic() - t0) * 1000))
         except Exception as e:  # noqa: BLE001 - backups must never take the gateway down
             log_exc("backup-failed", e, error=str(e))
         finally:
