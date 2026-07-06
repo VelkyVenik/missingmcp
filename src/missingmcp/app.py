@@ -89,6 +89,7 @@ def build_app(config: Config) -> Starlette:
     # covers them without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png")}
+    site_js = (_STATIC / "site.js").read_text()
 
     async def healthz(request):
         return PlainTextResponse("ok")
@@ -270,6 +271,7 @@ def build_app(config: Config) -> Starlette:
         Route("/robots.txt", _text(robots_txt, "text/plain"), methods=["GET"]),
         Route("/sitemap.xml", _text(sitemap_xml, "application/xml"), methods=["GET"]),
         Route("/llms.txt", _text(llms_txt, "text/plain"), methods=["GET"]),
+        Route("/static/site.js", _text(site_js, "application/javascript"), methods=["GET"]),
         Route("/static/icon.png", static_png("icon.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
         Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),

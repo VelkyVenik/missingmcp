@@ -202,3 +202,19 @@ def test_footer_links_privacy(tmp_path):
     c = _client(tmp_path)
     r = c.get("/")
     assert 'href="/privacy"' in r.text
+
+
+def test_static_site_js_served(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/static/site.js")
+    assert r.status_code == 200
+    assert "javascript" in r.headers["content-type"]
+    assert "data-copy" in r.text
+
+
+def test_connector_pages_have_copy_buttons(tmp_path):
+    r = _client(tmp_path).get("/garmin").text
+    assert '/static/site.js' in r                       # layout loads the behavior
+    assert r.count('data-copy="https://gw.example.com/garmin/mcp"') == 2  # hero + step 1
+    w = _whoop_client().get("/whoop").text
+    assert w.count('data-copy="https://gw.example.com/whoop/mcp"') == 2

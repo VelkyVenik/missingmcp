@@ -7,6 +7,7 @@
   <meta name="description" content="{DESC}">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <script src="/static/site.js" defer></script>
 {HEAD_META}
   <style>
     :root {
@@ -85,6 +86,15 @@
     .pill.done { color: var(--accent); background: var(--accent-soft); }
     code { background: var(--accent-soft); padding: .1rem .4rem; border-radius: 6px;
            font-size: .85em; word-break: break-all; }
+    .copy { display: inline-flex; align-items: center; justify-content: center;
+            vertical-align: -3px; margin-left: .35rem; padding: .28rem .5rem;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: var(--bg-card); color: var(--muted); cursor: pointer; line-height: 1; }
+    .copy:hover { color: var(--accent); border-color: var(--accent); }
+    .copy svg { width: 14px; height: 14px; display: block; }
+    .copy .done { display: none; font-size: .78rem; font-weight: 700; color: var(--live); }
+    .copy.copied svg { display: none; }
+    .copy.copied .done { display: block; }
     .step-n { font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; }
 
     .lede { max-width: 56ch; color: var(--muted); margin-bottom: 1.3rem; margin-top: -.4rem; }
