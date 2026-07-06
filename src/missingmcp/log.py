@@ -19,15 +19,45 @@ def resolve_log_level() -> str:
     return lvl if lvl in _VALID_LEVELS else "info"
 
 
+_STDLIB_LEVELS = {  # stdlib levelname -> our structured schema's level values
+    "DEBUG": "debug", "INFO": "info", "WARNING": "warn",
+    "ERROR": "error", "CRITICAL": "critical",
+}
+
+
+class _StructuredHandler(logging.Handler):
+    """Bridges stdlib logging (uvicorn, garminconnect, urllib3, warnings) into
+    the structured JSON stream on STDOUT. Without it those loggers fall back to
+    logging.lastResort on STDERR, which Railway classifies as error-severity —
+    uvicorn's plain 'INFO: Started server process' lines showed up as errors."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            fields: dict[str, Any] = {"logger": record.name,
+                                      "message": record.getMessage()}
+            if record.exc_info:
+                fields["traceback"] = "".join(
+                    traceback.format_exception(*record.exc_info))
+            _emit(_STDLIB_LEVELS.get(record.levelname, "info"), "stdlib-log", fields)
+        except Exception:  # noqa: BLE001 - logging must never raise into callers
+            pass
+
+
 def setup_logging(path: str | None = None) -> None:
-    """Set the stdlib logging level from GATEWAY_LOG_LEVEL and, when
-    GATEWAY_LOG_FILE (or `path`) is set, also tee structured + stdlib logs to
-    that file. Structured log()/log_error() always go to stdout regardless."""
+    """Route ALL logging to structured JSON on stdout: our own log()/log_error()
+    plus stdlib/uvicorn/warnings via _StructuredHandler (level from
+    GATEWAY_LOG_LEVEL). When GATEWAY_LOG_FILE (or `path`) is set, also tee both
+    streams to that file."""
     global _file
     path = path or os.environ.get("GATEWAY_LOG_FILE")
     level = getattr(logging, resolve_log_level().upper(), logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
+    for h in list(root.handlers):        # idempotent re-setup (tests, reloads)
+        if isinstance(h, _StructuredHandler):
+            root.removeHandler(h)
+    root.addHandler(_StructuredHandler())
+    logging.captureWarnings(True)
     if path:
         _file = open(path, "a", encoding="utf-8", buffering=1)
         handler = logging.FileHandler(path, encoding="utf-8")
@@ -37,12 +67,14 @@ def setup_logging(path: str | None = None) -> None:
         root.addHandler(handler)
     if path or level != logging.INFO:
         _emit("info", "logging-initialised",
-              {"path": path or "", "level": logging.getLevelName(level)})
+              {"path": path or "", "log_level": logging.getLevelName(level)})
 
 
 def _emit(level: str, event: str, fields: dict[str, Any]) -> None:
     record = {"ts": time.strftime("%H:%M:%S"), "level": level, "event": event}
     for k, v in fields.items():
+        if k in ("ts", "level", "event"):   # never let a field clobber the envelope
+            k = f"field_{k}"
         record[k] = v if isinstance(v, (str, int, float, bool)) or v is None else str(v)
     line = json.dumps(record) + "\n"
     sys.stdout.write(line)

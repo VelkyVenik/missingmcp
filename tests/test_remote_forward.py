@@ -130,3 +130,17 @@ def test_foreign_token_rejected_on_remote_adapter_mcp(fake_remote):
     assert r.status_code == 401                      # remote path must not accept a foreign token
     assert r.json() == {"error": "invalid_token"}
     assert fake_remote.calls == []                   # nothing reached the upstream
+
+
+def test_mcp_response_event_records_latency(fake_remote, capsys):
+    _, c = _setup(fake_remote)
+    r = _post(c, body={"jsonrpc": "2.0", "method": "tools/call",
+                       "params": {"name": "get_cart"}, "id": 1})
+    assert r.status_code == 200
+    events = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    resp = next(e for e in events if e["event"] == "mcp-response")
+    assert resp["adapter"] == "acme" and resp["account"] == "me@x.cz"
+    assert resp["tool"] == "get_cart" and resp["status"] == 200
+    assert isinstance(resp["ttfb_ms"], int) and isinstance(resp["total_ms"], int)
+    assert resp["total_ms"] >= resp["ttfb_ms"] >= 0
+    assert resp["bytes"] > 0
