@@ -209,7 +209,48 @@ def test_rohlik_verify_ok_injects_headers(fake_remote):
     assert path == "/mcp"
     assert hdrs.get("rhl-email") == "me@x.cz" and hdrs.get("rhl-pass") == "pw"
     assert hdrs.get("Accept") == "application/json, text/event-stream"
-    assert json.loads(body)["method"] == "initialize"
+    # must exercise the actual Rohlik login: initialize is credential-blind
+    # (the upstream logs in lazily, only on tools/call — confirmed 2026-07-06)
+    req = json.loads(body)
+    assert req["method"] == "tools/call"
+    assert req["params"]["name"] == "get_user_info"
+
+
+def _tool_error_payload(text):
+    return json.dumps({"jsonrpc": "2.0", "id": 1, "result": {
+        "content": [{"type": "text", "text": text}], "isError": True}})
+
+
+@pytest.mark.parametrize("mode", ["json", "sse"])
+def test_rohlik_verify_catches_bad_credentials_in_200_iserror(fake_remote, mode):
+    # The upstream answers HTTP 200 even for wrong credentials; the login
+    # failure only shows as result.isError with the 401 embedded in the text.
+    fake_remote.response_mode = mode
+    fake_remote.response_json = _tool_error_payload(
+        "Error calling tool 'get_user_info': Login request failed for me@x.cz: "
+        "401 Client Error: Unauthorized for url: http://frontend-service.prod/api/v5/login/access_token")
+    a = _rohlik(f"http://127.0.0.1:{fake_remote.port}/mcp")
+    with pytest.raises(base.LoginError) as ei:
+        a.verify(_rohlik_blob())
+    assert ei.value.reason == "auth" and "check your Rohlík email and password" in str(ei.value)
+    assert "me@x.cz" not in str(ei.value)   # upstream error text (with the email) never leaks
+
+
+def test_rohlik_verify_other_tool_error_is_unreachable(fake_remote):
+    fake_remote.response_json = _tool_error_payload(
+        "Error calling tool 'get_user_info': upstream exploded")
+    a = _rohlik(f"http://127.0.0.1:{fake_remote.port}/mcp")
+    with pytest.raises(base.LoginError) as ei:
+        a.verify(_rohlik_blob())
+    assert ei.value.reason == "unknown" and "could not be reached" in str(ei.value)
+
+
+def test_rohlik_verify_unparseable_200_fails_closed(fake_remote):
+    fake_remote.response_json = "this is not json"
+    a = _rohlik(f"http://127.0.0.1:{fake_remote.port}/mcp")
+    with pytest.raises(base.LoginError) as ei:
+        a.verify(_rohlik_blob())
+    assert ei.value.reason == "unknown"   # verify-then-persist: can't confirm → don't persist
 
 
 @pytest.mark.parametrize("status", [401, 403])
