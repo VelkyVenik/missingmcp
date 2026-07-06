@@ -21,5 +21,5 @@ ENTRYPOINT ["tini", "--"]
 CMD ["missingmcp"]
 EXPOSE 8080
 # No VOLUME directive: Railway's builder rejects it ("use Railway Volumes") and
-# provides /data via a platform-managed volume; docker-compose mounts /data via
-# its own `volumes:` mapping. Persistence is supplied by the runtime, not the image.
+# provides /data via a platform-managed volume; self-hosters mount /data with
+# `docker run -v`. Persistence is supplied by the runtime, not the image.

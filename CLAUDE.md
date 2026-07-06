@@ -25,12 +25,9 @@ uv run --extra dev pytest tests/test_oauth.py::test_metadata_shape -v   # one te
 GATEWAY_SECRET="$(openssl rand -base64 48)" PUBLIC_URL=http://localhost:8088 PORT=8088 \
   DATA_DIR=./.localdata uv run missingmcp
 
-# Full deployment (installs the pinned garmin-mcp worker, spawns per-user workers).
-cp .env.example .env   # set a real GATEWAY_SECRET, PUBLIC_URL, and pin GARMIN_MCP_REF to a commit SHA
-docker compose up -d --build
-
-# Production (missingmcp.com) runs on Railway and auto-deploys on every push to
-# main — pushing = deploying. Verify after push: railway deployment list --json.
+# Production (missingmcp.com) runs on Railway, built from the Dockerfile, and
+# auto-deploys on every push to main — pushing = deploying. Verify after push:
+# railway deployment list --json. (Self-host: plain `docker run` — see README.)
 ```
 
 There is no separate lint step configured.
@@ -74,7 +71,7 @@ Modules (`src/missingmcp/`), in dependency order — each has one responsibility
 - **Secret handling:** the Garmin **password is never persisted or logged** (held in a local, `del`-ed right after `start_login`). **Bearer tokens and client secrets are stored only as SHA-256 hashes.** Garmin tokens are AES-256-GCM encrypted at rest (`token files 0600`, `dirs 0700`). Logs carry at most an 8-char hash prefix. (A remote-strategy adapter may need to keep login credentials in its blob — the upstream authenticates every request — but they still live only inside the encrypted blob, never logged, never materialized to files.)
 - **Verify-then-persist:** in `oauth.py`, `adapter.verify` is the only "expectedly failing" step and gates `_finish` (which does upsert + code-mint + redirect) on **every** authorize path. A login/verify failure re-renders the form; a wrong MFA code re-prompts. Don't move `adapter.verify` back into `_finish`.
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.
-- **Workers bind `127.0.0.1` only** — only the gateway reaches them. TLS terminates in front of the gateway: at the Railway edge in production, or operator-managed nginx for the compose self-host path (which publishes `127.0.0.1:8080:8080`).
+- **Workers bind `127.0.0.1` only** — only the gateway reaches them. TLS terminates in front of the gateway (the Railway edge in production; a self-hoster brings their own proxy).
 - **Process-local state** (worker registry, `AuthState`, `CsrfStore`, `RateLimiter`) means the gateway is **single-node by design**. The durable record is SQLite on `/data`; the worker registry is ephemeral and rebuilt lazily from persisted tokens after a restart.
 - **The adapter owns identity normalization:** `LoginOk.account_key` is already normalized via `base.normalize_account_key` (strip + lowercase — the single owner of the rule); `oauth._finish` persists it as-is. Log event names and fields are a stable schema (operators query them in Railway logs) — refactors must not rename events or the `status`/`reason` values.
 - **Path-scoped connectors:** each adapter is mounted under `/<adapter>` — the connector is `/<adapter>/mcp` (e.g. `/garmin/mcp`), OAuth endpoints are `/<adapter>/oauth/*`, and discovery is path-scoped: `/.well-known/oauth-authorization-server/<adapter>` (RFC 8414, issuer `PUBLIC_URL/<adapter>`) and `/.well-known/oauth-protected-resource/<adapter>/mcp` (RFC 9728). There is no bare `/mcp` alias.
