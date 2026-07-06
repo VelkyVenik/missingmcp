@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{TITLE}</title>
+  <meta name="description" content="{DESC}">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <style>
+    :root {
+      --bg: #ffffff; --bg-card: #f7f8fa; --border: #e5e7ee;
+      --text: #191c23; --muted: #5a6172; --dim: #99a0b0;
+      --accent: #4f46e5; --accent-soft: rgba(79, 70, 229, .09);
+      --live: #059669; --live-soft: rgba(5, 150, 105, .1);
+      --warn: #b45309; --warn-soft: rgba(180, 83, 9, .08);
+      --err: #dc2626; --err-soft: rgba(220, 38, 38, .08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1013; --bg-card: #16191f; --border: #262b35;
+        --text: #edeff3; --muted: #a2a9b8; --dim: #6b7280;
+        --accent: #818cf8; --accent-soft: rgba(129, 140, 248, .12);
+        --live: #34d399; --live-soft: rgba(52, 211, 153, .12);
+        --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .1);
+        --err: #f87171; --err-soft: rgba(248, 113, 113, .1);
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: var(--bg); color: var(--text); line-height: 1.6; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 1.25rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header { padding: 1.1rem 0; }
+    header .wrap { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
+    .logo { display: inline-flex; align-items: center; gap: .5rem; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; color: var(--text); }
+    .logo:hover { text-decoration: none; }
+    .logo img { width: 30px; height: 30px; display: block; }
+    .logo .mcp { color: var(--accent); }
+    .logo .tld { color: var(--dim); font-weight: 700; }
+    nav a { color: var(--muted); font-size: .9rem; margin-left: 1.1rem; }
+
+    h1 { letter-spacing: -.03em; line-height: 1.05; }
+    .hero { padding: 4rem 0 3rem; }
+    .hero h1 { font-size: clamp(2.6rem, 7vw, 4.5rem); line-height: 1.02; max-width: 14ch; }
+    .hero p { margin-top: 1.5rem; max-width: 52ch; font-size: 1.15rem; color: var(--muted); }
+    .page-hero { padding: 2.8rem 0 1.6rem; }
+    .page-hero h1 { font-size: clamp(2.1rem, 6vw, 3.2rem); margin-top: .6rem; }
+    .page-hero p { margin-top: 1rem; max-width: 56ch; font-size: 1.08rem; color: var(--muted); }
+    .badge { display: inline-block; font-size: .72rem; font-weight: 600; letter-spacing: .18em;
+             text-transform: uppercase; color: var(--accent); background: var(--accent-soft);
+             padding: .3rem .75rem; border-radius: 999px; margin-bottom: 1.4rem; }
+    .hl { color: var(--accent); }
+    .cta-row { margin-top: 2.1rem; display: flex; flex-wrap: wrap; gap: 1.1rem; align-items: center; }
+    .btn { display: inline-block; background: var(--accent); color: #fff; font-weight: 600;
+           padding: .7rem 1.3rem; border-radius: 10px; }
+    .btn:hover { text-decoration: none; opacity: .92; }
+    .quiet { color: var(--muted); font-size: .95rem; }
+
+    section { padding: 2.4rem 0; }
+    .sec-h { display: flex; align-items: center; gap: .9rem; font-size: .75rem; font-weight: 600;
+             letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 1.3rem; }
+    .sec-h::after { content: ""; height: 1px; flex: 1; background: var(--border); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: .9rem; }
+    .card { border: 1px solid var(--border); background: var(--bg-card); border-radius: 16px; padding: 1.3rem; }
+    .card h3 { font-size: 1.05rem; letter-spacing: -.01em; margin: .35rem 0 .4rem; }
+    .card p { font-size: .92rem; color: var(--muted); }
+    .card .go { display: inline-block; margin-top: .8rem; font-weight: 600; font-size: .92rem; }
+    .pill { display: inline-block; font-size: .66rem; font-weight: 700; letter-spacing: .08em;
+            text-transform: uppercase; padding: .18rem .6rem; border-radius: 999px; }
+    .pill.live { color: var(--live); background: var(--live-soft); }
+    .pill.soon { color: var(--dim); background: var(--border); }
+    .pill.done { color: var(--accent); background: var(--accent-soft); }
+    code { background: var(--accent-soft); padding: .1rem .4rem; border-radius: 6px;
+           font-size: .85em; word-break: break-all; }
+    .step-n { font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; }
+
+    .lede { max-width: 56ch; color: var(--muted); margin-bottom: 1.3rem; margin-top: -.4rem; }
+    .prose { max-width: 62ch; }
+    .prose p + p { margin-top: .8rem; }
+    .trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; }
+    .trust div { border-left: 3px solid var(--accent-soft); padding: .2rem 0 .2rem 1rem; }
+    .trust h3 { font-size: .98rem; margin-bottom: .25rem; }
+    .trust p { font-size: .9rem; color: var(--muted); }
+
+    .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
+            padding: .8rem 1rem; border-radius: 0 10px 10px 0; font-size: .9rem; margin: 1.2rem 0; }
+    .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+    .note ul { margin: .3rem 0 0 1.1rem; }
+    .note li { margin: .25rem 0; }
+    .err { color: var(--err); background: var(--err-soft); border: 1px solid var(--err);
+           padding: .6rem .9rem; border-radius: 10px; margin: 1rem 0; font-size: .92rem; }
+
+    .auth { max-width: 27rem; margin: 2.2rem auto 3.5rem; padding: 0 1.25rem; }
+    .auth h1 { font-size: 1.55rem; margin-bottom: .4rem; }
+    .auth .sub { color: var(--muted); font-size: .95rem; }
+    .auth form { border: 1px solid var(--border); background: var(--bg-card); border-radius: 16px; padding: 1.4rem; }
+    .auth label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); }
+    .auth label + label { margin-top: 1rem; }
+    .auth input:not([type="hidden"]) { display: block; width: 100%; padding: .65rem .8rem; margin-top: .35rem;
+                 border: 1px solid var(--border); border-radius: 10px;
+                 background: var(--bg); color: var(--text); font-size: 1rem; }
+    .auth input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .auth .btn { display: block; width: 100%; margin-top: 1.3rem; border: 0;
+                 font-size: 1rem; font-family: inherit; cursor: pointer; }
+    .auth .after { margin-top: 1.4rem; font-size: .85rem; color: var(--dim); text-align: center; }
+
+    .tools details { border: 1px solid var(--border); background: var(--bg-card);
+                     border-radius: 14px; margin-bottom: .7rem; }
+    .tools summary { cursor: pointer; padding: .85rem 1.1rem; font-weight: 600; }
+    .tools summary .count { color: var(--dim); font-weight: 600; font-size: .85em; }
+    .tools dl { padding: .2rem 1.1rem 1rem; }
+    .tools dt { margin-top: .65rem; }
+    .tools dd { margin: .1rem 0 0; color: var(--muted); font-size: .9rem; }
+
+    .final { padding: 4rem 0; }
+    .final .inner { border: 1px solid var(--border); background: var(--bg-card); border-radius: 24px;
+                    padding: 3rem 1.5rem; text-align: center; }
+    .final h2 { font-size: clamp(1.9rem, 5vw, 3rem); letter-spacing: -.02em; line-height: 1.05; }
+    .final p { margin: 1rem auto 1.8rem; max-width: 44ch; color: var(--muted); }
+    .beer { margin-top: 1.4rem; font-size: .9rem; color: var(--muted); }
+
+    footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
+    footer .wrap > div + div { margin-top: .3rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <a class="logo" href="/">
+        <img src="/static/icon.png" alt="MissingMCP" width="30" height="30">
+        <span>missing<span class="mcp">mcp</span><span class="tld">.com</span></span>
+      </a>
+      <nav>
+        <a href="/#connectors">Connectors</a>
+        <a href="/#how">How it works</a>
+        <a href="/#security">Security</a>
+        <a href="/#graduated">No longer missing</a>
+        <a href="https://github.com/VelkyVenik/missingmcp">GitHub</a>
+      </nav>
+    </div>
+  </header>
+{CONTENT}
+  <footer>
+    <div class="wrap">
+      <div>MissingMCP &middot; The connectors Claude is missing.</div>
+      <div><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot; Run by {OPERATOR_NAME} &middot; <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></div>
+    </div>
+  </footer>
+</body>
+</html>

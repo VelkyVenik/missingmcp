@@ -1,27 +1,16 @@
-<!doctype html>
-<html><head><meta charset="utf-8"><title>Garmin MFA</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>body{font-family:system-ui;max-width:26rem;margin:4rem auto;padding:0 1rem;line-height:1.5}
-input{display:block;width:100%;padding:.6rem;margin:.4rem 0 1rem;box-sizing:border-box}
-button{padding:.6rem 1rem}.err{color:#b00}
-.note{background:#f0f6ff;border-left:4px solid #2563eb;padding:.6rem .9rem;border-radius:4px;margin:1rem 0;font-size:.82rem;color:#1e3a5f}
-.bmc{display:inline-block;margin-top:1.5rem;padding:.5rem .9rem;background:#FF813F;color:#fff;border-radius:6px;text-decoration:none;font-size:.85rem;font-weight:600}
-hr{border:none;border-top:1px solid #eee;margin:1.4rem 0}a{color:#2563eb}</style></head>
-<body>
-<h1>Enter your MFA code</h1>
-<p>Garmin sent a verification code to your email or phone.</p>
-<div class="note">The code is used once to finish signing in to Garmin and is not
-stored. Only the resulting encrypted session tokens are kept. This gateway is
-operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>.</div>
-{ERROR}
-<form method="post" action="{AUTHORIZE_ACTION}">
-  <input type="hidden" name="csrf" value="{CSRF}">
-  <input type="hidden" name="login_id" value="{LOGIN_ID}">
-  <label>MFA code<input name="mfa_code" inputmode="numeric" required></label>
-  <button type="submit">Verify</button>
-</form>
-<p>If this gateway helped you, you can buy me a beer 🙂<br>
-<a class="bmc" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">🍺 Buy me a beer</a></p>
-<hr>
-<p><small><a href="https://github.com/VelkyVenik/missingmcp">Source code on GitHub</a> &middot; built on <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a></small></p>
-</body></html>
+  <div class="auth">
+    <h1>Enter your <span class="hl">MFA</span> code</h1>
+    <p class="sub">Garmin sent a verification code to your email or phone.</p>
+    <div class="note">
+      The code is used once to finish signing in to Garmin and is not stored.
+      Only the resulting encrypted session tokens are kept. This gateway is
+      operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>.
+    </div>
+    {ERROR}
+    <form method="post" action="{AUTHORIZE_ACTION}">
+      <input type="hidden" name="csrf" value="{CSRF}">
+      <input type="hidden" name="login_id" value="{LOGIN_ID}">
+      <label>MFA code<input name="mfa_code" inputmode="numeric" autocomplete="one-time-code" required></label>
+      <button class="btn" type="submit">Verify</button>
+    </form>
+  </div>

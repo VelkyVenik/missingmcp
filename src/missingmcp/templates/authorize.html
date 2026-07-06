@@ -1,36 +1,22 @@
-<!doctype html>
-<html><head><meta charset="utf-8"><title>Connect Garmin</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>body{font-family:system-ui;max-width:26rem;margin:4rem auto;padding:0 1rem;line-height:1.5}
-input{display:block;width:100%;padding:.6rem;margin:.4rem 0 1rem;box-sizing:border-box}
-button{padding:.6rem 1rem}.err{color:#b00}
-.note{background:#f0f6ff;border-left:4px solid #2563eb;padding:.6rem .9rem;border-radius:4px;margin:1rem 0;font-size:.82rem;color:#1e3a5f}
-.note ul{margin:.3rem 0 0 1.1rem;padding:0}.note li{margin:.25rem 0}
-.bmc{display:inline-block;margin-top:1.5rem;padding:.5rem .9rem;background:#FF813F;color:#fff;border-radius:6px;text-decoration:none;font-size:.85rem;font-weight:600}
-hr{border:none;border-top:1px solid #eee;margin:1.4rem 0}a{color:#2563eb}</style></head>
-<body>
-<h1>Connect your Garmin account</h1>
-<p>Sign in with your Garmin Connect credentials to connect your account to Claude.</p>
-<div class="note">
-  <strong>What happens to your data</strong>
-  <ul>
-    <li>Your <strong>password is used once</strong> to sign in to Garmin and is <strong>never stored</strong> — it's discarded as soon as you're authenticated.</li>
-    <li>Only the resulting Garmin <strong>session tokens</strong> are kept, <strong>encrypted</strong> (AES-256-GCM) on this server, so it can reach your Garmin data on your behalf.</li>
-    <li>Your Garmin health &amp; activity data is <strong>passed through</strong> on demand and is <strong>not stored</strong> by this gateway.</li>
-    <li>Your credentials are <strong>never shared with Claude / Anthropic</strong>.</li>
-  </ul>
-  This gateway is operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong> &mdash;
-  only continue if you trust them. You can disconnect anytime.
-</div>
-{ERROR}
-<form method="post" action="{AUTHORIZE_ACTION}">
+  <div class="auth">
+    <h1>Connect your <span class="hl">Garmin</span> account</h1>
+    <p class="sub">Sign in with your Garmin Connect credentials to connect your account to Claude.</p>
+    <div class="note">
+      <strong>What happens to your data</strong>
+      <ul>
+        <li>Your <strong>password is used once</strong> to sign in to Garmin and is <strong>never stored</strong> &mdash; it&rsquo;s discarded as soon as you&rsquo;re authenticated.</li>
+        <li>Only the resulting Garmin <strong>session tokens</strong> are kept, <strong>encrypted</strong> (AES-256-GCM) on this server, so it can reach your Garmin data on your behalf.</li>
+        <li>Your Garmin health &amp; activity data is <strong>passed through</strong> on demand and is <strong>not stored</strong> by this gateway.</li>
+        <li>Your credentials are <strong>never shared with Claude / Anthropic</strong>.</li>
+      </ul>
+      This gateway is operated by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong> &mdash; only continue if you trust them. You can disconnect anytime.
+    </div>
+    {ERROR}
+    <form method="post" action="{AUTHORIZE_ACTION}">
 {OAUTH_FIELDS}
-  <label>Garmin email<input name="garmin_email" type="email" required></label>
-  <label>Garmin password<input name="garmin_password" type="password" required></label>
-  <button type="submit">Sign in</button>
-</form>
-<p>If this gateway helped you, you can buy me a beer 🙂<br>
-<a class="bmc" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">🍺 Buy me a beer</a></p>
-<hr>
-<p><small><a href="https://github.com/VelkyVenik/missingmcp">Source code on GitHub</a> &middot; built on <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a></small></p>
-</body></html>
+      <label>Garmin email<input name="garmin_email" type="email" required></label>
+      <label>Garmin password<input name="garmin_password" type="password" required></label>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+    <p class="after">Did this help you? <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></p>
+  </div>

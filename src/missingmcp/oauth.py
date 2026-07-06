@@ -3,14 +3,11 @@ import hmac
 import html
 import json
 import time
-from pathlib import Path
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
-from . import store, security
+from . import pages, store, security
 from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded
 from .log import log, log_error, log_exc
-
-_TPL_DIR = Path(__file__).parent / "templates"
 
 
 def metadata(config, adapter) -> dict:
@@ -62,8 +59,14 @@ async def register_client(request, conn, adapter) -> JSONResponse:
     )
 
 
-def _tpl(name: str) -> str:
-    return (_TPL_DIR / name).read_text()
+def _authorize_page(adapter) -> str:
+    return pages.render_page(adapter.authorize_template,
+                             f"Connect {adapter.display_name} — MissingMCP")
+
+
+def _second_factor_page(adapter) -> str:
+    return pages.render_page(adapter.second_factor_template,
+                             f"{adapter.display_name} verification — MissingMCP")
 
 
 class AuthState:
@@ -129,7 +132,7 @@ def _oauth_hidden_fields(params: dict, csrf_token: str) -> str:
 
 
 def render_authorize(params: dict, csrf_token: str, config, adapter, error: str = "") -> HTMLResponse:
-    body = _fill(_tpl(adapter.authorize_template), {
+    body = _fill(_authorize_page(adapter), {
         "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
         **_operator_fields(config),
     }, error)
@@ -200,7 +203,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
             lid = state.put_mfa(e.state, params, adapter.name)
-            body = _fill(_tpl(adapter.second_factor_template),
+            body = _fill(_second_factor_page(adapter),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                           "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                           **_operator_fields(config)},
@@ -240,7 +243,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
                                 f"{adapter.display_name} sign-in failed, please try again.")
     if isinstance(result, SecondFactorNeeded):
         lid = state.put_mfa(result.state, params, adapter.name)
-        body = _fill(_tpl(adapter.second_factor_template),
+        body = _fill(_second_factor_page(adapter),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                       "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                       **_operator_fields(config)}, "")
