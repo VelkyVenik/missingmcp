@@ -42,7 +42,7 @@ def build_app(config: Config) -> Starlette:
     def _render(name: str, title: str, desc: str | None = None) -> str:
         return pages.render_page(name, title, desc).replace(
             "{PUBLIC_URL}", config.public_url
-        ).replace("{OPERATOR_NAME}", config.operator_name).replace(
+        ).replace("{OPERATOR}", pages.operator_html(config)).replace(
             "{OPERATOR_EMAIL}", f" ({config.operator_email})" if config.operator_email else ""
         )
 

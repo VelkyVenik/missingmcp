@@ -2,6 +2,7 @@
 sign-in forms) is a content fragment wrapped in templates/_layout.html, so the
 header, nav, footer and stylesheet exist exactly once."""
 from __future__ import annotations
+import html
 from pathlib import Path
 
 _TPL_DIR = Path(__file__).parent / "templates"
@@ -21,3 +22,13 @@ def render_page(fragment: str, title: str, desc: str | None = None) -> str:
             .replace("{TITLE}", title)
             .replace("{DESC}", desc or _DEFAULT_DESC)
             .replace("{CONTENT}", tpl(fragment)))
+
+
+def operator_html(config) -> str:
+    """The {OPERATOR} placeholder value: the operator's name, linked to
+    OPERATOR_URL when configured. Values are escaped here, so the result is
+    trusted HTML — replace it into a page *after* any escaping fill pass."""
+    name = html.escape(config.operator_name)
+    if config.operator_url:
+        return f'<a href="{html.escape(config.operator_url, quote=True)}">{name}</a>'
+    return name

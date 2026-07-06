@@ -59,14 +59,18 @@ async def register_client(request, conn, adapter) -> JSONResponse:
     )
 
 
-def _authorize_page(adapter) -> str:
-    return pages.render_page(adapter.authorize_template,
-                             f"Connect {adapter.display_name} — MissingMCP")
+def _authorize_page(adapter, config) -> str:
+    # {OPERATOR} is trusted HTML (escaped inside operator_html) — it must be
+    # replaced into the raw template, never through _fill's escaping pass.
+    return pages.render_page(
+        adapter.authorize_template, f"Connect {adapter.display_name} — MissingMCP",
+    ).replace("{OPERATOR}", pages.operator_html(config))
 
 
-def _second_factor_page(adapter) -> str:
-    return pages.render_page(adapter.second_factor_template,
-                             f"{adapter.display_name} verification — MissingMCP")
+def _second_factor_page(adapter, config) -> str:
+    return pages.render_page(
+        adapter.second_factor_template, f"{adapter.display_name} verification — MissingMCP",
+    ).replace("{OPERATOR}", pages.operator_html(config))
 
 
 class AuthState:
@@ -109,7 +113,6 @@ def _fill(template: str, mapping: dict, error: str = "") -> str:
 
 def _operator_fields(config) -> dict:
     return {
-        "OPERATOR_NAME": config.operator_name,
         "OPERATOR_EMAIL": f" ({config.operator_email})" if config.operator_email else "",
     }
 
@@ -132,7 +135,7 @@ def _oauth_hidden_fields(params: dict, csrf_token: str) -> str:
 
 
 def render_authorize(params: dict, csrf_token: str, config, adapter, error: str = "") -> HTMLResponse:
-    body = _fill(_authorize_page(adapter), {
+    body = _fill(_authorize_page(adapter, config), {
         "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
         **_operator_fields(config),
     }, error)
@@ -203,7 +206,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
             lid = state.put_mfa(e.state, params, adapter.name)
-            body = _fill(_second_factor_page(adapter),
+            body = _fill(_second_factor_page(adapter, config),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                           "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                           **_operator_fields(config)},
@@ -243,7 +246,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
                                 f"{adapter.display_name} sign-in failed, please try again.")
     if isinstance(result, SecondFactorNeeded):
         lid = state.put_mfa(result.state, params, adapter.name)
-        body = _fill(_second_factor_page(adapter),
+        body = _fill(_second_factor_page(adapter, config),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                       "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                       **_operator_fields(config)}, "")
