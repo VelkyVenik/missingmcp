@@ -337,6 +337,11 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
         log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
                 error=str(e))
         return _upstream_error(config, adapter, str(e))
+    except Exception as e:  # noqa: BLE001 - unexpected failure (network, provider bug)
+        log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
+                error_type=type(e).__name__, error=str(e))
+        return _upstream_error(config, adapter,
+                               f"{adapter.display_name} sign-in failed, please try again.")
     log("upstream-oauth-callback", adapter=adapter.name, status="ok")
     log("authorize-finish", step="upstream")
     return _finish(conn, config, params, result.blob, adapter.name, result.account_key)

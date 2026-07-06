@@ -541,3 +541,34 @@ def test_upstream_callback_login_error_shows_message(conn):
     assert r.status_code == 400
     assert "AcmeAuth is on fire" in r.text
     assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None
+
+
+def test_upstream_callback_unexpected_exception_is_400_not_500(conn):
+    adapter = StubUpstreamOAuthAdapter()
+
+    async def boom(query):
+        raise RuntimeError("provider exploded")
+    adapter.handle_callback = boom
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"code": "x", "state": sid})
+    assert r.status_code == 400
+    assert "sign-in failed" in r.text
+    assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None
+
+
+def test_upstream_callback_verify_failure_blocks_persistence(conn):
+    adapter = StubUpstreamOAuthAdapter()
+
+    def bad_verify(blob):
+        from missingmcp.adapters.base import LoginError
+        raise LoginError("could not verify")
+    adapter.verify = bad_verify
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"code": "x", "state": sid})
+    assert r.status_code == 400
+    assert "could not verify" in r.text
+    assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None
