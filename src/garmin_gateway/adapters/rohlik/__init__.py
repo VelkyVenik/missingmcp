@@ -20,13 +20,48 @@ _PASSWORD_MAX = 1000
 _MSG_BAD_CREDS = "Rohlík sign-in failed — check your Rohlík email and password."
 _MSG_UNREACHABLE = "Rohlík could not be reached, please try again."
 
-# Cheapest valid MCP call that exercises the upstream's header auth without
-# touching account data.
-_INITIALIZE = json.dumps({
-    "jsonrpc": "2.0", "id": 1, "method": "initialize",
-    "params": {"protocolVersion": "2025-03-26", "capabilities": {},
-               "clientInfo": {"name": "missingmcp-gateway", "version": "1.0"}},
+# Cheapest MCP call that exercises the actual Rohlik login. It must be a
+# tools/call: the upstream logs in lazily, so initialize succeeds with ANY
+# credentials, and even a failed login answers HTTP 200 with the 401 buried in
+# a result.isError text (both confirmed against rohlik_mcp 2.14.7, 2026-07-06).
+# The upstream is stateless — tools/call works without a prior initialize.
+_VERIFY_CALL = json.dumps({
+    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+    "params": {"name": "get_user_info", "arguments": {}},
 }).encode()
+
+_VERIFY_BODY_CAP = 65536  # the get_user_info result is small; don't read more
+
+
+class _VerifyUnreadable(Exception):
+    """The 2xx verify response couldn't be understood — fail closed."""
+
+
+def _tool_error_text(body: bytes) -> "str | None":
+    """None when the verify tools/call succeeded; the upstream's error text when
+    it reported a failure. Accepts both response shapes (SSE `data:` line or
+    plain JSON). Raises _VerifyUnreadable when the body fits neither — verify-
+    then-persist means an unconfirmable login must not be persisted."""
+    text = body.decode("utf-8", errors="replace")
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            text = line[5:]
+            break
+    try:
+        msg = json.loads(text)
+    except ValueError:
+        raise _VerifyUnreadable() from None
+    if not isinstance(msg, dict):
+        raise _VerifyUnreadable()
+    if "error" in msg:  # JSON-RPC-level failure (bad request/unknown tool)
+        return str(msg["error"])
+    result = msg.get("result")
+    if not isinstance(result, dict):
+        raise _VerifyUnreadable()
+    if not result.get("isError"):
+        return None
+    parts = result.get("content") or []
+    return " ".join(p.get("text", "") for p in parts if isinstance(p, dict))
 
 
 class RohlikRemoteForward:
@@ -84,20 +119,35 @@ class RohlikAdapter:
 
     def verify(self, blob: str) -> str:
         # The step the TS proxy lacked: prove the credentials against the upstream
-        # before they are persisted. stream() decides on the status line alone —
-        # the upstream may answer with a long-lived SSE body we must never read
-        # (or let into exceptions/logs).
+        # before they are persisted, by forcing a real Rohlik login (_VERIFY_CALL).
+        # The body must be read (capped): the login failure hides in a 200.
         headers = {**self.forward.headers(blob),
                    "Content-Type": "application/json",
                    "Accept": "application/json, text/event-stream"}
         try:
             with httpx.stream("POST", self.forward.upstream_url, headers=headers,
-                              content=_INITIALIZE, timeout=15.0) as resp:
+                              content=_VERIFY_CALL, timeout=15.0) as resp:
                 status = resp.status_code
+                body = b""
+                if 200 <= status < 300:
+                    for chunk in resp.iter_bytes():
+                        body += chunk
+                        if len(body) > _VERIFY_BODY_CAP:
+                            break
         except httpx.HTTPError as e:
             raise LoginError(_MSG_UNREACHABLE) from e
         if status in (401, 403):
             raise LoginError(_MSG_BAD_CREDS, reason="auth")
         if not 200 <= status < 300:
             raise LoginError(_MSG_UNREACHABLE)
-        return json.loads(blob)["email"]
+        try:
+            error_text = _tool_error_text(body)
+        except _VerifyUnreadable:
+            raise LoginError(_MSG_UNREACHABLE) from None
+        if error_text is None:
+            return json.loads(blob)["email"]
+        # error_text echoes the account email — never let it into the
+        # exception (user-facing + logged); decide on it, then drop it.
+        if "401" in error_text or "403" in error_text or "Unauthorized" in error_text:
+            raise LoginError(_MSG_BAD_CREDS, reason="auth")
+        raise LoginError(_MSG_UNREACHABLE)

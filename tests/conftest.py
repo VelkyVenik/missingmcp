@@ -90,12 +90,15 @@ class FakeRemoteUpstream(_FakeHttpServer):
       - response_mode "sse": 200 text/event-stream body written in chunks
       - response_status 401/403/500/...: JSON error body, no session id
       - response_delay: seconds to sit on the request before answering (timeout tests)
+      - response_json: overrides the 2xx payload (raw string; wrapped as the SSE
+        data: line in "sse" mode)
     """
 
     def __init__(self):
         self.response_status = 200
         self.response_mode = "json"   # "json" | "sse"
         self.response_delay = 0.0
+        self.response_json = None
         self.session_id = "up-sess-9"
         super().__init__()
 
@@ -113,6 +116,8 @@ class FakeRemoteUpstream(_FakeHttpServer):
                 if upstream.response_delay:
                     time.sleep(upstream.response_delay)
                 self.send_response(upstream.response_status)
+                payload = (upstream.response_json
+                           or '{"jsonrpc":"2.0","result":{"remote":true}}').encode()
                 if not 200 <= upstream.response_status < 300:
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
@@ -124,12 +129,12 @@ class FakeRemoteUpstream(_FakeHttpServer):
                     # two flushes so the body arrives in chunks, like a real SSE stream
                     self.wfile.write(b"event: message\n")
                     self.wfile.flush()
-                    self.wfile.write(b'data: {"jsonrpc":"2.0","result":{"remote":true}}\n\n')
+                    self.wfile.write(b"data: " + payload + b"\n\n")
                 else:
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Mcp-Session-Id", upstream.session_id)
                     self.end_headers()
-                    self.wfile.write(b'{"jsonrpc":"2.0","result":{"remote":true}}')
+                    self.wfile.write(payload)
 
             do_POST = _handle
             do_GET = _handle
