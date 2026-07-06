@@ -125,3 +125,7 @@ def test_subpages_share_site_chrome(tmp_path):
         assert 'src="/static/icon.png"' in r, path
         assert 'href="/#security"' in r, path         # shared nav
         assert "The connectors Claude is missing." in r, path   # shared footer
+        # author credit is fixed (who built MissingMCP); the operator — who runs
+        # this instance — stays config-driven and appears separately
+        assert 'Built by <a href="https://slajs.eu">Vaclav Slajs</a>' in r, path
+        assert "This instance is run by" in r, path
