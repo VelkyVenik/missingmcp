@@ -27,3 +27,15 @@ def test_rejects_placeholder_secret():
     with pytest.raises(ValueError):
         load_config({"GATEWAY_SECRET": "change-me-to-a-long-random-string-min-32-chars",
                      "PUBLIC_URL": "https://gw.example.com"})
+
+def test_whoop_defaults_off():
+    c = load_config(BASE)
+    assert c.whoop_client_id == "" and c.whoop_client_secret == ""
+    assert c.whoop_api_base == "https://api.prod.whoop.com"
+
+
+def test_whoop_settings_and_base_override():
+    c = load_config({**BASE, "WHOOP_CLIENT_ID": "cid-1", "WHOOP_CLIENT_SECRET": "sec-1",
+                     "WHOOP_API_BASE": "http://127.0.0.1:9999/"})
+    assert c.whoop_client_id == "cid-1" and c.whoop_client_secret == "sec-1"
+    assert c.whoop_api_base == "http://127.0.0.1:9999"   # trailing slash stripped

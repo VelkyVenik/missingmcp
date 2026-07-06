@@ -28,6 +28,11 @@ class Config:
     backup_s3_region: str
     backup_s3_url_style: str      # "virtual-host" (Railway buckets) | "path"
     backup_interval: int          # seconds
+    # WHOOP adapter (adapters/whoop). The adapter is registered only when both
+    # client credentials are set — see adapters.build_adapters.
+    whoop_client_id: str
+    whoop_client_secret: str
+    whoop_api_base: str           # tests/staging override; both OAuth and data URLs derive from it
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -65,4 +70,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         backup_s3_region=env.get("BACKUP_S3_REGION", "auto"),
         backup_s3_url_style=env.get("BACKUP_S3_URL_STYLE", "virtual-host"),
         backup_interval=int(env.get("BACKUP_INTERVAL_HOURS", "6")) * 3600,
+        whoop_client_id=env.get("WHOOP_CLIENT_ID", ""),
+        whoop_client_secret=env.get("WHOOP_CLIENT_SECRET", ""),
+        whoop_api_base=env.get("WHOOP_API_BASE", "https://api.prod.whoop.com").rstrip("/"),
     )
