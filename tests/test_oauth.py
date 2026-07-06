@@ -433,3 +433,111 @@ def test_mfa_login_id_from_another_adapter_is_rejected(conn, fake_remote):
     r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "123456"})
     assert r.status_code == 400
     assert "MFA session expired" in r.text
+
+
+# --- upstream-OAuth login shape (C) — driven through StubUpstreamOAuthAdapter ---
+
+from conftest import StubUpstreamOAuthAdapter
+
+
+def _upstream_app(conn, adapter):
+    state = oauth.AuthState(security.CsrfStore())
+
+    async def aget(request):
+        return await oauth.authorize_get(request, adapter, state, conn, CONFIG)
+
+    async def cb(request):
+        return await oauth.authorize_callback(request, adapter, state, conn, CONFIG)
+
+    async def reg(request):
+        return await oauth.register_client(request, conn, adapter)
+
+    return TestClient(Starlette(routes=[
+        Route("/oauth/register", reg, methods=["POST"]),
+        Route("/oauth/authorize", aget, methods=["GET"]),
+        Route("/oauth/callback", cb, methods=["GET"]),
+    ]))
+
+
+def _register_and_authorize(c):
+    reg = c.post("/oauth/register", json={"redirect_uris": ["https://claude.ai/cb"]}).json()
+    r = c.get("/oauth/authorize", params={
+        "client_id": reg["client_id"], "redirect_uri": "https://claude.ai/cb",
+        "state": "claude-state", "code_challenge": "c" * 43,
+        "code_challenge_method": "S256"}, follow_redirects=False)
+    return reg, r
+
+
+def test_upstream_authorize_redirects_to_provider(conn):
+    adapter = StubUpstreamOAuthAdapter()
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    assert r.status_code == 302
+    loc = r.headers["location"]
+    assert loc.startswith("https://upstream.example/auth?state=")
+    assert len(loc.split("state=")[1]) >= 8        # WHOOP requires state >= 8 chars
+
+
+def test_upstream_authorize_still_validates_client(conn):
+    c = _upstream_app(conn, StubUpstreamOAuthAdapter())
+    r = c.get("/oauth/authorize", params={
+        "client_id": "nope", "redirect_uri": "https://claude.ai/cb",
+        "state": "s", "code_challenge": "c" * 43, "code_challenge_method": "S256"},
+        follow_redirects=False)
+    assert r.status_code == 400
+
+
+def test_upstream_callback_happy_path_persists_and_redirects(conn):
+    adapter = StubUpstreamOAuthAdapter()
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"code": "up-code", "state": sid},
+              follow_redirects=False)
+    assert r.status_code == 302
+    loc = r.headers["location"]
+    assert loc.startswith("https://claude.ai/cb?")
+    q = parse_qs(urlparse(loc).query)
+    assert q["state"] == ["claude-state"] and q["code"]
+    assert adapter.callbacks[0]["code"] == "up-code"
+    blob = store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret)
+    assert blob is not None and "at" in blob       # persisted under the normalized email
+
+
+def test_upstream_callback_unknown_state_is_400(conn):
+    c = _upstream_app(conn, StubUpstreamOAuthAdapter())
+    r = c.get("/oauth/callback", params={"code": "x", "state": "bogus"})
+    assert r.status_code == 400
+    assert "expired" in r.text
+
+
+def test_upstream_callback_state_is_single_use(conn):
+    adapter = StubUpstreamOAuthAdapter()
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    assert c.get("/oauth/callback", params={"code": "x", "state": sid},
+                 follow_redirects=False).status_code == 302
+    assert c.get("/oauth/callback", params={"code": "x", "state": sid}).status_code == 400
+
+
+def test_upstream_callback_denied_shows_error_page(conn):
+    adapter = StubUpstreamOAuthAdapter()
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"error": "access_denied", "state": sid})
+    assert r.status_code == 400
+    assert "AcmeAuth" in r.text
+    assert adapter.callbacks == []                 # exchange never attempted
+
+
+def test_upstream_callback_login_error_shows_message(conn):
+    adapter = StubUpstreamOAuthAdapter(fail_with="AcmeAuth is on fire")
+    c = _upstream_app(conn, adapter)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"code": "x", "state": sid})
+    assert r.status_code == 400
+    assert "AcmeAuth is on fire" in r.text
+    assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None

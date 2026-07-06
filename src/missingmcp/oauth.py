@@ -6,8 +6,8 @@ import time
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 from . import pages, store, security
-from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded
-from .log import log, log_error, log_exc
+from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded, is_upstream_oauth
+from .log import log, log_warn, log_error, log_exc
 
 
 def metadata(config, adapter) -> dict:
@@ -152,7 +152,7 @@ def _oauth_params_from(source) -> dict:
     }
 
 
-async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse:
+async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse | RedirectResponse:
     params = _oauth_params_from(request.query_params)
     client = store.get_client(conn, params["client_id"])
     if client is None:
@@ -161,6 +161,13 @@ async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse:
         return HTMLResponse("invalid redirect_uri", status_code=400)
     if params["code_challenge_method"] != "S256" or not params["code_challenge"]:
         return HTMLResponse("PKCE S256 required", status_code=400)
+    if is_upstream_oauth(adapter):
+        # No form of ours: stash Claude's OAuth params (same one-time TTL stash
+        # as MFA, pending=None) and send the user to the provider. The stash id
+        # rides in the provider's `state` and doubles as callback CSRF.
+        sid = state.put_mfa(None, params, adapter.name)
+        log("upstream-oauth-start", adapter=adapter.name, client_id=params["client_id"])
+        return RedirectResponse(adapter.authorize_redirect_url(sid), status_code=302)
     return render_authorize(params, state.csrf.issue(), config, adapter)
 
 
@@ -290,3 +297,46 @@ async def token_exchange(request, conn, config) -> JSONResponse:
     if config.access_token_ttl:
         resp["expires_in"] = config.access_token_ttl
     return JSONResponse(resp)
+
+
+def _upstream_error(config, adapter, message: str) -> HTMLResponse:
+    body = _fill(pages.render_page("upstream_error.html",
+                                   f"Connect {adapter.display_name} — MissingMCP"),
+                 {"DISPLAY_NAME": adapter.display_name, **_operator_fields(config)},
+                 message)
+    return HTMLResponse(body, status_code=400)
+
+
+async def authorize_callback(request, adapter, state, conn, config) -> HTMLResponse | RedirectResponse:
+    """The provider's redirect back (login shape C). Pop-once state lookup,
+    re-validate the DCR client, exchange the code via the adapter, then the
+    standard verify-then-persist finish."""
+    q = request.query_params
+    popped = state.pop_mfa(q.get("state", ""), adapter.name)
+    if popped is None:
+        log_error("upstream-oauth-callback", adapter=adapter.name, status="expired")
+        return _upstream_error(config, adapter,
+                               "This sign-in link expired — go back to Claude and try connecting again.")
+    _pending, params = popped
+    client = store.get_client(conn, params["client_id"])
+    if client is None or not security.validate_redirect_uri(params["redirect_uri"],
+                                                            client["redirect_uris"]):
+        return HTMLResponse("invalid client/redirect_uri", status_code=400)
+    if q.get("error") or not q.get("code"):
+        # the user declined at the provider — expected, not an anomaly
+        log_warn("upstream-oauth-callback", adapter=adapter.name, status="denied",
+                 reason=q.get("error", "no_code"))
+        return _upstream_error(config, adapter,
+                               f"{adapter.display_name} declined the connection — go back to Claude and try again.")
+    try:
+        result = await adapter.handle_callback(q)
+        t0 = time.monotonic()
+        name = adapter.verify(result.blob)
+        log("upstream-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
+    except LoginError as e:
+        log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
+                error=str(e))
+        return _upstream_error(config, adapter, str(e))
+    log("upstream-oauth-callback", adapter=adapter.name, status="ok")
+    log("authorize-finish", step="upstream")
+    return _finish(conn, config, params, result.blob, adapter.name, result.account_key)

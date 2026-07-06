@@ -74,6 +74,17 @@ def is_remote(forward: "WorkerForward | RemoteForward") -> bool:
     return hasattr(forward, "upstream_url")
 
 
+def is_upstream_oauth(adapter) -> bool:
+    """Login-shape dispatch (duck-typed, like is_remote). An upstream-OAuth
+    adapter provides, instead of a credential form:
+      - authorize_redirect_url(state_id: str) -> str
+      - async handle_callback(query: Mapping[str, str]) -> LoginOk   (raises LoginError)
+    The gateway stashes the client's OAuth params under state_id (AuthState,
+    TTL 300s, one-time pop), sends the user to the provider, and finishes the
+    normal verify-then-persist path when the provider calls back."""
+    return hasattr(adapter, "authorize_redirect_url")
+
+
 class Adapter(Protocol):
     name: str                    # registry key, log field; path prefix from spec step 3
     display_name: str            # user-facing service name in error copy

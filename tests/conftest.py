@@ -292,3 +292,46 @@ def fake_whoop():
     _wait_listening(u.port)
     yield u
     u.stop()
+
+
+class StubUpstreamOAuthAdapter:
+    """A complete Adapter implementing the upstream-OAuth login shape (C) with
+    a canned token exchange — pins oauth.authorize_get's redirect branch and
+    oauth.authorize_callback without a real upstream. Form-login methods raise:
+    app.py registers no authorize POST for upstream-OAuth adapters."""
+
+    name = "acmeauth"
+    display_name = "AcmeAuth"
+    authorize_template = ""
+    second_factor_template = ""
+    landing_template = "home.html"
+
+    def __init__(self, fail_with: str | None = None):
+        self.fail_with = fail_with
+        self.forward = None          # oauth-flow tests never touch the forward
+        self.callbacks = []
+
+    def authorize_redirect_url(self, state_id: str) -> str:
+        return f"https://upstream.example/auth?state={state_id}"
+
+    async def handle_callback(self, query):
+        from missingmcp.adapters.base import LoginError, LoginOk, normalize_account_key
+        self.callbacks.append(dict(query))
+        if self.fail_with:
+            raise LoginError(self.fail_with)
+        return LoginOk(account_key=normalize_account_key("Me@X.cz"),
+                       blob='{"access_token":"at","refresh_token":"rt","expires_at":9999999999}')
+
+    def login_hint(self, form):
+        return ""
+
+    def start_login(self, form):
+        from missingmcp.adapters.base import LoginError
+        raise LoginError("AcmeAuth signs in at the provider, not here.")
+
+    def resume_second_factor(self, state, form):
+        from missingmcp.adapters.base import LoginError
+        raise LoginError("AcmeAuth signs in at the provider, not here.")
+
+    def verify(self, blob):
+        return "Acme User"
