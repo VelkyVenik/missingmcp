@@ -102,6 +102,19 @@ def test_home_shows_logo_lockup(tmp_path):
     assert '/static/favicon-32.png' in r          # PNG favicon link
 
 
+def test_operator_link_comes_from_config(tmp_path):
+    # OPERATOR_URL set → the operator name is a link to it; unset → plain text.
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "DATA_DIR": str(tmp_path), "DB_PATH": str(tmp_path / "t.db"),
+                       "OPERATOR_NAME": "Jane Doe", "OPERATOR_URL": "https://jane.example"})
+    r = TestClient(build_app(cfg)).get("/").text
+    assert '<a href="https://jane.example">Jane Doe</a>' in r
+
+    plain = _client(tmp_path).get("/").text        # no OPERATOR_URL configured
+    assert "the operator" in plain                 # default name, unlinked
+    assert "{OPERATOR}" not in plain
+
+
 def test_subpages_share_site_chrome(tmp_path):
     # one _layout.html wraps every page: same header (logo linking home, nav)
     # and footer on the home page and the connector landing alike

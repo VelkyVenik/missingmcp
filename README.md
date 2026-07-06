@@ -134,6 +134,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
+| `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
