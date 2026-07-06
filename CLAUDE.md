@@ -23,7 +23,7 @@ uv run --extra dev pytest tests/test_oauth.py::test_metadata_shape -v   # one te
 # To exercise the full /<adapter>/mcp path locally, also set GARMIN_MCP_CMD (garmin-mcp isn't on
 # PATH): GARMIN_MCP_CMD="uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp"
 GATEWAY_SECRET="$(openssl rand -base64 48)" PUBLIC_URL=http://localhost:8088 PORT=8088 \
-  DATA_DIR=./.localdata uv run garmin-gateway
+  DATA_DIR=./.localdata uv run missingmcp
 
 # Full deployment (installs the pinned garmin-mcp worker, spawns per-user workers).
 cp .env.example .env   # set a real GATEWAY_SECRET, PUBLIC_URL, and pin GARMIN_MCP_REF to a commit SHA
@@ -36,7 +36,7 @@ There is no separate lint step configured.
 
 - **Never modify or import `garmin_mcp`.** Interact with it *only* as a black box via its documented CLI entrypoint (`garmin-mcp`) and env vars (`GARMIN_MCP_TRANSPORT`, `GARMIN_MCP_HOST`, `GARMIN_MCP_PORT`, `GARMINTOKENS`). No source edits, no importing its internal modules.
 - **Pin `GARMIN_MCP_REF`** to a reviewed commit SHA in production (the `main` default is a floating ref — supply-chain risk).
-- **Python 3.12** (matches the worker's interpreter). All source under `src/garmin_gateway/`, all tests under `tests/`.
+- **Python 3.12** (matches the worker's interpreter). All source under `src/missingmcp/`, all tests under `tests/`.
 
 ## Architecture
 
@@ -51,7 +51,7 @@ Claude → OAuth 2.1 (DCR → /<adapter>/oauth/register → /<adapter>/oauth/aut
            remote (no in-tree adapter today): stream-forward to forward.upstream_url with forward.headers(blob) injected
 ```
 
-Modules (`src/garmin_gateway/`), in dependency order — each has one responsibility and composes through small explicit contracts:
+Modules (`src/missingmcp/`), in dependency order — each has one responsibility and composes through small explicit contracts:
 
 - **`config.py`** — `Config` frozen dataclass + `load_config(env)`. Single source of all tunables (read from env). Refuses to start without a valid `GATEWAY_SECRET`.
 - **`log.py`** — structured JSON logging to stdout (`log` / `log_warn` / `log_error`). Callers must never pass secrets; the runtime (Docker/journald) supplies timestamps.
@@ -63,7 +63,7 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **`backup.py`** — off-box DB backups: SQLite backup-API snapshot uploaded to an S3-compatible bucket (dependency-free SigV4 signer over httpx), weekday-rotated keys (`db/gateway-<mon..sun>.db`). Driven by the app lifespan loop (`Backup.enabled`/`due`/`run`); `run` never raises. Disabled unless all `BACKUP_S3_*` are set.
 - **`workers.py`** — `WorkerManager(config, forward)`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap; dirs `0700` are manager-owned, credential files come from `forward.materialize` (`0600`). `spawn` is injectable for tests.
 - **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp`: a shared core (body limit, blob fetch, usage, header threading, streaming forward, timeout→504) plus strategy dispatch via `is_remote` — worker path calls `ensure_worker` (start-failure→502 `<adapter>_session_expired`); remote path injects `forward.headers(blob)` and maps upstream 401/403 to the same 502 shape (event `remote-forward-auth-stale`).
-- **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, one `WorkerManager` **per worker-based adapter** — remote adapters get none, `AuthState`, `RateLimiter`), a per-adapter landing route rendered from `adapter.landing_template`, and a lifespan that periodically reaps idle workers (all managers) and cleans expired codes. `main()` is the `garmin-gateway` console entrypoint.
+- **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, one `WorkerManager` **per worker-based adapter** — remote adapters get none, `AuthState`, `RateLimiter`), a per-adapter landing route rendered from `adapter.landing_template`, and a lifespan that periodically reaps idle workers (all managers) and cleans expired codes. `main()` is the `missingmcp` console entrypoint.
 
 ## Cross-cutting invariants (easy to break, hard to see from one file)
 

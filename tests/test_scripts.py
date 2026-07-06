@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from garmin_gateway import store
+from missingmcp import store
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 SECRET = "s" * 32

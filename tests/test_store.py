@@ -1,6 +1,6 @@
 import time
 import pytest
-from garmin_gateway import store
+from missingmcp import store
 
 SECRET = "k" * 40
 

@@ -2,9 +2,9 @@ import dataclasses
 import os
 import stat
 import pytest
-from garmin_gateway.adapters import base
-from garmin_gateway.config import load_config
-from garmin_gateway.adapters.garmin import GarminWorkerForward
+from missingmcp.adapters import base
+from missingmcp.config import load_config
+from missingmcp.adapters.garmin import GarminWorkerForward
 
 
 def test_login_ok_is_frozen():
@@ -52,8 +52,8 @@ def test_garmin_forward_materialize_writes_0600_tokens_file(tmp_path):
 
 
 from unittest.mock import patch
-from garmin_gateway.adapters import base
-from garmin_gateway.adapters.garmin import GarminAdapter, login
+from missingmcp.adapters import base
+from missingmcp.adapters.garmin import GarminAdapter, login
 
 
 def _adapter():
@@ -126,7 +126,7 @@ def test_verify_ok_and_failure():
     assert "could not be verified" in str(ei.value)
 
 
-from garmin_gateway.adapters import build_adapters
+from missingmcp.adapters import build_adapters
 
 
 def test_registry_builds_all_adapters():

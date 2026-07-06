@@ -8,8 +8,8 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from conftest import StubRemoteAdapter
-from garmin_gateway import store, proxy, security
-from garmin_gateway.config import load_config
+from missingmcp import store, proxy, security
+from missingmcp.config import load_config
 
 TOKEN = "tok-acme"
 BLOB = json.dumps({"user": "me@x.cz", "pass": "pw"})

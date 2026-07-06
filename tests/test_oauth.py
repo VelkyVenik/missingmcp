@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
-from garmin_gateway import store, oauth, security
-from garmin_gateway.adapters.garmin import GarminAdapter, login as garmin_login
-from garmin_gateway.config import load_config
+from missingmcp import store, oauth, security
+from missingmcp.adapters.garmin import GarminAdapter, login as garmin_login
+from missingmcp.config import load_config
 
 CONFIG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.example.com"})
 ADAPTER = GarminAdapter(CONFIG)
@@ -310,7 +310,7 @@ def test_mfa_verify_failure_restarts(conn):
 def test_mfa_resume_login_error_restarts_login(conn):
     # base.py contract: resume_second_factor may raise LoginError = "start over";
     # the core must re-render the credential form, not 500
-    from garmin_gateway.adapters.base import LoginError
+    from missingmcp.adapters.base import LoginError
     client, state = _authz_app(conn)
     cid = _register(conn)
     params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
