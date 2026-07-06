@@ -134,12 +134,25 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
+| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | no | — | Credentials of your WHOOP developer app (see WHOOP connector setup); both unset ⇒ the whoop connector is disabled. |
+| `WHOOP_API_BASE` | no | `https://api.prod.whoop.com` | WHOOP API origin; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
 | `BACKUP_INTERVAL_HOURS` | no | `6` | Hours between backup uploads. First backup runs right after startup. |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
+
+### WHOOP connector setup
+
+1. Create an app at <https://developer-dashboard.whoop.com> (instant self-service).
+2. Redirect URI: `https://<your-domain>/whoop/oauth/callback` — exact match required.
+3. Scopes: `read:recovery read:cycles read:workout read:sleep read:profile read:body_measurement offline`
+   (`offline` is required — without it WHOOP issues no refresh token and sessions die after an hour).
+4. Put the app's Client ID/Secret into `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET`.
+
+Note: an unapproved WHOOP app is limited to **10 WHOOP members** — fine for a
+trusted circle; submit the app for approval only if you outgrow that.
 
 ## Backups
 
