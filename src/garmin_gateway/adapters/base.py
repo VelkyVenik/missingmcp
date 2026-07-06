@@ -30,6 +30,13 @@ class SecondFactorError(Exception):
         self.state = state
 
 
+def normalize_account_key(email: str) -> str:
+    """Owns the spec invariant "account_key = normalized lowercased login email"
+    — the cross-table join key and worker-registry key. Every adapter's
+    LoginOk.account_key must come from here."""
+    return email.strip().lower()
+
+
 @dataclass(frozen=True)
 class LoginOk:
     account_key: str   # normalized (lowercased) login identity — cross-table join key
@@ -42,8 +49,7 @@ class SecondFactorNeeded:
 
 
 class WorkerForward(Protocol):
-    """Forward strategy B: per-account spawned HTTP worker.
-    (Strategy A, RemoteForward, arrives with the rohlik adapter — spec step 4.)"""
+    """Forward strategy B: per-account spawned HTTP worker."""
 
     def command(self) -> list[str]: ...
     def env(self, port: int, workdir: str) -> dict[str, str]: ...
@@ -52,12 +58,29 @@ class WorkerForward(Protocol):
         ...
 
 
+class RemoteForward(Protocol):
+    """Forward strategy A: shared remote MCP upstream, per-account credentials
+    injected as request headers derived from the decrypted blob."""
+
+    upstream_url: str
+
+    # bytes values allowed: HTTP headers are latin-1 and httpx rejects
+    # non-ASCII str values, so adapters pre-encode credential headers.
+    def headers(self, blob: str) -> dict[str, "str | bytes"]: ...
+
+
+def is_remote(forward: "WorkerForward | RemoteForward") -> bool:
+    """Strategy dispatch (duck-typed: Protocols, no common base class)."""
+    return hasattr(forward, "upstream_url")
+
+
 class Adapter(Protocol):
     name: str                    # registry key, log field; path prefix from spec step 3
     display_name: str            # user-facing service name in error copy
     authorize_template: str      # template filename for the credential form
     second_factor_template: str  # template filename for the second-factor form
-    forward: WorkerForward
+    landing_template: str        # template filename for the connector landing page
+    forward: WorkerForward | RemoteForward
 
     def login_hint(self, form: Mapping[str, str]) -> str:
         """The login identity as typed (for the login-start log line)."""

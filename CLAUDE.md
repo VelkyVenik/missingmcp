@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A multi-user, OAuth 2.1–protected **remote MCP gateway** that lets a small trusted circle each connect their own Garmin account to Claude (mobile/desktop/web). It wraps the **unmodified** `garmin_mcp` worker (`github.com/Taxuspt/garmin_mcp`): the gateway terminates OAuth, performs the Garmin login, stores per-account encrypted tokens, and for each account spawns + reverse-proxies to a per-user `garmin-mcp` subprocess.
+A multi-user, OAuth 2.1–protected **remote MCP gateway** that lets a small trusted circle each connect their own upstream-service accounts to Claude (mobile/desktop/web). The gateway terminates OAuth, performs the adapter-specific login, stores per-account encrypted blobs, and forwards `/<adapter>/mcp` via one of two strategies: **worker** (garmin — spawns + reverse-proxies to a per-user subprocess of the **unmodified** `garmin_mcp` worker, `github.com/Taxuspt/garmin_mcp`) or **remote** (rohlik — no subprocess; forwards to the hosted Rohlík MCP at `ROHLIK_MCP_URL`, injecting the account's credentials as headers).
 
 The canonical design and the task-by-task implementation plan live in `docs/superpowers/specs/` and `docs/superpowers/plans/` — read them for rationale and the full data flow. Operator-facing docs (env-var reference, monitoring, deploy checklist) live in `README.md`; operational scripts (`status`, `revoke`, `usage`) live in `scripts/` and are documented in README → Monitoring.
 
@@ -44,9 +44,11 @@ Request flow (one user, one device):
 
 ```
 Claude → OAuth 2.1 (DCR → /<adapter>/oauth/register → /<adapter>/oauth/authorize → /<adapter>/oauth/token, PKCE S256, RFC 8414 discovery at /.well-known/oauth-authorization-server/<adapter>)
-       → adapter-specific login via garminconnect (for Garmin; password discarded, tokens kept)
-       → encrypted tokens in SQLite, keyed by (adapter, account_key)
-       → on POST /<adapter>/mcp: ensure the user's worker subprocess (127.0.0.1:<port>) → reverse-proxy (RFC 9728 discovery at /.well-known/oauth-protected-resource/<adapter>/mcp)
+       → adapter-specific login (garmin: garminconnect, password discarded, tokens kept; rohlik: validate + probe the upstream, email+password kept in the blob)
+       → encrypted blob in SQLite, keyed by (adapter, account_key)
+       → on POST /<adapter>/mcp, forward strategy (RFC 9728 discovery at /.well-known/oauth-protected-resource/<adapter>/mcp):
+           worker (garmin): ensure the user's worker subprocess (127.0.0.1:<port>) → reverse-proxy
+           remote (rohlik): stream-forward to ROHLIK_MCP_URL with forward.headers(blob) injected
 ```
 
 Modules (`src/garmin_gateway/`), in dependency order — each has one responsibility and composes through small explicit contracts:
@@ -55,17 +57,18 @@ Modules (`src/garmin_gateway/`), in dependency order — each has one responsibi
 - **`log.py`** — structured JSON logging to stdout (`log` / `log_warn` / `log_error`). Callers must never pass secrets; the runtime (Docker/journald) supplies timestamps.
 - **`store.py`** — SQLite schema + AES-256-GCM crypto + token hashing + CRUD, **adapter-keyed**. Tables: `accounts` (encrypted per-account blob, PK `(adapter, account_key)`), `access_tokens` (Bearer hash → `(adapter, account_key)`), `oauth_clients` (DCR, per adapter), `oauth_codes` (one-time PKCE, per adapter), `tool_usage` (per-account metrics). A guarded `PRAGMA user_version` 0→1 migration rewrites the pre-adapter Garmin schema in place (ciphertext verbatim). Encryption key = `SHA-256(GATEWAY_SECRET)`.
 - **`security.py`** — PKCE S256 verify, redirect_uri allowlist, `CsrfStore`, sliding-window `RateLimiter`, security headers, `read_body_limited`.
-- **`adapters/base.py`** — the adapter contract: `Adapter`/`WorkerForward` protocols, `LoginOk`/`SecondFactorNeeded` results, `LoginError`/`SecondFactorError`. The seam between the core and upstream services (spec 2026-07-05).
+- **`adapters/base.py`** — the adapter contract: `Adapter` protocol (incl. `landing_template`), the two forward strategies as protocols — `WorkerForward` (subprocess) and `RemoteForward` (`upstream_url` + `headers(blob)`), duck-typed dispatch via `is_remote(forward)` — plus `LoginOk`/`SecondFactorNeeded` results, `LoginError`/`SecondFactorError`. The seam between the core and upstream services (spec 2026-07-05).
 - **`adapters/garmin/`** — `login.py` is the thin `garminconnect` wrapper (`start_login` MFA-aware with transient-block retry, `resume_login`, `verify_tokens`); `GarminAdapter` owns form-field names, error copy, account-key normalization and the second-factor state; `GarminWorkerForward` owns the worker CLI/env contract + token materialization. Registry: `adapters.build_adapters(config)`.
+- **`adapters/rohlik/`** — `RohlikRemoteForward` (upstream = `config.rohlik_mcp_url`; `headers(blob)` → `rhl-email`/`rhl-pass`, latin-1 pre-encoded) and `RohlikAdapter` (email/password form, no second factor; `verify()` probes the upstream with one streaming `initialize` call, deciding on the status line alone). Blob = `{email, password}` — the spec-documented asymmetry vs Garmin.
 - **`oauth.py`** — one cohesive module covering metadata (RFC 8414), DCR (RFC 7591), the `/<adapter>/oauth/authorize` form + adapter login + MFA two-step, and `/<adapter>/oauth/token` exchange. `AuthState` holds the in-memory MFA-pending map (TTL 300s).
 - **`workers.py`** — `WorkerManager(config, forward)`: per-account `asyncio.Lock` (no double-spawn), lazy spawn, `/healthz` poll, idle reaper, LRU cap; dirs `0700` are manager-owned, credential files come from `forward.materialize` (`0600`). `spawn` is injectable for tests.
-- **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp` (body-limit → `ensure_worker` → stream-forward to the worker, mapping timeout→504, start-failure→502).
-- **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, `WorkerManager`, `AuthState`, `RateLimiter`) + a lifespan that periodically reaps idle workers and cleans expired codes. `main()` is the `garmin-gateway` console entrypoint.
+- **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp`: a shared core (body limit, blob fetch, usage, header threading, streaming forward, timeout→504) plus strategy dispatch via `is_remote` — worker path calls `ensure_worker` (start-failure→502 `<adapter>_session_expired`); remote path injects `forward.headers(blob)` and maps upstream 401/403 to the same 502 shape (event `remote-forward-auth-stale`).
+- **`app.py`** — `build_app(config)` wires routes + security-headers middleware + shared singletons (db conn, one `WorkerManager` **per worker-based adapter** — remote adapters get none, `AuthState`, `RateLimiter`), a per-adapter landing route rendered from `adapter.landing_template`, and a lifespan that periodically reaps idle workers (all managers) and cleans expired codes. `main()` is the `garmin-gateway` console entrypoint.
 
 ## Cross-cutting invariants (easy to break, hard to see from one file)
 
 - **`account_key`** = the normalized **lowercased login email**, scoped by `adapter`. `(adapter, account_key)` is the join key across every table *and* (with `account_key` alone) the worker registry. A Bearer token carries its `adapter`; the proxy rejects a token used on a different adapter's `/mcp`.
-- **Secret handling:** the Garmin **password is never persisted or logged** (held in a local, `del`-ed right after `start_login`). **Bearer tokens and client secrets are stored only as SHA-256 hashes.** Garmin tokens are AES-256-GCM encrypted at rest (`token files 0600`, `dirs 0700`). Logs carry at most an 8-char hash prefix.
+- **Secret handling:** the Garmin **password is never persisted or logged** (held in a local, `del`-ed right after `start_login`). **Bearer tokens and client secrets are stored only as SHA-256 hashes.** Garmin tokens are AES-256-GCM encrypted at rest (`token files 0600`, `dirs 0700`). Logs carry at most an 8-char hash prefix. Rohlik is the deliberate, spec-documented exception: its blob holds email **and** password (the upstream authenticates every request with them) — still only inside the encrypted blob, never logged, never materialized to files.
 - **Verify-then-persist:** in `oauth.py`, `verify_tokens` is the only "expectedly failing" step and gates `_finish` (which does upsert + code-mint + redirect) on **every** authorize path. A login/verify failure re-renders the form; a wrong MFA code re-prompts. Don't move `verify_tokens` back into `_finish`.
 - **PKCE S256 only** (`plain` rejected); **`redirect_uri` exact-match allowlist** enforced on `authorize_get`, the login branch *and* the MFA branch of `authorize_post`, and at `/token`.
 - **Workers bind `127.0.0.1` only**; the compose file publishes `127.0.0.1:8080:8080`. Only the gateway reaches workers; nginx (operator-managed) terminates TLS in front.

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rohlík MCP Gateway</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 680px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #555; }
+    p { margin-bottom: 0.8rem; }
+    code { background: #f4f4f4; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-bottom: 1rem; font-size: 0.85em; }
+    pre code { background: none; padding: 0; }
+    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.4rem; }
+    a { color: #2563eb; }
+    .subtitle { color: #666; margin-bottom: 1.5rem; }
+    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 0.8rem 1rem; border-radius: 4px; margin: 1.2rem 0; font-size: 0.9rem; color: #92400e; }
+    .warning strong { color: #78350f; }
+    hr { border: none; border-top: 1px solid #eee; margin: 1.5rem 0; }
+    .bmc { display: inline-block; margin-top: 0.5rem; padding: 0.5rem 0.9rem; background: #FF813F; color: #fff; border-radius: 6px; text-decoration: none; font-size: 0.9rem; font-weight: 600; }
+    .site-logo { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; letter-spacing: -0.02em; color: #191c23; text-decoration: none; margin-bottom: 1.5rem; }
+    .site-logo img { width: 28px; height: 28px; display: block; }
+    .site-logo .mcp { color: #4f46e5; }
+    .site-logo .tld { color: #99a0b0; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <a class="site-logo" href="/">
+    <img src="/static/icon.png" alt="MissingMCP" width="28" height="28">
+    <span>missing<span class="mcp">mcp</span><span class="tld">.com</span></span>
+  </a>
+  <h1>Rohlík MCP Gateway</h1>
+  <p class="subtitle">Connect your <a href="https://www.rohlik.cz">Rohlík</a> account to Claude (iOS, Android, Web, Desktop).</p>
+
+  <h2>What is this?</h2>
+  <p>This gateway lets you do your Rohlík groceries from Claude. It sits in front of Rohlík's hosted MCP server and adds OAuth so you can sign in securely &mdash; reorder your usuals, turn a recipe into a cart, check delivery slots, all by asking Claude.</p>
+
+  <h2>How to connect</h2>
+  <ol>
+    <li>In any Claude client, go to <strong>Settings &rarr; Connectors &rarr; Add custom connector</strong> (or run <code>claude mcp add --transport http rohlik {PUBLIC_URL}/rohlik/mcp</code> in the CLI).</li>
+    <li>Set the Server URL to: <code>{PUBLIC_URL}/rohlik/mcp</code></li>
+    <li>Claude opens a sign-in page &mdash; enter your Rohlík email and password.</li>
+    <li>Once authenticated, Claude has access to your Rohlík tools. Done!</li>
+  </ol>
+
+  <div class="warning">
+    <strong>Important:</strong> Rohlík's MCP server requires your email and password with <strong>every request</strong>, so this gateway stores <strong>both</strong>, encrypted with AES-256-GCM. They never appear in logs and are sent only to Rohlík. <strong>Only use this gateway if you trust the server operator.</strong> This instance is operated by {OPERATOR_NAME}{OPERATOR_EMAIL}.
+  </div>
+
+  <p>Authentication uses OAuth 2.1 with PKCE. Your credentials are never shared with Claude / Anthropic &mdash; they are only used server-side to authenticate with Rohlík. Your groceries &amp; order data is passed through to Claude on demand and is <strong>not stored</strong> by this gateway.</p>
+
+  <p>If this gateway helped you, you can buy me a beer 🙂<br>
+  <a class="bmc" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">🍺 Buy me a beer</a></p>
+
+  <hr>
+  <p><small><a href="https://github.com/VelkyVenik/missingmcp">Source code on GitHub</a> &middot; forwards to <a href="https://www.rohlik.cz">Rohlík</a>'s hosted MCP server</small></p>
+</body>
+</html>
