@@ -21,6 +21,14 @@ class Config:
     access_token_ttl: int         # seconds; 0 disables expiry
     operator_name: str
     operator_email: str
+    # Off-box DB backups (backup.py); disabled when the S3 credentials are unset.
+    backup_s3_endpoint: str
+    backup_s3_bucket: str
+    backup_s3_access_key: str
+    backup_s3_secret_key: str
+    backup_s3_region: str
+    backup_s3_url_style: str      # "virtual-host" (Railway buckets) | "path"
+    backup_interval: int          # seconds
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -52,4 +60,11 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         access_token_ttl=int(env.get("ACCESS_TOKEN_TTL_DAYS", "90")) * 86400,
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
+        backup_s3_endpoint=env.get("BACKUP_S3_ENDPOINT", "").rstrip("/"),
+        backup_s3_bucket=env.get("BACKUP_S3_BUCKET", ""),
+        backup_s3_access_key=env.get("BACKUP_S3_ACCESS_KEY", ""),
+        backup_s3_secret_key=env.get("BACKUP_S3_SECRET_KEY", ""),
+        backup_s3_region=env.get("BACKUP_S3_REGION", "auto"),
+        backup_s3_url_style=env.get("BACKUP_S3_URL_STYLE", "virtual-host"),
+        backup_interval=int(env.get("BACKUP_INTERVAL_HOURS", "6")) * 3600,
     )

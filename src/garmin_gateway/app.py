@@ -7,7 +7,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import store, oauth, proxy, security
+from . import backup, store, oauth, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters
@@ -37,6 +37,7 @@ def build_app(config: Config) -> Starlette:
                 for a in adapters.values() if not is_remote(a.forward)}
     auth_state = oauth.AuthState(security.CsrfStore())
     rate = security.RateLimiter()
+    bk = backup.Backup(config)
 
     def _render(name: str) -> str:
         return (_TPL / name).read_text().replace(
@@ -136,6 +137,9 @@ def build_app(config: Config) -> Starlette:
         async def loop():
             last_stats = None
             while not stop.is_set():
+                if bk.enabled and bk.due():
+                    # bk.run never raises; to_thread keeps the loop responsive
+                    await asyncio.to_thread(bk.run)
                 with contextlib.suppress(Exception):
                     for manager in managers.values():
                         await manager.reap_idle()

@@ -120,8 +120,33 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
+| `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
+| `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
+| `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
+| `BACKUP_INTERVAL_HOURS` | no | `6` | Hours between backup uploads. First backup runs right after startup. |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
+
+## Backups
+
+When the `BACKUP_S3_*` variables are set, the gateway uploads a consistent
+SQLite snapshot (via the SQLite backup API, WAL-safe) to the bucket right
+after startup and then every `BACKUP_INTERVAL_HOURS`. Keys rotate by weekday
+(`db/gateway-mon.db` … `db/gateway-sun.db`), giving seven days of retention
+with no cleanup logic. Watch the `backup-ok` / `backup-failed` log events.
+
+Only the DB is backed up — per-user token dirs under `DATA_DIR/users/` are
+re-materialized from the DB on demand.
+
+> **The backup is useless without `GATEWAY_SECRET`** (account blobs stay
+> AES-256-GCM encrypted inside it) — and that is the point. Keep a copy of
+> `GATEWAY_SECRET` somewhere that is *not* the bucket and *not* Railway
+> (e.g. your password manager). Losing the secret = losing every account.
+
+**Restore:** download the newest object, put it at `$DATA_DIR/gateway.db`
+(delete any stale `gateway.db-wal`/`-shm` next to it), set the same
+`GATEWAY_SECRET`, start the gateway. Bearer tokens and logins survive;
+workers respawn lazily.
 
 ## Monitoring
 
