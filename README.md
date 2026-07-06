@@ -165,8 +165,26 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
    (`offline` is required — without it WHOOP issues no refresh token and sessions die after an hour).
 4. Put the app's Client ID/Secret into `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET`.
 
-Note: an unapproved WHOOP app is limited to **10 WHOOP members** — fine for a
-trusted circle; submit the app for approval only if you outgrow that.
+Note: an unapproved WHOOP app is limited to **10 WHOOP members**. To lift the
+limit, submit the app for approval: <https://developer.whoop.com/docs/developing/app-approval/>
+(requirements: [API Terms of Use](https://developer.whoop.com/api-terms-of-use/)
+compliance, tested with ≥1 member, accurate app name / contact email / privacy-policy
+URL in the dashboard, [brand-guidelines](https://developer.whoop.com/docs/developing/design-guidelines)
+compliance, and their Typeform submission).
+
+Operating obligations under the WHOOP API Terms of Use (the gateway's design
+already covers the technical ones — no WHOOP data stored, encrypted tokens,
+auto-purge of revoked accounts):
+
+- Report any security incident involving WHOOP member data to
+  <apisupport@whoop.com> without undue delay, and to affected users.
+- No press release or public announcement that references WHOOP without
+  WHOOP's prior written approval.
+- Keep the app's Client ID/Secret out of the repo (env vars only) and never
+  reuse them for another application.
+- When a member revokes the app at WHOOP, the gateway detects it on the next
+  refresh (`invalid_grant`), deletes the stored tokens, and revokes the
+  member's gateway access tokens (log event `whoop-account-revoked`).
 
 ## Backups
 

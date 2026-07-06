@@ -215,7 +215,8 @@ class FakeWhoopUpstream(_FakeHttpServer):
     pairs (each minted access token becomes valid); data endpoints require a
     valid Bearer. Knobs:
       - valid_tokens: access tokens the data endpoints accept (starts empty)
-      - refresh_fails: refresh grant answers 400 invalid_grant
+      - refresh_fails: refresh grant answers refresh_fail_status with
+        refresh_fail_error (default: 400 invalid_grant — the member revoked us)
       - reject_data_auth: data endpoints answer 401 regardless of token
       - data_status: force this status from data endpoints (e.g. 429, 500)
       - profile: the /v2/user/profile/basic payload
@@ -224,6 +225,8 @@ class FakeWhoopUpstream(_FakeHttpServer):
     def __init__(self):
         self.valid_tokens = set()
         self.refresh_fails = False
+        self.refresh_fail_status = 400
+        self.refresh_fail_error = "invalid_grant"
         self.reject_data_auth = False
         self.data_status = None
         self.mint = 0
@@ -260,7 +263,8 @@ class FakeWhoopUpstream(_FakeHttpServer):
                     return self._send_json(404, {"error": "not_found"})
                 form = parse_qs(body.decode())
                 if form.get("grant_type", [""])[0] == "refresh_token" and up.refresh_fails:
-                    return self._send_json(400, {"error": "invalid_grant"})
+                    return self._send_json(up.refresh_fail_status,
+                                           {"error": up.refresh_fail_error})
                 self._send_json(200, up._next_pair())
 
             def do_GET(self):

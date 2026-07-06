@@ -133,6 +133,19 @@ class WhoopApi:
                     "scope": "offline",
                 })
             if r.status_code != 200:
+                try:
+                    err = r.json().get("error", "")
+                except ValueError:
+                    err = ""
+                if err == "invalid_grant":
+                    # The member revoked the app at WHOOP (or the rotation was
+                    # lost for good). Per the WHOOP API Terms of Use, stored
+                    # content is deleted on termination: purge the dead blob
+                    # and cut gateway access — reconnecting mints a fresh pair.
+                    store.delete_account(conn, "whoop", account_key)
+                    store.revoke_account(conn, "whoop", account_key)
+                    log_warn("whoop-account-revoked", account=account_key)
+                    raise WhoopAuthError("WHOOP access was revoked")
                 log_warn("whoop-refresh-failed", account=account_key,
                          status=r.status_code)
                 raise WhoopAuthError("WHOOP token refresh failed")

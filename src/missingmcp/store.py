@@ -259,6 +259,19 @@ def revoke_account(conn, adapter: str, account_key: str) -> int:
     return cur.rowcount
 
 
+def delete_account(conn, adapter: str, account_key: str) -> int:
+    """Delete an account's stored (encrypted) credential blob — e.g. when the
+    upstream revoked the app's access, dead tokens must not linger (WHOOP API
+    Terms of Use: delete stored content on termination). Access tokens are
+    revoked separately via revoke_account. Returns rows deleted."""
+    cur = conn.execute(
+        "DELETE FROM accounts WHERE adapter=? AND account_key=?",
+        (adapter, account_key),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 # --- oauth clients --------------------------------------------------------
 
 def create_client(conn, client_id, client_secret_hash, redirect_uris: list[str],

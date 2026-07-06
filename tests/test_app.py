@@ -218,3 +218,16 @@ def test_connector_pages_have_copy_buttons(tmp_path):
     assert r.count('data-copy="https://gw.example.com/garmin/mcp"') == 2  # hero + step 1
     w = _whoop_client().get("/whoop").text
     assert w.count('data-copy="https://gw.example.com/whoop/mcp"') == 2
+
+
+def test_whoop_page_carries_brand_attribution_and_disclaimer():
+    # WHOOP app-approval: data attributed to WHOOP + no implied affiliation.
+    r = _whoop_client().get("/whoop").text
+    assert "data by WHOOP" in r
+    assert "registered trademark of WHOOP, Inc." in r
+    assert "not affiliated with, endorsed by, or sponsored by WHOOP" in r
+
+
+def test_privacy_mentions_auto_delete_on_revocation(tmp_path):
+    r = _client(tmp_path).get("/privacy").text
+    assert "automatically deletes your stored tokens" in r

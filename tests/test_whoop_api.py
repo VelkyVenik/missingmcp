@@ -102,14 +102,34 @@ def test_unexpected_401_forces_one_refresh_and_retry(fake_whoop):
     assert len(_token_calls(fake_whoop)) == 1
 
 
-def test_refresh_invalid_grant_raises(fake_whoop):
+def test_refresh_invalid_grant_purges_the_dead_account(fake_whoop):
+    # WHOOP API Terms of Use: on termination, stored content must be deleted —
+    # invalid_grant means the member revoked us, so the blob and every gateway
+    # Bearer token for the account go away.
     cfg = _cfg(fake_whoop); conn = store.init_db(":memory:")
     api = WhoopApi(cfg)
     fake_whoop.refresh_fails = True
     blob = _blob(expires_in=30)
     _seed(conn, cfg, blob)
+    store.create_access_token(conn, store.hash_token("tok-w"), "whoop", KEY, "c1")
     with pytest.raises(WhoopAuthError):
         asyncio.run(api.get(conn, KEY, blob, "/v2/cycle"))
+    assert store.get_account_tokens(conn, "whoop", KEY, cfg.gateway_secret) is None
+    assert store.account_key_for_token_hash(conn, store.hash_token("tok-w")) is None
+
+
+def test_transient_refresh_failure_keeps_the_account(fake_whoop):
+    # A WHOOP 5xx is not a revocation — nothing may be deleted.
+    cfg = _cfg(fake_whoop); conn = store.init_db(":memory:")
+    api = WhoopApi(cfg)
+    fake_whoop.refresh_fails = True
+    fake_whoop.refresh_fail_status = 503
+    fake_whoop.refresh_fail_error = "temporarily_unavailable"
+    blob = _blob(expires_in=30)
+    _seed(conn, cfg, blob)
+    with pytest.raises(WhoopAuthError):
+        asyncio.run(api.get(conn, KEY, blob, "/v2/cycle"))
+    assert store.get_account_tokens(conn, "whoop", KEY, cfg.gateway_secret) is not None
 
 
 def test_persistent_401_after_refresh_raises(fake_whoop):
