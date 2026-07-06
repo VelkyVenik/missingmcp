@@ -2,10 +2,10 @@
     <div class="wrap">
       <span class="badge">The missing connectors</span>
       <h1>Your apps, <span class="hl">in Claude</span>.</h1>
-      <p>Ask about last night&rsquo;s sleep. Reorder this week&rsquo;s groceries. MissingMCP hosts the connectors your favorite services are missing &mdash; sign in once, add a URL, and start asking.</p>
+      <p>Ask about last night&rsquo;s sleep. Review yesterday&rsquo;s ride. MissingMCP hosts the connectors your favorite services are missing &mdash; starting with a hosted <strong>Garmin MCP server</strong>. Sign in once, add a URL, and start asking.</p>
       <div class="cta-row">
-        <a class="btn" href="#connectors">Browse connectors</a>
-        <a class="quiet" href="#how">How it works &darr;</a>
+        <a class="btn" href="/garmin">Connect Garmin &rarr;</a>
+        <a class="quiet" href="#connectors">All connectors &darr;</a>
       </div>
     </div>
   </div>
@@ -13,13 +13,14 @@
   <section id="connectors">
     <div class="wrap">
       <h2 class="sec-h">Connectors</h2>
+      <div class="card featured">
+        <span class="pill live">Live</span>
+        <h3>Garmin</h3>
+        <p class="tagline">Your watch has the answers.</p>
+        <p>Training, sleep, recovery, health &mdash; everything Garmin Connect knows, in Claude. Ask how you slept, review yesterday&rsquo;s ride, or have Claude plan next week&rsquo;s workouts and send them to your watch.</p>
+        <a class="btn" href="/garmin">Connect Garmin &rarr;</a>
+      </div>
       <div class="cards">
-        <div class="card">
-          <span class="pill live">Live</span>
-          <h3>Garmin</h3>
-          <p>Your training, sleep, and health data. Ask how you slept, review yesterday&rsquo;s ride, or have Claude plan next week&rsquo;s workouts.</p>
-          <a class="go" href="/garmin">Connect Garmin &rarr;</a>
-        </div>
         <div class="card">
           <span class="pill live">Live</span>
           <h3>WHOOP</h3>
@@ -82,7 +83,7 @@
         </div>
         <div>
           <h3>Open source, run by a person</h3>
-          <p>This instance is run by {OPERATOR_NAME}. The full source is <a href="https://github.com/VelkyVenik/missingmcp">on GitHub</a> &mdash; audit it, or run your own.</p>
+          <p>MissingMCP is open source, built by <a href="https://slajs.eu">Vaclav Slajs</a> &mdash; the full source is <a href="https://github.com/VelkyVenik/missingmcp">on GitHub</a>; audit it, or run your own. This instance is run by {OPERATOR}.</p>
         </div>
       </div>
     </div>

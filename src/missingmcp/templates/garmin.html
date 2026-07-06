@@ -6,7 +6,7 @@
     <div class="wrap">
       <span class="pill live">Live</span>
       <h1>Garmin, <span class="hl">in Claude</span>.</h1>
-      <p>Everything your watch knows &mdash; training, sleep, recovery, health &mdash; available in a conversation. Ask questions, spot trends, and let Claude plan workouts that land right back on your wrist.</p>
+      <p>A hosted <strong>Garmin MCP server</strong>: everything your watch knows &mdash; training, sleep, recovery, health &mdash; available in a conversation. Ask questions, spot trends, and let Claude plan workouts that land right back on your wrist.</p>
       <div class="cta-row">
         <a class="btn" href="#connect">Connect in 2 minutes</a>
         <span class="quiet">Server URL: <code>{PUBLIC_URL}/garmin/mcp</code></span>
@@ -18,7 +18,7 @@
     <div class="wrap">
       <h2 class="sec-h">What is this?</h2>
       <div class="prose">
-        <p>Garmin Connect collects an enormous amount of data about you &mdash; but exploring it means tapping through app screens, one metric at a time. This connector plugs your Garmin account into Claude, so you can just ask: <em>&ldquo;How did I sleep this week?&rdquo;</em>, <em>&ldquo;Compare my last three long runs&rdquo;</em>, <em>&ldquo;Why is my training readiness low today?&rdquo;</em></p>
+        <p>Garmin Connect collects an enormous amount of data about you &mdash; but exploring it means tapping through app screens, one metric at a time. This connector is a hosted <strong>MCP (Model Context Protocol) server for Garmin</strong>: it plugs your Garmin account into Claude, so you can just ask: <em>&ldquo;How did I sleep this week?&rdquo;</em>, <em>&ldquo;Compare my last three long runs&rdquo;</em>, <em>&ldquo;Why is my training readiness low today?&rdquo;</em></p>
         <p>Claude sees the same numbers your watch does, and can do what the app can&rsquo;t: correlate sleep with performance, summarize a season, or build next week&rsquo;s training plan and schedule it straight to your device.</p>
       </div>
     </div>
@@ -82,7 +82,7 @@
         </div>
       </div>
       <div class="note warn">
-        <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR_NAME}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
+        <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
       </div>
     </div>
   </section>
@@ -117,7 +117,7 @@
       <h2 class="sec-h">Under the hood</h2>
       <div class="prose">
         <p>The Garmin smarts come from <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a>, an open-source MCP server by Taxuspt &mdash; full credit to that project. It runs here <strong>unmodified</strong>; this site only operates it and adds the missing piece: a secure multi-user sign-in (OAuth 2.1), so you can connect from any Claude app without running a server or touching a config file yourself.</p>
-        <p>Everything is open source: the connector logic in <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a>, the gateway in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a>. Audit either &mdash; or self-host the whole thing.</p>
+        <p>Everything is open source: the connector logic in <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> by Taxuspt, the gateway in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a> by <a href="https://slajs.eu">Vaclav Slajs</a>. Audit either &mdash; or self-host the whole thing.</p>
       </div>
     </div>
   </section>
@@ -348,7 +348,7 @@
         <h2>Your watch has the <span class="hl">answers</span>.</h2>
         <p>Two minutes from now you can ask for them &mdash; free, open source, revocable anytime.</p>
         <a class="btn" href="#connect">Connect Garmin</a>
-        <p class="beer">Did this help you? <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></p>
+        <p class="beer">Did this help you? <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a> and support further development.</p>
       </div>
     </div>
   </div>

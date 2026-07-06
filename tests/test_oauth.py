@@ -370,9 +370,10 @@ def test_remote_authorize_get_renders_form(conn, fake_remote):
     })
     assert r.status_code == 200
     assert 'action="/acme/oauth/authorize"' in r.text
-    assert "{OPERATOR_NAME}" not in r.text and "{OAUTH_FIELDS}" not in r.text  # placeholders filled
+    assert "{OPERATOR}" not in r.text and "{OAUTH_FIELDS}" not in r.text  # placeholders filled
     assert 'name="csrf"' in r.text                       # hidden OAuth fields injected
     assert 'class="logo" href="/"' in r.text             # sign-in wears the shared site chrome
+    assert '<meta name="robots" content="noindex">' in r.text   # never in search results
 
 
 def test_remote_login_verifies_upstream_and_redirects(conn, fake_remote):

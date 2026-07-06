@@ -147,6 +147,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
+| `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |
 | `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | no | — | Credentials of your WHOOP developer app (see WHOOP connector setup); both unset ⇒ the whoop connector is disabled. |
 | `WHOOP_API_BASE` | no | `https://api.prod.whoop.com` | WHOOP API origin; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |

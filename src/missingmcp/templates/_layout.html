@@ -7,6 +7,7 @@
   <meta name="description" content="{DESC}">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+{HEAD_META}
   <style>
     :root {
       --bg: #ffffff; --bg-card: #f7f8fa; --border: #e5e7ee;
@@ -68,6 +69,12 @@
     .card h3 { font-size: 1.05rem; letter-spacing: -.01em; margin: .35rem 0 .4rem; }
     .card p { font-size: .92rem; color: var(--muted); }
     .card .go { display: inline-block; margin-top: .8rem; font-weight: 600; font-size: .92rem; }
+    .card.featured { padding: 2.2rem 1.8rem; margin-bottom: .9rem; }
+    .card.featured h3 { font-size: clamp(1.9rem, 5vw, 2.8rem); letter-spacing: -.02em; margin: .5rem 0 .2rem; }
+    .card.featured .tagline { font-size: clamp(1.1rem, 3vw, 1.35rem); font-weight: 700;
+                              letter-spacing: -.01em; color: var(--accent); margin-bottom: .6rem; }
+    .card.featured p { font-size: 1rem; max-width: 62ch; }
+    .card.featured .btn { margin-top: 1.2rem; }
     .pill { display: inline-block; font-size: .66rem; font-weight: 700; letter-spacing: .08em;
             text-transform: uppercase; padding: .18rem .6rem; border-radius: 999px; }
     .pill.live { color: var(--live); background: var(--live-soft); }
@@ -147,8 +154,8 @@
 {CONTENT}
   <footer>
     <div class="wrap">
-      <div>MissingMCP &middot; The connectors Claude is missing.</div>
-      <div><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot; Run by {OPERATOR_NAME} &middot; <a href="/privacy">Privacy</a> &middot; <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></div>
+      <div>MissingMCP &middot; The connectors Claude is missing. Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</div>
+      <div><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot; This instance is run by {OPERATOR} &middot; <a href="/privacy">Privacy</a> &middot; <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></div>
     </div>
   </footer>
 </body>
