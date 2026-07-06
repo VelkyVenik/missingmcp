@@ -41,7 +41,10 @@
     .logo img { width: 30px; height: 30px; display: block; }
     .logo .mcp { color: var(--accent); }
     .logo .tld { color: var(--dim); font-weight: 700; }
-    nav a { color: var(--muted); font-size: .9rem; margin-left: 1.1rem; }
+    /* Flex with gaps (not margins): links wrap as whole units on narrow
+       screens instead of breaking mid-label ("No longer / missing"). */
+    nav { display: flex; flex-wrap: wrap; column-gap: 1.1rem; row-gap: .25rem; }
+    nav a { color: var(--muted); font-size: .9rem; white-space: nowrap; }
 
     h1 { letter-spacing: -.03em; line-height: 1.05; }
     .hero { padding: 4rem 0 3rem; }
@@ -133,6 +136,9 @@
 
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
     footer .wrap > div + div { margin-top: .3rem; }
+    /* Each item keeps its trailing separator dot: lines break between items,
+       never leaving a dot stranded at the start of a wrapped line. */
+    footer span { white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -154,8 +160,8 @@
 {CONTENT}
   <footer>
     <div class="wrap">
-      <div>MissingMCP &middot; The connectors Claude is missing. Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</div>
-      <div><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot; This instance is run by {OPERATOR} &middot; <a href="/privacy">Privacy</a> &middot; <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></div>
+      <div><span>MissingMCP &middot;</span> <span>The connectors Claude is missing.</span> <span>Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</span></div>
+      <div><span><a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a> &middot;</span> <span>This instance is run by {OPERATOR} &middot;</span> <span><a href="/privacy">Privacy</a> &middot;</span> <span><a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a></span></div>
     </div>
   </footer>
 </body>
