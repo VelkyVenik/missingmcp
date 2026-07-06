@@ -140,3 +140,14 @@ def test_batch_and_garbage_are_400(fake_whoop):
     assert status == 400
     status, _h, _b = asyncio.run(fwd.handle(conn, KEY, BLOB, b"not json"))
     assert status == 400
+
+
+def test_non_dict_params_and_arguments_are_handled(fake_whoop):
+    conn, fwd = _setup(fake_whoop)
+    _s, _h, body = _rpc(fwd, conn, "tools/call", "junk")
+    assert body["error"]["code"] == -32602
+    _s, _h, body = _rpc(fwd, conn, "tools/call",
+                        {"name": "get_cycles", "arguments": ["x"]})
+    assert body["error"]["code"] == -32602
+    _s, _h, body = _rpc(fwd, conn, "initialize", "junk")
+    assert body["result"]["protocolVersion"] == "2025-06-18"   # tolerated, falls back

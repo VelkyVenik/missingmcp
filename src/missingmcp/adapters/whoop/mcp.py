@@ -123,7 +123,9 @@ class WhoopLocalForward:
         if rid is None:                        # notification: acknowledge, no body
             return 202, {"Content-Type": "application/json"}, b""
         if method == "initialize":
-            client_ver = (req.get("params") or {}).get("protocolVersion", "")
+            params = req.get("params")
+            params = params if isinstance(params, dict) else {}
+            client_ver = params.get("protocolVersion", "")
             ver = client_ver if client_ver in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
             return _result(rid, {"protocolVersion": ver,
                                  "capabilities": {"tools": {}},
@@ -135,8 +137,10 @@ class WhoopLocalForward:
                 {"name": name, "description": desc, "inputSchema": schema}
                 for name, desc, schema, _resolve in TOOLS]})
         if method == "tools/call":
-            return await self._call(conn, account_key, blob, rid,
-                                    req.get("params") or {})
+            params = req.get("params")
+            if not isinstance(params, dict):
+                return _rpc_error(rid, -32602, "params must be an object")
+            return await self._call(conn, account_key, blob, rid, params)
         return _rpc_error(rid, -32601, f"Method not found: {method}")
 
     async def _call(self, conn, account_key, blob, rid, params):
@@ -145,6 +149,8 @@ class WhoopLocalForward:
         if tool is None:
             return _rpc_error(rid, -32602, f"Unknown tool: {name}")
         args = params.get("arguments") or {}
+        if not isinstance(args, dict):
+            return _rpc_error(rid, -32602, "arguments must be an object")
         try:
             path, query = tool[3](args)
         except (KeyError, ValueError) as e:
