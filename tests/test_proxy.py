@@ -53,15 +53,15 @@ def test_authorized_forwards_to_worker(tmp_path, fake_worker):
 def test_bearer_for_other_adapter_is_rejected(tmp_path, fake_worker):
     conn = store.init_db(":memory:")
     cfg = _cfg(tmp_path, fake_worker)
-    token = "tok-rohlik"
+    token = "tok-other"
     # a token minted for a DIFFERENT adapter
-    store.upsert_account(conn, "rohlik", "me@x.cz", '{"t":1}', cfg.gateway_secret)
-    store.create_access_token(conn, store.hash_token(token), "rohlik", "me@x.cz", "c1")
+    store.upsert_account(conn, "other", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "other", "me@x.cz", "c1")
     mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
     c = _app(conn, mgr, cfg)                     # _app forwards to the GARMIN adapter
     r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
                headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 401                  # garmin path must not accept a rohlik token
+    assert r.status_code == 401                  # garmin path must not accept a foreign token
     assert r.json() == {"error": "invalid_token"}   # authenticate() rejected it, not the unknown_account path
 
 
@@ -85,49 +85,7 @@ def test_worker_start_failure_maps_to_session_expired(tmp_path, fake_worker):
     }
 
 
-class FakeRemoteForward:
-    """RemoteForward-shaped stand-in (strategy A): shared upstream + header injection."""
-    def __init__(self, url):
-        self.upstream_url = url
-
-    def headers(self, blob):
-        return {"X-Creds": blob}
-
-
-class FakeRemoteAdapter:
-    name = "remote"
-    display_name = "Remote"
-
-    def __init__(self, url):
-        self.forward = FakeRemoteForward(url)
-
-
-def _remote_app(conn, cfg, adapter):
-    rate = security.RateLimiter()
-    async def mcp_post(request):
-        return await proxy.handle_mcp(request, "POST", adapter, conn, None, cfg,
-                                      cfg.gateway_secret, rate)
-    return TestClient(Starlette(routes=[Route("/mcp", mcp_post, methods=["POST"])]))
-
-
-def test_remote_forward_injects_headers(tmp_path, fake_remote):
-    # strategy dispatch at the seam level, adapter-agnostic; the real-adapter
-    # behavior (rhl-* headers, 401/403 mapping, SSE) lives in test_rohlik_forward.py
-    conn = store.init_db(":memory:")
-    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://x",
-                       "DATA_DIR": str(tmp_path)})
-    token = "tok-remote"
-    store.upsert_account(conn, "remote", "me@x.cz", '{"cred":1}', cfg.gateway_secret)
-    store.create_access_token(conn, store.hash_token(token), "remote", "me@x.cz", "c1")
-    adapter = FakeRemoteAdapter(f"http://127.0.0.1:{fake_remote.port}/mcp")
-    c = _remote_app(conn, cfg, adapter)
-    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
-               headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 200
-    assert r.headers.get("mcp-session-id") == "up-sess-9"
-    _, path, hdrs, _ = fake_remote.calls[-1]
-    assert path == "/mcp"
-    assert hdrs.get("X-Creds") == '{"cred":1}'   # decrypted blob reached headers()
+# Remote-forward (strategy A) coverage lives in tests/test_remote_forward.py.
 
 
 def test_mcp_tool_parsing():

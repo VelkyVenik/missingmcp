@@ -4,6 +4,8 @@ from .base import (  # noqa: F401 - re-exported as the adapter API surface
 
 
 def build_adapters(config) -> dict:
+    # rohlik was a RemoteForward adapter here until 2026-07 — retired when Rohlík
+    # shipped its own OAuth MCP (connect https://mcp.rohlik.cz/mcp directly).
+    # The remote strategy stays first-class: see tests/test_remote_forward.py.
     from .garmin import GarminAdapter
-    from .rohlik import RohlikAdapter
-    return {"garmin": GarminAdapter(config), "rohlik": RohlikAdapter(config)}
+    return {"garmin": GarminAdapter(config)}

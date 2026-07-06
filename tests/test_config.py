@@ -10,11 +10,6 @@ def test_loads_defaults():
     assert c.worker_port_start == 9000
     assert c.worker_idle_ttl == 900
     assert c.garmin_mcp_cmd == ["garmin-mcp"]
-    assert c.rohlik_mcp_url == "https://mcp.rohlik.cz/mcp"
-
-def test_rohlik_mcp_url_override():
-    c = load_config({**BASE, "ROHLIK_MCP_URL": "http://127.0.0.1:9999/mcp"})
-    assert c.rohlik_mcp_url == "http://127.0.0.1:9999/mcp"
 
 def test_strips_trailing_slash_from_public_url():
     c = load_config({**BASE, "PUBLIC_URL": "https://gw.example.com/"})

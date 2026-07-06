@@ -50,19 +50,12 @@ def test_protected_resource_endpoint(tmp_path):
     assert m["authorization_servers"] == ["https://gw.example.com/garmin"]
 
 
-def test_rohlik_metadata_endpoint(tmp_path):
+def test_retired_rohlik_paths_are_gone(tmp_path):
+    # rohlik graduated to its official MCP; the gateway must not advertise it
     c = _client(tmp_path)
-    m = c.get("/.well-known/oauth-authorization-server/rohlik").json()
-    assert m["issuer"] == "https://gw.example.com/rohlik"
-    assert m["authorization_endpoint"] == "https://gw.example.com/rohlik/oauth/authorize"
-    assert m["token_endpoint"] == "https://gw.example.com/rohlik/oauth/token"
-
-
-def test_rohlik_protected_resource_endpoint(tmp_path):
-    c = _client(tmp_path)
-    m = c.get("/.well-known/oauth-protected-resource/rohlik/mcp").json()
-    assert m["resource"] == "https://gw.example.com/rohlik/mcp"
-    assert m["authorization_servers"] == ["https://gw.example.com/rohlik"]
+    assert c.get("/.well-known/oauth-authorization-server/rohlik").status_code == 404
+    assert c.get("/rohlik").status_code == 404       # catch-all serves home with 404
+    assert c.post("/rohlik/mcp", json={}).status_code == 405   # GET-only catch-all
 
 
 def test_mcp_requires_auth(tmp_path):
@@ -81,16 +74,6 @@ def test_garmin_page(tmp_path):
     assert r.status_code == 200
     assert "How to connect" in r.text
     assert "https://gw.example.com/garmin/mcp" in r.text
-
-
-def test_rohlik_page(tmp_path):
-    c = _client(tmp_path)
-    r = c.get("/rohlik")
-    assert r.status_code == 200
-    assert "How to connect" in r.text
-    assert "https://gw.example.com/rohlik/mcp" in r.text
-    # honest credential note: Rohlík stores BOTH email and password, encrypted
-    assert "AES-256-GCM" in r.text and "never stored" not in r.text
 
 
 def test_static_logo_assets_served(tmp_path):

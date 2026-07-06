@@ -12,7 +12,6 @@ class Config:
     data_dir: str
     db_path: str
     garmin_mcp_cmd: list[str]
-    rohlik_mcp_url: str
     worker_port_start: int
     worker_port_end: int
     worker_idle_ttl: int          # seconds
@@ -51,7 +50,6 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         data_dir=data_dir,
         db_path=env.get("DB_PATH", os.path.join(data_dir, "gateway.db")),
         garmin_mcp_cmd=cmd,
-        rohlik_mcp_url=env.get("ROHLIK_MCP_URL", "https://mcp.rohlik.cz/mcp"),
         worker_port_start=int(env.get("WORKER_PORT_START", "9000")),
         worker_port_end=int(env.get("WORKER_PORT_END", "9099")),
         worker_idle_ttl=int(env.get("WORKER_IDLE_TTL", "900")),
