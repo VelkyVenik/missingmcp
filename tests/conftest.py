@@ -139,6 +139,7 @@ class FakeRemoteUpstream(_FakeHttpServer):
             do_POST = _handle
             do_GET = _handle
             do_DELETE = _handle
+            do_PUT = _handle
 
         return H
 
