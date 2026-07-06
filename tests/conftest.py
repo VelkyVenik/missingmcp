@@ -1,8 +1,10 @@
+import json
 import socket
 import threading
 import time
 import pytest
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
 
 
 def _free_port() -> int:
@@ -206,3 +208,87 @@ class StubRemoteAdapter:
         if r.status_code >= 400:
             raise LoginError("Acme could not be reached")
         return json.loads(blob)["user"]
+
+
+class FakeWhoopUpstream(_FakeHttpServer):
+    """WHOOP OAuth + v2 API fake. The token endpoint mints rotating at-<n>/rt-<n>
+    pairs (each minted access token becomes valid); data endpoints require a
+    valid Bearer. Knobs:
+      - valid_tokens: access tokens the data endpoints accept (starts empty)
+      - refresh_fails: refresh grant answers 400 invalid_grant
+      - reject_data_auth: data endpoints answer 401 regardless of token
+      - data_status: force this status from data endpoints (e.g. 429, 500)
+      - profile: the /v2/user/profile/basic payload
+    """
+
+    def __init__(self):
+        self.valid_tokens = set()
+        self.refresh_fails = False
+        self.reject_data_auth = False
+        self.data_status = None
+        self.mint = 0
+        self.profile = {"user_id": 123, "email": "User@Example.com",
+                        "first_name": "Test", "last_name": "User"}
+        super().__init__()
+
+    def _next_pair(self) -> dict:
+        self.mint += 1
+        at = f"at-{self.mint}"
+        self.valid_tokens.add(at)
+        return {"access_token": at, "refresh_token": f"rt-{self.mint}",
+                "expires_in": 3600, "scope": "offline read:profile", "token_type": "bearer"}
+
+    def _handler(self) -> type:
+        up = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):  # silence
+                pass
+
+            def _send_json(self, status, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                length = int(self.headers.get("content-length", 0))
+                body = self.rfile.read(length)
+                up.calls.append(("POST", self.path, dict(self.headers), body))
+                if self.path != "/oauth/oauth2/token":
+                    return self._send_json(404, {"error": "not_found"})
+                form = parse_qs(body.decode())
+                if form.get("grant_type", [""])[0] == "refresh_token" and up.refresh_fails:
+                    return self._send_json(400, {"error": "invalid_grant"})
+                self._send_json(200, up._next_pair())
+
+            def do_GET(self):
+                up.calls.append(("GET", self.path, dict(self.headers), b""))
+                if up.data_status:
+                    return self._send_json(up.data_status, {"error": "forced"})
+                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                if up.reject_data_auth or token not in up.valid_tokens:
+                    return self._send_json(401, {"error": "unauthorized"})
+                path = self.path.split("?")[0]
+                if path == "/developer/v2/user/profile/basic":
+                    return self._send_json(200, up.profile)
+                if path == "/developer/v2/user/measurement/body":
+                    return self._send_json(200, {"height_meter": 1.8,
+                                                 "weight_kilogram": 80.0,
+                                                 "max_heart_rate": 190})
+                if path.startswith("/developer/v2/"):
+                    # collections/by-id: echo the path so tests can assert routing
+                    return self._send_json(200, {"records": [{"path": path}],
+                                                 "next_token": None})
+                self._send_json(404, {"error": "not_found"})
+
+        return H
+
+
+@pytest.fixture
+def fake_whoop():
+    u = FakeWhoopUpstream().start()
+    _wait_listening(u.port)
+    yield u
+    u.stop()
