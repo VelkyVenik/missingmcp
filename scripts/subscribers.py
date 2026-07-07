@@ -64,15 +64,14 @@ def main():
 
     sugg = _rows(db, "SELECT email, description, wants_updates, created_at "
                      "FROM suggestions ORDER BY created_at")
-    print(f"\nConnector suggestions: {len(sugg)}")
+    print(f"\nConnector suggestions: {len(sugg)}   (who wants what)")
     for s in sugg:
         flag = " (+updates)" if s["wants_updates"] else ""
-        print(f"  {s['created_at']}  {s['email']}{flag}")
         desc = " ".join(
             "".join(ch if ch.isprintable() else " " for ch in (s["description"] or "")).split()
-        )
-        if desc:
-            print(f"      {desc}")
+        ) or "(no description)"
+        print(f"  {s['email']}{flag} wants: {desc}")
+        print(f"      ({s['created_at']})")
     print()
 
 
