@@ -68,8 +68,9 @@ def main():
     for s in sugg:
         flag = " (+updates)" if s["wants_updates"] else ""
         print(f"  {s['created_at']}  {s['email']}{flag}")
-        desc = "".join(ch for ch in (s["description"] or "") if ch == " " or ch.isprintable())
-        desc = desc.strip()
+        desc = " ".join(
+            "".join(ch if ch.isprintable() else " " for ch in (s["description"] or "")).split()
+        )
         if desc:
             print(f"      {desc}")
     print()

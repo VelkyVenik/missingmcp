@@ -191,3 +191,13 @@ def test_subscribers_emails_only_mode(seeded_db, capsys, monkeypatch):
     lines = [ln for ln in out.splitlines() if ln.strip()]
     assert set(lines) == {"sub@example.com", "wanter@example.com"}
     assert "Strava" not in out                  # emails-only: no descriptions/headers
+
+
+def test_subscribers_multiline_description_is_flattened(tmp_path, capsys, monkeypatch):
+    path = str(tmp_path / "gateway.db")
+    conn = store.init_db(path)
+    store.add_suggestion(conn, "ml@example.com", "line one\nline two\twith tab", wants_updates=False)
+    conn.close()
+    out = run_script("subscribers", ["--db", path], capsys, monkeypatch)
+    assert "line one line two with tab" in out       # normalized to single spaces
+    assert "oneline" not in out                       # words not glued together
