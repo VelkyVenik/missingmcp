@@ -221,6 +221,8 @@ python scripts/revoke.py --account <key> --purge      # + delete stored account 
 python scripts/revoke.py --device <hash-prefix>       # revoke ONE device (prefix from status.py)
 python scripts/usage.py                               # per-account tool usage + leaderboard
 python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
+python scripts/subscribers.py                         # newsletter signups + suggestions
+python scripts/subscribers.py --emails                # subscriber emails, one per line
 ```
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them

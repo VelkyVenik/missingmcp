@@ -338,3 +338,9 @@ def test_site_js_has_modal_behavior(tmp_path):
     r = _client(tmp_path).get("/static/site.js").text
     assert "data-modal" in r and "showModal" in r
     assert "data-endpoint" in r and "fetch(" in r
+
+
+def test_privacy_mentions_signup_storage_and_deletion(tmp_path):
+    r = _client(tmp_path).get("/privacy").text
+    assert "newsletter" in r.lower() or "notify" in r.lower()   # opt-in disclosed
+    assert "email the operator" in r.lower()                    # deletion path
