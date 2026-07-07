@@ -311,3 +311,30 @@ def test_suggest_honeypot_is_silent_noop(tmp_path):
                                  "website": "spam"})
     assert r.status_code == 200 and r.json() == {"ok": True}
     assert _rows(db, "SELECT email FROM suggestions") == []
+
+
+def test_home_has_signup_modals_not_github_link(tmp_path):
+    r = _client(tmp_path).get("/").text
+    # the old GitHub-issues link in the card is gone (GitHub stays only in footer/security)
+    assert "github.com/VelkyVenik/missingmcp/issues/new" not in r
+    # two buttons open the two modals
+    assert 'data-modal="suggest"' in r
+    assert 'data-modal="subscribe"' in r
+    # the two dialogs exist and post to the right endpoints
+    assert 'id="modal-subscribe"' in r and 'data-endpoint="/subscribe"' in r
+    assert 'id="modal-suggest"' in r and 'data-endpoint="/suggest"' in r
+    # honeypot present in each form, and the opt-in checkbox on the suggest form
+    assert r.count('name="website"') == 2
+    assert 'name="wants_updates"' in r
+
+
+def test_github_still_reachable_in_footer(tmp_path):
+    # removing the card link must not remove GitHub from the site entirely
+    r = _client(tmp_path).get("/").text
+    assert 'href="https://github.com/VelkyVenik/missingmcp"' in r
+
+
+def test_site_js_has_modal_behavior(tmp_path):
+    r = _client(tmp_path).get("/static/site.js").text
+    assert "data-modal" in r and "showModal" in r
+    assert "data-endpoint" in r and "fetch(" in r

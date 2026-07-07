@@ -129,6 +129,33 @@
                  font-size: 1rem; font-family: inherit; cursor: pointer; }
     .auth .after { margin-top: 1.4rem; font-size: .85rem; color: var(--dim); text-align: center; }
 
+    .card-actions { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin-top: .8rem; }
+    .linklike { background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+                font-size: .92rem; color: var(--accent); cursor: pointer; }
+    .linklike:hover { text-decoration: underline; }
+
+    dialog.modal { border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card);
+                   color: var(--text); padding: 0; max-width: 27rem; width: calc(100% - 2rem); }
+    dialog.modal::backdrop { background: rgba(0, 0, 0, .5); }
+    .modal-card { position: relative; padding: 1.6rem 1.5rem; }
+    .modal-card h3 { font-size: 1.25rem; margin-bottom: .4rem; }
+    .modal-sub { font-size: .9rem; color: var(--muted); margin-bottom: 1rem; }
+    .modal-card label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-top: .8rem; }
+    .modal-card input:not([type="checkbox"]):not(.hp), .modal-card textarea {
+                 display: block; width: 100%; margin-top: .35rem; padding: .6rem .8rem;
+                 border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+                 color: var(--text); font: inherit; }
+    .modal-card textarea { resize: vertical; }
+    .modal-card label.check { display: flex; align-items: center; gap: .5rem; font-weight: 500; margin-top: 1rem; }
+    .modal-card label.check input { margin: 0; }
+    .modal-card .btn { display: block; width: 100%; margin-top: 1.2rem; border: 0; cursor: pointer; font: inherit; font-weight: 600; }
+    .modal-x { position: absolute; top: .6rem; right: .8rem; background: none; border: 0;
+               font-size: 1.5rem; line-height: 1; color: var(--dim); cursor: pointer; }
+    .modal-msg { margin-top: .8rem; font-size: .9rem; min-height: 1.1em; }
+    .modal-msg.ok { color: var(--live); }
+    .modal-msg.err { color: var(--err); }
+    .hp { position: absolute !important; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
     .tools details { border: 1px solid var(--border); background: var(--bg-card);
                      border-radius: 14px; margin-bottom: .7rem; }
     .tools summary { cursor: pointer; padding: .85rem 1.1rem; font-weight: 600; }
