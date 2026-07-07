@@ -98,3 +98,13 @@ async def test_read_body_limited_under_limit_returns_body():
 async def test_read_body_limited_over_limit_returns_none():
     req = _FakeStreamRequest([b"a" * 60, b"b" * 60])  # 120 bytes > 100
     assert await security.read_body_limited(req, max_bytes=100) is None
+
+
+def test_valid_email():
+    assert security.valid_email("a@b.co")
+    assert security.valid_email("First.Last+tag@sub.example.com")
+    assert not security.valid_email("")
+    assert not security.valid_email("no-at-sign")
+    assert not security.valid_email("no@domain")          # no TLD dot
+    assert not security.valid_email("spaces in@email.com")
+    assert not security.valid_email("a@" + "x" * 300 + ".com")   # too long

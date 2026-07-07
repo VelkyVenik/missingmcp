@@ -231,3 +231,83 @@ def test_whoop_page_carries_brand_attribution_and_disclaimer():
 def test_privacy_mentions_auto_delete_on_revocation(tmp_path):
     r = _client(tmp_path).get("/privacy").text
     assert "automatically deletes your stored tokens" in r
+
+
+import sqlite3
+
+
+def _client_and_db(tmp_path):
+    db = str(tmp_path / "t.db")
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "DATA_DIR": str(tmp_path), "DB_PATH": db})
+    return TestClient(build_app(cfg)), db
+
+
+def _rows(db, sql):
+    c = sqlite3.connect(db)
+    try:
+        return c.execute(sql).fetchall()
+    finally:
+        c.close()
+
+
+def test_subscribe_stores_email(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/subscribe", data={"email": "Fan@Example.com"})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    # normalized lowercase, stored
+    assert _rows(db, "SELECT email FROM subscribers") == [("fan@example.com",)]
+
+
+def test_subscribe_duplicate_is_silent_ok(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    c.post("/subscribe", data={"email": "fan@example.com"})
+    r = c.post("/subscribe", data={"email": "fan@example.com"})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert len(_rows(db, "SELECT email FROM subscribers")) == 1
+
+
+def test_subscribe_rejects_bad_email(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/subscribe", data={"email": "not-an-email"})
+    assert r.status_code == 400 and r.json()["error"] == "invalid_email"
+    assert _rows(db, "SELECT email FROM subscribers") == []
+
+
+def test_subscribe_honeypot_is_silent_noop(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/subscribe", data={"email": "bot@example.com", "website": "http://spam"})
+    assert r.status_code == 200 and r.json() == {"ok": True}   # looks fine to the bot
+    assert _rows(db, "SELECT email FROM subscribers") == []    # but nothing stored
+
+
+def test_subscribe_rate_limited(tmp_path):
+    c, _ = _client_and_db(tmp_path)
+    codes = [c.post("/subscribe", data={"email": f"u{i}@example.com"}).status_code
+             for i in range(7)]
+    assert 429 in codes                                        # 5/60s window exceeded
+
+
+def test_suggest_stores_suggestion_without_subscribing(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/suggest", data={"email": "a@example.com", "description": "Strava"})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert _rows(db, "SELECT email, description, wants_updates FROM suggestions") == \
+        [("a@example.com", "Strava", 0)]
+    assert _rows(db, "SELECT email FROM subscribers") == []
+
+
+def test_suggest_with_updates_also_subscribes(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/suggest", data={"email": "b@example.com", "description": "Oura",
+                                 "wants_updates": "1"})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert _rows(db, "SELECT email FROM subscribers") == [("b@example.com",)]
+
+
+def test_suggest_honeypot_is_silent_noop(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/suggest", data={"email": "bot@example.com", "description": "x",
+                                 "website": "spam"})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert _rows(db, "SELECT email FROM suggestions") == []

@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from typing import Callable
 
 _SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def security_headers() -> dict[str, str]:
@@ -47,6 +48,13 @@ def new_secret(nbytes: int = 32) -> str:
 
 def validate_session_id(sid: str) -> bool:
     return bool(_SESSION_RE.match(sid))
+
+
+def valid_email(email: str) -> bool:
+    """Cheap syntactic check for opt-in forms — no deliverability probe, no DNS.
+    Rejects empty, over-long (>254, the RFC 5321 max), and anything without a
+    plausible local@domain.tld shape."""
+    return bool(email) and len(email) <= 254 and bool(_EMAIL_RE.match(email))
 
 
 class RateLimiter:

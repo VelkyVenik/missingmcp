@@ -77,6 +77,34 @@ def build_app(config: Config) -> Starlette:
     async def privacy(request):
         return HTMLResponse(privacy_page)
 
+    async def subscribe(request):
+        if not rate.check(f"subscribe:{request.client.host}", 5, 60):
+            return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
+        form = await request.form()
+        if (form.get("website") or "").strip():        # honeypot: bots fill it
+            return JSONResponse({"ok": True})           # look successful, store nothing
+        email = (form.get("email") or "").strip().lower()
+        if not security.valid_email(email):
+            return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
+        store.add_subscriber(conn, email)
+        log("subscribe")                                # never log the address itself
+        return JSONResponse({"ok": True})
+
+    async def suggest(request):
+        if not rate.check(f"suggest:{request.client.host}", 5, 60):
+            return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
+        form = await request.form()
+        if (form.get("website") or "").strip():
+            return JSONResponse({"ok": True})
+        email = (form.get("email") or "").strip().lower()
+        if not security.valid_email(email):
+            return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
+        description = (form.get("description") or "").strip()[:2000]
+        wants = (form.get("wants_updates") or "").lower() in ("1", "true", "on", "yes")
+        store.add_suggestion(conn, email, description, wants)
+        log("suggest", wants_updates=wants)
+        return JSONResponse({"ok": True})
+
     async def notfound(request):
         # Catch-all for unknown GET paths: humans get the MissingMCP home
         # (with links to every connector) but with a 404 status so
@@ -265,6 +293,8 @@ def build_app(config: Config) -> Starlette:
     routes = [
         Route("/", home, methods=["GET"]),
         Route("/privacy", privacy, methods=["GET"]),
+        Route("/subscribe", subscribe, methods=["POST"]),
+        Route("/suggest", suggest, methods=["POST"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
