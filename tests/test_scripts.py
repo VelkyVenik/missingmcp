@@ -48,6 +48,9 @@ def seeded_db(tmp_path):
     store.record_usage(conn, "garmin", "alice@example.com", "get_activities")
     store.record_usage(conn, "garmin", "alice@example.com", "get_sleep_data")
     store.record_usage(conn, "rohlik", "alice@example.com", "get_cart")
+    store.add_subscriber(conn, "sub@example.com")
+    store.add_suggestion(conn, "wanter@example.com", "Strava please", wants_updates=True)
+    store.add_suggestion(conn, "nomail@example.com", "Oura", wants_updates=False)
     conn.close()
     return path
 
@@ -170,3 +173,21 @@ def test_usage_tools_leaderboard_shows_adapter(seeded_db, capsys, monkeypatch):
     out = run_script("usage", ["--db", seeded_db, "--tools"], capsys, monkeypatch)
     assert "garmin:get_activities" in out
     assert "rohlik:get_cart" in out
+
+
+# --- subscribers.py --------------------------------------------------------
+
+def test_subscribers_lists_subscribers_and_suggestions(seeded_db, capsys, monkeypatch):
+    out = run_script("subscribers", ["--db", seeded_db], capsys, monkeypatch)
+    assert "sub@example.com" in out
+    assert "wanter@example.com" in out          # opted in via suggestion checkbox
+    assert "Strava please" in out               # suggestion description shown
+    assert "Newsletter subscribers: 2" in out   # sub@ + wanter@ (nomail@ opted out)
+    assert "Connector suggestions: 2" in out
+
+
+def test_subscribers_emails_only_mode(seeded_db, capsys, monkeypatch):
+    out = run_script("subscribers", ["--db", seeded_db, "--emails"], capsys, monkeypatch)
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    assert set(lines) == {"sub@example.com", "wanter@example.com"}
+    assert "Strava" not in out                  # emails-only: no descriptions/headers
