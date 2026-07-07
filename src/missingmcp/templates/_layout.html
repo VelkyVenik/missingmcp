@@ -63,6 +63,11 @@
            padding: .7rem 1.3rem; border-radius: 10px; }
     .btn:hover { text-decoration: none; opacity: .92; }
     .quiet { color: var(--muted); font-size: .95rem; }
+    /* a quiet CTA that opens a modal — reset the button chrome so it reads as the
+       .quiet link beside it, not a second button competing with the primary CTA */
+    .quiet-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .95rem;
+                 color: var(--muted); cursor: pointer; }
+    .quiet-btn:hover { color: var(--accent); }
 
     section { padding: 2.4rem 0; }
     .sec-h { display: flex; align-items: center; gap: .9rem; font-size: .75rem; font-weight: 600;
@@ -176,6 +181,8 @@
     .final h2 { font-size: clamp(1.9rem, 5vw, 3rem); letter-spacing: -.02em; line-height: 1.05; }
     .final p { margin: 1rem auto 1.8rem; max-width: 44ch; color: var(--muted); }
     .beer { margin-top: 1.4rem; font-size: .9rem; color: var(--muted); }
+    /* keep "🍺 Buy me a beer" on one line — it was breaking to "…a / beer" */
+    .beer a { white-space: nowrap; }
 
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
     footer .wrap > div + div { margin-top: .45rem; }
