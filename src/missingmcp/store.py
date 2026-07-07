@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS tool_usage (
     last_used   TEXT,
     PRIMARY KEY (adapter, account_key, tool)
 );
+CREATE TABLE IF NOT EXISTS subscribers (
+    email      TEXT PRIMARY KEY,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS suggestions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT NOT NULL,
+    description   TEXT NOT NULL DEFAULT '',
+    wants_updates INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT DEFAULT (datetime('now'))
+);
 """
 
 # One-time transform from the pre-adapter (v0) schema. Ciphertext moves verbatim.
@@ -348,3 +359,41 @@ def record_usage(conn, adapter: str, account_key: str, tool: str) -> None:
         (adapter, account_key, tool),
     )
     conn.commit()
+
+
+# --- newsletter subscribers & connector suggestions -----------------------
+# Marketing opt-in captured on the home page. Stored locally only — no email is
+# sent from here (a provider is chosen later). Never log the address itself.
+
+def add_subscriber(conn, email: str) -> None:
+    """Record a newsletter opt-in. Idempotent: a repeat email is a silent no-op
+    (INSERT OR IGNORE), so the endpoint can't be used to probe who's subscribed."""
+    conn.execute("INSERT OR IGNORE INTO subscribers (email) VALUES (?)", (email,))
+    conn.commit()
+
+
+def add_suggestion(conn, email: str, description: str, wants_updates: bool) -> None:
+    """Record a 'which connector next?' suggestion (a log — repeats allowed). When
+    wants_updates, the email is also added to the newsletter list."""
+    conn.execute(
+        "INSERT INTO suggestions (email, description, wants_updates) VALUES (?, ?, ?)",
+        (email, description, 1 if wants_updates else 0),
+    )
+    if wants_updates:
+        conn.execute("INSERT OR IGNORE INTO subscribers (email) VALUES (?)", (email,))
+    conn.commit()
+
+
+def list_subscribers(conn) -> list[dict]:
+    rows = conn.execute(
+        "SELECT email, created_at FROM subscribers ORDER BY created_at"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_suggestions(conn) -> list[dict]:
+    rows = conn.execute(
+        "SELECT email, description, wants_updates, created_at "
+        "FROM suggestions ORDER BY created_at"
+    ).fetchall()
+    return [dict(r) for r in rows]

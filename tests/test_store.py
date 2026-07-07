@@ -203,3 +203,34 @@ def test_migration_rolls_back_and_stays_remigratable(tmp_path, monkeypatch):
     assert (row["adapter"], row["account_key"], row["blob_enc"]) == ("garmin", "me@x.cz", "NONCE:CIPHER")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
     conn.close()
+
+
+def test_add_subscriber_is_idempotent(conn):
+    store.add_subscriber(conn, "fan@example.com")
+    store.add_subscriber(conn, "fan@example.com")          # duplicate — silent no-op
+    subs = store.list_subscribers(conn)
+    assert [s["email"] for s in subs] == ["fan@example.com"]
+    assert subs[0]["created_at"]                           # timestamp filled
+
+
+def test_add_suggestion_without_updates_does_not_subscribe(conn):
+    store.add_suggestion(conn, "a@example.com", "Strava please", wants_updates=False)
+    sugg = store.list_suggestions(conn)
+    assert len(sugg) == 1
+    assert sugg[0]["email"] == "a@example.com"
+    assert sugg[0]["description"] == "Strava please"
+    assert sugg[0]["wants_updates"] == 0
+    assert store.list_subscribers(conn) == []              # not added to newsletter
+
+
+def test_add_suggestion_with_updates_also_subscribes(conn):
+    store.add_suggestion(conn, "b@example.com", "Oura", wants_updates=True)
+    assert [s["email"] for s in store.list_subscribers(conn)] == ["b@example.com"]
+    assert store.list_suggestions(conn)[0]["wants_updates"] == 1
+
+
+def test_suggestion_allows_repeat_email(conn):
+    # suggestions are a log, not a set — the same person may suggest twice
+    store.add_suggestion(conn, "c@example.com", "Fitbit", wants_updates=False)
+    store.add_suggestion(conn, "c@example.com", "Withings", wants_updates=False)
+    assert len(store.list_suggestions(conn)) == 2
