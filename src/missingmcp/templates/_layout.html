@@ -62,12 +62,12 @@
     .btn { display: inline-block; background: var(--accent); color: #fff; font-weight: 600;
            padding: .7rem 1.3rem; border-radius: 10px; }
     .btn:hover { text-decoration: none; opacity: .92; }
-    .quiet { color: var(--muted); font-size: .95rem; }
-    /* a quiet CTA that opens a modal — reset the button chrome so it reads as the
-       .quiet link beside it, not a second button competing with the primary CTA */
-    .quiet-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .95rem;
-                 color: var(--muted); cursor: pointer; }
-    .quiet-btn:hover { color: var(--accent); }
+    /* two secondary CTA tiers must look identical whether they're a link (.quiet,
+       scrolls) or a modal opener (.quiet-btn) — same colour, size, and hover; the
+       button just needs its chrome reset so it doesn't read as a second button */
+    .quiet, .quiet-btn { color: var(--muted); font-size: .95rem; }
+    .quiet-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .95rem; cursor: pointer; }
+    .quiet:hover, .quiet-btn:hover { color: var(--accent); text-decoration: none; }
 
     section { padding: 2.4rem 0; }
     .sec-h { display: flex; align-items: center; gap: .9rem; font-size: .75rem; font-weight: 600;
