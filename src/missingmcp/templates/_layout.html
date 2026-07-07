@@ -59,15 +59,19 @@
              padding: .3rem .75rem; border-radius: 999px; margin-bottom: 1.4rem; }
     .hl { color: var(--accent); }
     .cta-row { margin-top: 2.1rem; display: flex; flex-wrap: wrap; gap: 1.1rem; align-items: center; }
+    /* transparent border so a filled .btn and an outline .btn-outline are the
+       same height side by side */
     .btn { display: inline-block; background: var(--accent); color: #fff; font-weight: 600;
-           padding: .7rem 1.3rem; border-radius: 10px; }
+           padding: .7rem 1.3rem; border-radius: 10px; border: 1px solid transparent; }
     .btn:hover { text-decoration: none; opacity: .92; }
-    /* two secondary CTA tiers must look identical whether they're a link (.quiet,
-       scrolls) or a modal opener (.quiet-btn) — same colour, size, and hover; the
-       button just needs its chrome reset so it doesn't read as a second button */
-    .quiet, .quiet-btn { color: var(--muted); font-size: .95rem; }
-    .quiet-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .95rem; cursor: pointer; }
-    .quiet:hover, .quiet-btn:hover { color: var(--accent); text-decoration: none; }
+    /* secondary CTA: a real, visible button (catches the eye) but clearly below
+       the filled primary — accent outline, fills softly on hover */
+    .btn-outline { display: inline-block; background: none; color: var(--accent); font-weight: 600;
+           padding: .7rem 1.3rem; border-radius: 10px; border: 1px solid var(--accent);
+           font-family: inherit; font-size: 1rem; cursor: pointer; }
+    .btn-outline:hover { text-decoration: none; background: var(--accent-soft); }
+    .quiet { color: var(--muted); font-size: .95rem; }
+    .quiet:hover { color: var(--accent); text-decoration: none; }
 
     section { padding: 2.4rem 0; }
     .sec-h { display: flex; align-items: center; gap: .9rem; font-size: .75rem; font-weight: 600;
