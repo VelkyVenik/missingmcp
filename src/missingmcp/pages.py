@@ -2,10 +2,18 @@
 sign-in forms) is a content fragment wrapped in templates/_layout.html, so the
 header, nav, footer and stylesheet exist exactly once."""
 from __future__ import annotations
+import hashlib
 import html
 from pathlib import Path
 
 _TPL_DIR = Path(__file__).parent / "templates"
+# Content hash of static/site.js, computed once at import. Appended as a
+# `?v=` cache-buster to the layout's <script> src so a new deploy of the JS
+# forces returning browsers (and the Cloudflare edge) to fetch the fresh file
+# instead of serving a stale cached copy under the same URL.
+_SITE_JS_VER = hashlib.sha256(
+    (Path(__file__).parent / "static" / "site.js").read_bytes()
+).hexdigest()[:8]
 _DEFAULT_DESC = ("The connectors Claude is missing — sign in once, add a URL, "
                  "start asking.")
 
@@ -50,6 +58,7 @@ def render_page(fragment: str, title: str, desc: str | None = None, *,
     return (tpl("_layout.html")
             .replace("{TITLE}", title)
             .replace("{DESC}", desc)
+            .replace("{SITE_JS_VER}", _SITE_JS_VER)
             .replace("{HEAD_META}", _head_meta(title, desc, public_url, path,
                                                noindex, extra_head))
             .replace("{CONTENT}", tpl(fragment)))

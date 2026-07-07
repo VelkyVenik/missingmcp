@@ -347,6 +347,20 @@ def test_site_js_has_modal_behavior(tmp_path):
     assert "data-endpoint" in r and "fetch(" in r
 
 
+def test_site_js_is_cache_busted(tmp_path):
+    from missingmcp.pages import _SITE_JS_VER
+    r = _client(tmp_path).get("/").text
+    assert f'/static/site.js?v={_SITE_JS_VER}"' in r    # versioned script src
+    assert "{SITE_JS_VER}" not in r                     # placeholder fully replaced
+    assert len(_SITE_JS_VER) == 8
+
+
+def test_suggest_description_is_required(tmp_path):
+    # required so email+Enter can't submit an empty wish (native validation blocks it)
+    r = _client(tmp_path).get("/").text
+    assert '<textarea name="description" rows="3" required' in r
+
+
 def test_privacy_mentions_signup_storage_and_deletion(tmp_path):
     r = _client(tmp_path).get("/privacy").text
     assert "newsletter" in r.lower() or "notify" in r.lower()   # opt-in disclosed

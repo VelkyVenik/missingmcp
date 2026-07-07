@@ -7,7 +7,7 @@
   <meta name="description" content="{DESC}">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <script src="/static/site.js" defer></script>
+  <script src="/static/site.js?v={SITE_JS_VER}" defer></script>
 {HEAD_META}
   <style>
     :root {
@@ -135,7 +135,10 @@
     .linklike:hover { text-decoration: underline; }
 
     dialog.modal { border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card);
-                   color: var(--text); padding: 0; max-width: 27rem; width: calc(100% - 2rem); }
+                   color: var(--text); padding: 0; max-width: 27rem; width: calc(100% - 2rem);
+                   /* the global `* { margin: 0 }` reset kills the UA `margin: auto`
+                      that centers a modal <dialog> — restore it explicitly */
+                   margin: auto; }
     dialog.modal::backdrop { background: rgba(0, 0, 0, .5); }
     .modal-card { position: relative; padding: 1.6rem 1.5rem; }
     .modal-card h3 { font-size: 1.25rem; margin-bottom: .4rem; }
@@ -146,8 +149,11 @@
                  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
                  color: var(--text); font: inherit; }
     .modal-card textarea { resize: vertical; }
-    .modal-card label.check { display: flex; align-items: center; gap: .5rem; font-weight: 500; margin-top: 1rem; }
-    .modal-card label.check input { margin: 0; }
+    .modal-card label.check { display: flex; align-items: center; gap: .55rem; margin-top: 1rem;
+                 font-size: .95rem; font-weight: 600; color: var(--text); cursor: pointer;
+                 background: var(--accent-soft); border: 1px solid var(--border);
+                 border-radius: 10px; padding: .7rem .8rem; }
+    .modal-card label.check input { width: 1.05rem; height: 1.05rem; flex: none; margin: 0; accent-color: var(--accent); }
     .modal-card .btn { display: block; width: 100%; margin-top: 1.2rem; border: 0; cursor: pointer; font: inherit; font-weight: 600; }
     .modal-x { position: absolute; top: .6rem; right: .8rem; background: none; border: 0;
                font-size: 1.5rem; line-height: 1; color: var(--dim); cursor: pointer; }
