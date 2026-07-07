@@ -13,7 +13,7 @@ def test_home_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/")
     assert r.status_code == 200
-    assert "Your apps," in r.text                 # hero H1
+    assert "Your data," in r.text                 # hero H1
     assert 'href="/garmin"' in r.text             # Garmin card links to the subpage
     # Rohlík graduated: official MCP exists, so the card moved to the
     # "No longer missing" section and points at Rohlík directly, not /rohlik.
@@ -28,7 +28,7 @@ def test_unknown_path_serves_home_as_404(tmp_path):
     c = _client(tmp_path)
     r = c.get("/definitely-not-a-page")
     assert r.status_code == 404
-    assert "Your apps," in r.text
+    assert "Your data," in r.text
 
 
 def test_healthz(tmp_path):
