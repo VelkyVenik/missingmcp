@@ -313,6 +313,13 @@ def test_suggest_honeypot_is_silent_noop(tmp_path):
     assert _rows(db, "SELECT email FROM suggestions") == []
 
 
+def test_subscribe_rejects_oversized_body(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    r = c.post("/subscribe", data={"email": "a@b.co", "description": "x" * 70_000})
+    assert r.status_code == 413 and r.json()["error"] == "too_large"
+    assert _rows(db, "SELECT email FROM subscribers") == []
+
+
 def test_home_has_signup_modals_not_github_link(tmp_path):
     r = _client(tmp_path).get("/").text
     # the old GitHub-issues link in the card is gone (GitHub stays only in footer/security)
