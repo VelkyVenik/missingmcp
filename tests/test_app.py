@@ -191,8 +191,8 @@ def test_home_shows_whoop_card(tmp_path):
 
 def test_hero_leads_with_outcome(tmp_path):
     home = _client(tmp_path).get("/").text
-    # badge names the niche (CSS uppercases it)
-    assert "Built for athletes" in home
+    # no badge — the H1 leads (avoid over-niching the umbrella)
+    assert 'class="badge"' not in home
     # subhead leads with the outcome, not "connectors" / "MCP server"
     assert "except the numbers your apps keep locked away" in home
     assert "an answer that actually knows" in home
