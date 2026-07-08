@@ -254,6 +254,28 @@ logs a `stats` event (accounts / tokens / people-with-token / clients /
 active-workers) on startup and whenever those counts change, and `status.py`
 lists the running workers.
 
+### Automatic data hygiene
+
+The gateway keeps its own DB tidy — no manual grooming needed. Alongside expiring
+old auth codes and access tokens, the background loop (roughly once a minute):
+
+- **sweeps abandoned OAuth clients** — Claude registers a fresh client (DCR) on
+  every connection attempt, and one that never completes the flow leaves a
+  token-less client behind. Any client with **zero access tokens** older than one
+  hour (comfortably above the 10-min code lifetime, so an in-progress sign-in is
+  never touched) is removed. This is why `status.py`'s OAuth-client count tracks
+  the number of connected devices rather than growing with every failed attempt.
+  Revoking a device also leaves its client token-less, so it's swept the same way.
+- **purges retired-adapter data** — if a connector is ever dropped, all its rows
+  (accounts, tokens, clients, codes, usage) are deleted across the board. The
+  retired set is an **explicit** list in the code, never inferred from
+  configuration, so a missing env var can't accidentally wipe a live connector.
+
+Both are logged only when they actually delete something — `cleanup-orphan-clients`
+(`count`) and `cleanup-dead-adapter` (`adapter` + per-table counts) — so a quiet
+log means there was nothing to clean. The one-hour threshold is a fixed constant,
+not an env var, by design.
+
 ## How it works
 
 1. Claude registers a client (DCR) and starts OAuth 2.1 (Authorization Code + PKCE).
