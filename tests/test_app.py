@@ -189,6 +189,24 @@ def test_home_shows_whoop_card(tmp_path):
     assert "WHOOP" in r.text
 
 
+def test_whoop_is_beta_with_limit_note():
+    g = _whoop_client().get("/whoop").text   # /whoop only exists when WHOOP creds are set
+    assert "pill beta" in g            # hero pill is Beta, not Live
+    assert "pill live" not in g        # no longer advertised as Live
+    assert "approval" in g.lower()     # explains it's pending WHOOP approval
+    assert "10 users" in g             # the current user cap
+
+
+def test_home_lists_upcoming_connectors(tmp_path):
+    r = _client(tmp_path).get("/").text
+    assert "<h3>Oura</h3>" in r                     # card heading, not the suggest-modal placeholder
+    assert "<h3>Apple Health</h3>" in r
+    assert "Beta" in r                              # WHOOP card downgraded from Live
+    # the coming-soon cards reuse the existing subscribe modal (hero + "Missing
+    # something?" card were the only two before; +2 new = at least 4)
+    assert r.count('data-modal="subscribe"') >= 4
+
+
 def test_hero_leads_with_outcome(tmp_path):
     home = _client(tmp_path).get("/").text
     # no badge — the H1 leads (avoid over-niching the umbrella)
