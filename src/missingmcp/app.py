@@ -60,10 +60,10 @@ def build_app(config: Config) -> Starlette:
                 + "</script>")
 
     home_page = _render(
-        "home.html", "MissingMCP — Garmin MCP Server & the Connectors Claude Is Missing",
-        "Connect Garmin to Claude in two minutes with a hosted Garmin MCP server "
-        "— sleep, training, and health data by asking. Sign in once, add a URL. "
-        "Free, open source, more connectors on the way.",
+        "home.html", "MissingMCP — Your data, in Claude · Garmin MCP Server",
+        "Give Claude your Garmin and health data, then just ask — did I eat "
+        "enough for today's ride, how did I sleep this week? A hosted Garmin "
+        "MCP server: connect in two minutes. Free and open source.",
         extra_head=_json_ld({"@type": "WebSite", "name": "MissingMCP",
                              "url": config.public_url}))
 

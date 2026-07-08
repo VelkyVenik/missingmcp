@@ -189,6 +189,20 @@ def test_home_shows_whoop_card(tmp_path):
     assert "WHOOP" in r.text
 
 
+def test_hero_leads_with_outcome(tmp_path):
+    home = _client(tmp_path).get("/").text
+    # badge names the niche (CSS uppercases it)
+    assert "Built for athletes" in home
+    # subhead leads with the outcome, not "connectors" / "MCP server"
+    assert "except the numbers your apps keep locked away" in home
+    assert "an answer that actually knows" in home
+    # <title> leads with the promise AND keeps the SEO keyword tail
+    assert "Your data, in Claude" in home          # from <title>/og:title
+    assert "Garmin MCP Server" in home             # SEO keyword retained
+    # the old jargon-first subhead phrasing is gone
+    assert "hosts the connectors your favorite services are missing" not in home
+
+
 def test_privacy_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/privacy")
