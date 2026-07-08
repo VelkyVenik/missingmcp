@@ -11,6 +11,13 @@ def test_loads_defaults():
     assert c.worker_idle_ttl == 900
     assert c.garmin_mcp_cmd == ["garmin-mcp"]
 
+
+def test_orphan_client_ttl_default_is_one_hour():
+    # A 0-token OAuth client older than this is an abandoned DCR and gets swept.
+    # Intentionally not env-configurable (see docs/adr/0001) — a hardcoded default.
+    c = load_config(BASE)
+    assert c.orphan_client_ttl == 3600
+
 def test_strips_trailing_slash_from_public_url():
     c = load_config({**BASE, "PUBLIC_URL": "https://gw.example.com/"})
     assert c.public_url == "https://gw.example.com"

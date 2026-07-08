@@ -308,6 +308,32 @@ def get_client(conn, client_id) -> dict | None:
     }
 
 
+def cleanup_orphan_clients(conn, older_than_seconds: int) -> int:
+    """Delete OAuth clients that never produced an access token and are older than
+    the cutoff — abandoned or failed DCR registrations (Claude registers a fresh
+    client per connection attempt). The age guard keeps an in-flight OAuth flow
+    (client registered, token not yet issued) safe. Returns rows deleted."""
+    cur = conn.execute(
+        "DELETE FROM oauth_clients WHERE created_at < datetime('now', ?) "
+        "AND NOT EXISTS (SELECT 1 FROM access_tokens t WHERE t.client_id = oauth_clients.client_id)",
+        (f"-{int(older_than_seconds)} seconds",),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def purge_adapter(conn, adapter: str) -> dict:
+    """Delete every row belonging to a retired adapter, across all tables — full
+    off-boarding for an adapter we no longer serve (see adapters.RETIRED_ADAPTERS
+    and docs/adr/0001). Returns per-table deletion counts."""
+    counts = {}
+    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage"):
+        cur = conn.execute(f"DELETE FROM {table} WHERE adapter=?", (adapter,))
+        counts[table] = cur.rowcount
+    conn.commit()
+    return counts
+
+
 # --- oauth codes ----------------------------------------------------------
 
 def create_code(conn, code_hash, client_id, redirect_uri, code_challenge, method,

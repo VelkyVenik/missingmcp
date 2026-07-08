@@ -124,6 +124,63 @@ def test_cleanup_expired_codes_removes_only_expired(conn):
     assert hashes == {"valid"}
 
 
+def test_cleanup_orphan_clients_removes_old_tokenless_only(conn):
+    # An orphan (0 tokens) older than the threshold — a DCR whose OAuth never
+    # completed. This is the one that must go.
+    store.create_client(conn, "old_orphan", "sh", ["https://a/cb"], "Claude", "garmin")
+    conn.execute("UPDATE oauth_clients SET created_at=datetime('now','-2 hours') "
+                 "WHERE client_id='old_orphan'")
+    # A fresh orphan — could still be an in-flight OAuth flow; must be kept.
+    store.create_client(conn, "fresh_orphan", "sh", ["https://a/cb"], "Claude", "garmin")
+    # A client that produced a token — kept regardless of age.
+    store.create_client(conn, "has_token", "sh", ["https://a/cb"], "Claude", "garmin")
+    conn.execute("UPDATE oauth_clients SET created_at=datetime('now','-2 hours') "
+                 "WHERE client_id='has_token'")
+    store.create_access_token(conn, "tok1", "garmin", "me@x.cz", "has_token")
+    conn.commit()
+
+    deleted = store.cleanup_orphan_clients(conn, older_than_seconds=3600)
+
+    assert deleted == 1
+    remaining = {r["client_id"] for r in conn.execute("SELECT client_id FROM oauth_clients")}
+    assert remaining == {"fresh_orphan", "has_token"}
+
+
+def test_purge_adapter_removes_all_rows_for_that_adapter_only(conn):
+    # A retired adapter with data across every table.
+    store.upsert_account(conn, "rohlik", "me@x.cz", "{}", SECRET)
+    store.create_access_token(conn, "rtok", "rohlik", "me@x.cz", "rc")
+    store.create_client(conn, "rc", "sh", ["https://a/cb"], "Claude", "rohlik")
+    store.create_code(conn, "rcode", "rc", "https://a/cb", "ch", "S256", "rohlik", "me@x.cz")
+    store.record_usage(conn, "rohlik", "me@x.cz", "get_cart")
+    # A live adapter's data that must survive untouched.
+    store.upsert_account(conn, "garmin", "me@x.cz", "{}", SECRET)
+    store.create_access_token(conn, "gtok", "garmin", "me@x.cz", "gc")
+    store.create_client(conn, "gc", "sh", ["https://a/cb"], "Claude", "garmin")
+    store.record_usage(conn, "garmin", "me@x.cz", "get_activities")
+
+    counts = store.purge_adapter(conn, "rohlik")
+
+    assert counts == {"accounts": 1, "access_tokens": 1, "oauth_clients": 1,
+                      "oauth_codes": 1, "tool_usage": 1}
+    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage"):
+        n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE adapter='rohlik'").fetchone()[0]
+        assert n == 0, f"{table} still has rohlik rows"
+    # garmin intact
+    assert store.account_key_for_token_hash(conn, "gtok") == ("garmin", "me@x.cz")
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", SECRET) == "{}"
+    assert conn.execute("SELECT COUNT(*) FROM oauth_clients WHERE adapter='garmin'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM tool_usage WHERE adapter='garmin'").fetchone()[0] == 1
+
+
+def test_purge_adapter_is_a_noop_for_absent_adapter(conn):
+    store.upsert_account(conn, "garmin", "me@x.cz", "{}", SECRET)
+    counts = store.purge_adapter(conn, "rohlik")
+    assert counts == {"accounts": 0, "access_tokens": 0, "oauth_clients": 0,
+                      "oauth_codes": 0, "tool_usage": 0}
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", SECRET) == "{}"
+
+
 def _build_v0_db(path):
     """Create a pre-migration (v0) DB with the OLD Garmin-specific schema and one
     row per table, so we can prove the migration preserves data."""

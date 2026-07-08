@@ -18,6 +18,7 @@ class Config:
     worker_startup_timeout: int   # seconds
     max_workers: int
     access_token_ttl: int         # seconds; 0 disables expiry
+    orphan_client_ttl: int        # seconds; a 0-token OAuth client older than this is swept
     operator_name: str
     operator_email: str
     operator_url: str             # optional homepage the operator name links to
@@ -62,6 +63,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         worker_startup_timeout=int(env.get("WORKER_STARTUP_TIMEOUT", "20")),
         max_workers=int(env.get("MAX_WORKERS", "10")),
         access_token_ttl=int(env.get("ACCESS_TOKEN_TTL_DAYS", "90")) * 86400,
+        # Deliberately a hardcoded constant, not env-configurable (docs/adr/0001):
+        # comfortably above the 600s oauth-code TTL, so it never races an in-flight flow.
+        orphan_client_ttl=3600,
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
         operator_url=env.get("OPERATOR_URL", "").strip(),

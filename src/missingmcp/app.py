@@ -12,7 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from . import backup, store, oauth, pages, proxy, security
 from .config import load_config, Config
 from .workers import WorkerManager
-from .adapters import build_adapters
+from .adapters import build_adapters, RETIRED_ADAPTERS
 from .adapters.base import is_remote, is_local, is_upstream_oauth
 from .log import log
 
@@ -26,6 +26,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         for k, v in security.security_headers().items():
             resp.headers.setdefault(k, v)
         return resp
+
+
+def _run_data_cleanup(conn, orphan_ttl: int, retired_adapters) -> None:
+    """One pass of data-hygiene cleanup, driven from the lifespan loop: fully
+    purge any retired adapter's rows, then sweep abandoned OAuth clients (0 tokens,
+    older than orphan_ttl). Purge runs first so a retired adapter's clients are
+    reported under the purge, not double-counted as orphans. Logs only when it
+    actually deleted something — the loop runs every 60s and is usually a no-op."""
+    for name in retired_adapters:
+        counts = store.purge_adapter(conn, name)
+        if any(counts.values()):
+            log("cleanup-dead-adapter", adapter=name, **counts)
+    n = store.cleanup_orphan_clients(conn, orphan_ttl)
+    if n:
+        log("cleanup-orphan-clients", count=n)
 
 
 def build_app(config: Config) -> Starlette:
@@ -275,6 +290,7 @@ def build_app(config: Config) -> Starlette:
                         await manager.reap_idle()
                     store.cleanup_expired_codes(conn)
                     store.cleanup_expired_tokens(conn)
+                    _run_data_cleanup(conn, config.orphan_client_ttl, RETIRED_ADAPTERS)
                     rate.gc()
                     for manager in managers.values():
                         manager.write_snapshot()  # refresh idle_seconds periodically

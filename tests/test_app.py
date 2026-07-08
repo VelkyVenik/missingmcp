@@ -1,6 +1,50 @@
+import json
 from starlette.testclient import TestClient
-from missingmcp.app import build_app
+from missingmcp import store
+from missingmcp.app import build_app, _run_data_cleanup
 from missingmcp.config import load_config
+
+SECRET = "k" * 40
+
+
+def _events(captured) -> list[str]:
+    return [json.loads(line)["event"] for line in captured.out.splitlines()
+            if line.strip().startswith("{")]
+
+
+def test_run_data_cleanup_purges_retired_and_sweeps_orphans_with_logs(capsys):
+    conn = store.init_db(":memory:")
+    # A retired adapter (rohlik) with a stored account + client.
+    store.upsert_account(conn, "rohlik", "me@x.cz", "{}", SECRET)
+    store.create_client(conn, "rc", "sh", ["https://a/cb"], "Claude", "rohlik")
+    # An old, token-less garmin client — an abandoned DCR.
+    store.create_client(conn, "old_orphan", "sh", ["https://a/cb"], "Claude", "garmin")
+    conn.execute("UPDATE oauth_clients SET created_at=datetime('now','-2 hours')")
+    conn.commit()
+
+    _run_data_cleanup(conn, orphan_ttl=3600, retired_adapters={"rohlik"})
+
+    assert conn.execute("SELECT COUNT(*) FROM accounts WHERE adapter='rohlik'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM oauth_clients").fetchone()[0] == 0
+    events = _events(capsys.readouterr())
+    assert "cleanup-dead-adapter" in events
+    assert "cleanup-orphan-clients" in events
+    conn.close()
+
+
+def test_run_data_cleanup_is_silent_when_nothing_to_delete(capsys):
+    conn = store.init_db(":memory:")
+    # A fresh orphan (younger than the TTL) and no retired-adapter data.
+    store.create_client(conn, "fresh", "sh", ["https://a/cb"], "Claude", "garmin")
+    conn.commit()
+
+    _run_data_cleanup(conn, orphan_ttl=3600, retired_adapters={"rohlik"})
+
+    events = _events(capsys.readouterr())
+    assert "cleanup-orphan-clients" not in events
+    assert "cleanup-dead-adapter" not in events
+    assert conn.execute("SELECT COUNT(*) FROM oauth_clients").fetchone()[0] == 1  # fresh kept
+    conn.close()
 
 
 def _client(tmp_path):
