@@ -216,6 +216,17 @@ def test_just_ask_section(tmp_path):
     assert home.index('id="just-ask"') < home.index('id="connectors"')
 
 
+def test_garmin_page_leads_with_outcome(tmp_path):
+    g = _client(tmp_path).get("/garmin").text
+    # page-hero subhead now opens on the outcome, not "A hosted Garmin MCP server:"
+    assert "everything your watch knows" in g.lower()
+    # the old jargon-first opener is gone
+    assert "A hosted <strong>Garmin MCP server</strong>: everything" not in g
+    # MCP is kept, but demoted to an under-the-hood aside
+    assert "under the hood" in g.lower()
+    assert "hosted MCP server" in g
+
+
 def test_privacy_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/privacy")
