@@ -19,6 +19,7 @@ class Config:
     max_workers: int
     access_token_ttl: int         # seconds; 0 disables expiry
     orphan_client_ttl: int        # seconds; a 0-token OAuth client older than this is swept
+    login_timeout: int            # seconds; wall-clock cap on a synchronous adapter sign-in
     operator_name: str
     operator_email: str
     operator_url: str             # optional homepage the operator name links to
@@ -66,6 +67,11 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         # Deliberately a hardcoded constant, not env-configurable (docs/adr/0001):
         # comfortably above the 600s oauth-code TTL, so it never races an in-flight flow.
         orphan_client_ttl=3600,
+        # Hardcoded wall-clock cap on a blocking adapter sign-in (garminconnect does
+        # synchronous network I/O). Long enough for a normal login + one transient
+        # retry, short enough that a rate-limited Garmin can't hang the request for
+        # minutes (observed: a 125s authorize POST before the client gave up).
+        login_timeout=30,
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
         operator_url=env.get("OPERATOR_URL", "").strip(),

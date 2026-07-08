@@ -72,12 +72,12 @@ def test_register_rejects_empty_string_redirect_uri(conn):
     assert c.post("/oauth/register", json={"redirect_uris": [""]}).status_code == 400
 
 
-def _authz_app(conn):
+def _authz_app(conn, cfg=CONFIG):
     state = oauth.AuthState(security.CsrfStore())
     async def aget(request):
-        return await oauth.authorize_get(request, ADAPTER, state, conn, CONFIG)
+        return await oauth.authorize_get(request, ADAPTER, state, conn, cfg)
     async def apost(request):
-        return await oauth.authorize_post(request, ADAPTER, state, conn, CONFIG)
+        return await oauth.authorize_post(request, ADAPTER, state, conn, cfg)
     app = Starlette(routes=[
         Route("/oauth/authorize", aget, methods=["GET"]),
         Route("/oauth/authorize", apost, methods=["POST"]),
@@ -258,6 +258,33 @@ def test_login_blocked_shows_retry_message(conn):
     assert "rate-limiting" in r.text                         # Garmin-side limit, not "wrong password"
     assert "not your password" in r.text
     assert "garmin_email" in r.text                          # form re-rendered to retry
+
+
+def test_login_timeout_shows_retry_message(conn):
+    # A synchronous Garmin sign-in that Garmin is rate-limiting can block for
+    # minutes (observed: a 125s authorize POST). The handler must cap it and
+    # re-render the form instead of hanging (and instead of freezing the loop).
+    import time as _time
+    import dataclasses
+    cfg = dataclasses.replace(CONFIG, login_timeout=0.05)
+    client, state = _authz_app(conn, cfg)
+    cid = _register(conn)
+    csrf = state.csrf.issue()
+
+    def _slow(*a, **k):
+        _time.sleep(0.4)  # far longer than the 0.05s deadline
+        return garmin_login.LoginResult(status="ok", tokens_json='{"t":1}')
+
+    with patch.object(garmin_login, "start_login", side_effect=_slow):
+        r = client.post("/oauth/authorize", data={
+            "csrf": csrf, "client_id": cid, "redirect_uri": "https://claude.ai/cb",
+            "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
+            "garmin_email": "me@x.cz", "garmin_password": "pw",
+        })
+    assert r.status_code == 200
+    assert "timed out" in r.text.lower()                 # honest timeout message
+    assert "garmin_email" in r.text                      # form re-rendered to retry
+    assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) is None
 
 
 def test_login_verify_failure_rerenders_form(conn):

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import hmac
 import html
 import json
@@ -190,6 +191,21 @@ def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_ke
     return RedirectResponse(location, status_code=302)
 
 
+async def _bounded(config, fn, *args):
+    """Run a blocking adapter sign-in step (garminconnect does synchronous network
+    I/O) off the event loop, capped at config.login_timeout. Without to_thread the
+    call would freeze the single-node event loop for every user for the duration;
+    without the cap a Garmin sign-in that Garmin is rate-limiting can block ~2
+    minutes (observed: a 125s authorize POST before the client gave up → 499).
+    Raises TimeoutError past the deadline (the abandoned thread finishes on its own)."""
+    return await asyncio.wait_for(asyncio.to_thread(fn, *args), config.login_timeout)
+
+
+def _timeout_message(adapter) -> str:
+    return (f"{adapter.display_name} sign-in timed out — the service may be "
+            "rate-limiting new sign-ins. Please wait a moment and try again.")
+
+
 async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse | RedirectResponse:
     form = await request.form()
     has_login_id = bool(form.get("login_id"))
@@ -211,8 +227,14 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             return HTMLResponse("invalid client/redirect_uri", status_code=400)
         try:
             log("mfa-resume-start", mfa_len=len(form.get("mfa_code", "")))
-            result = adapter.resume_second_factor(pending, form)
+            t0 = time.monotonic()
+            result = await _bounded(config, adapter.resume_second_factor, pending, form)
             log("mfa-resume-ok", tokens_len=len(result.blob or ""))
+        except TimeoutError:  # resume hung (rate-limited upstream): start over
+            log_warn("mfa-resume-timeout", ms=int((time.monotonic() - t0) * 1000),
+                     timeout=config.login_timeout)
+            return render_authorize(params, state.csrf.issue(), config, adapter,
+                                    _timeout_message(adapter))
         except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
             lid = state.put_mfa(e.state, params, adapter.name)
@@ -227,8 +249,13 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         try:
             t0 = time.monotonic()
-            name = adapter.verify(result.blob)
+            name = await _bounded(config, adapter.verify, result.blob)
             log("mfa-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
+        except TimeoutError:  # verification hung: start over
+            log_warn("mfa-verify-timeout", ms=int((time.monotonic() - t0) * 1000),
+                     timeout=config.login_timeout)
+            return render_authorize(params, state.csrf.issue(), config, adapter,
+                                    _timeout_message(adapter))
         except LoginError as e:  # blob didn't authenticate: start over
             log_exc("mfa-verify-failed", e, error=str(e))
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
@@ -243,10 +270,15 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     try:
         log("login-start", email=adapter.login_hint(form))
         t0 = time.monotonic()
-        result = adapter.start_login(form)
+        result = await _bounded(config, adapter.start_login, form)
         log("login-start-result",
             status="needs_mfa" if isinstance(result, SecondFactorNeeded) else "ok",
             ms=int((time.monotonic() - t0) * 1000))
+    except TimeoutError:  # sign-in hung (rate-limited upstream): let the user retry fast
+        log_warn("login-start-timeout", ms=int((time.monotonic() - t0) * 1000),
+                 timeout=config.login_timeout)
+        return render_authorize(params, state.csrf.issue(), config, adapter,
+                                _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-start-failed", e, reason=e.reason, error=str(e))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
@@ -263,8 +295,13 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         return HTMLResponse(body)
     try:
         t0 = time.monotonic()
-        name = adapter.verify(result.blob)
+        name = await _bounded(config, adapter.verify, result.blob)
         log("login-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
+    except TimeoutError:  # verification hung: let the user retry fast
+        log_warn("login-verify-timeout", ms=int((time.monotonic() - t0) * 1000),
+                 timeout=config.login_timeout)
+        return render_authorize(params, state.csrf.issue(), config, adapter,
+                                _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-verify-failed", e, error=str(e))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
