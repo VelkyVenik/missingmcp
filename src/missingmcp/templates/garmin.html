@@ -9,7 +9,7 @@
       <p>Everything your watch knows &mdash; training, sleep, recovery, health &mdash; in a conversation. Ask questions, spot trends, and let Claude plan workouts that land right back on your wrist. <span class="quiet">(A hosted MCP server, under the hood.)</span></p>
       <div class="cta-row">
         <a class="btn" href="#connect">Connect in 2 minutes</a>
-        <span class="quiet">Server URL: <code>{PUBLIC_URL}/garmin/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button></span>
+        <span class="quiet">Server URL: <code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button></span>
       </div>
     </div>
   </div>
@@ -63,12 +63,12 @@
         <div class="card">
           <span class="step-n">Step 1</span>
           <h3>Copy the server URL</h3>
-          <p><code>{PUBLIC_URL}/garmin/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button></p>
+          <p><code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button></p>
         </div>
         <div class="card">
           <span class="step-n">Step 2</span>
           <h3>Add it to Claude</h3>
-          <p>Settings &rarr; Connectors &rarr; Add custom connector. Works on phone, desktop, and web &mdash; or <code>claude mcp add --transport http garmin {PUBLIC_URL}/garmin/mcp</code> in the CLI.</p>
+          <p>Settings &rarr; Connectors &rarr; Add custom connector. Works on phone, desktop, and web.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 3</span>
