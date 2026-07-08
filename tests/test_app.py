@@ -203,6 +203,19 @@ def test_hero_leads_with_outcome(tmp_path):
     assert "hosts the connectors your favorite services are missing" not in home
 
 
+def test_just_ask_section(tmp_path):
+    home = _client(tmp_path).get("/").text
+    assert "Just ask" in home                                   # section heading
+    assert "Am I on track for today" in home                    # the "You" bubble
+    assert "running a deficit for the load ahead" in home        # the "Claude" bubble
+    assert "No single app does that." in home                    # the caption
+    assert "How did I sleep this week?" in home                  # first (easy) chip
+    assert "Compare my last three long runs." in home
+    assert "Why was my recovery low today?" in home
+    # the demo sits above the connector list
+    assert home.index('id="just-ask"') < home.index('id="connectors"')
+
+
 def test_privacy_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/privacy")

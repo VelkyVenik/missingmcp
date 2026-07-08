@@ -112,6 +112,19 @@
     .copy.copied .done { display: block; }
     .step-n { font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; }
 
+    .chat { display: flex; flex-direction: column; gap: .7rem; max-width: 60ch; }
+    .bubble { border: 1px solid var(--border); background: var(--bg-card);
+              border-radius: 16px; border-bottom-left-radius: 4px;
+              padding: .9rem 1.1rem; font-size: .95rem; }
+    .bubble .who { display: block; font-size: .72rem; font-weight: 700;
+                   letter-spacing: .06em; text-transform: uppercase;
+                   color: var(--dim); margin-bottom: .3rem; }
+    .bubble.claude { background: var(--accent-soft); border-color: var(--accent); }
+    .chat-cap { max-width: 60ch; margin-top: 1rem; font-size: .9rem; color: var(--muted); }
+    .chips { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.2rem; }
+    .chip { border: 1px solid var(--border); background: var(--bg-card);
+            border-radius: 999px; padding: .45rem .9rem; font-size: .88rem; color: var(--muted); }
+
     .lede { max-width: 56ch; color: var(--muted); margin-bottom: 1.3rem; margin-top: -.4rem; }
     .prose { max-width: 62ch; }
     .prose p + p { margin-top: .8rem; }
