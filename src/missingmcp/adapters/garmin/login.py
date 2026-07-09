@@ -70,7 +70,12 @@ def resume_login(pending, mfa_code: str) -> str:
 
 
 def verify_tokens(tokens_json: str) -> str:
-    """Confirm tokens authenticate via a fresh token login; return display name."""
+    """Confirm tokens authenticate via a fresh token login; return display name.
+
+    A successful g.login() without exception already proves authentication —
+    stale/invalid tokens raise GarminConnectAuthenticationError (surfaced below).
+    The name is only a log field, so an empty fullName (which a valid account may
+    legitimately have) must NOT be treated as an auth failure."""
     with tempfile.TemporaryDirectory() as d:
         with open(os.path.join(d, "garmin_tokens.json"), "w") as f:
             f.write(tokens_json)
@@ -80,6 +85,4 @@ def verify_tokens(tokens_json: str) -> str:
             name = g.get_full_name()
         except Exception as e:  # noqa: BLE001 - surface as our error type
             raise GarminLoginError(str(e).split(":")[0].strip() or e.__class__.__name__)
-    if not name:
-        raise GarminLoginError("session is not authenticated (no profile returned)")
-    return name
+    return name or ""

@@ -113,6 +113,26 @@ def test_unknown_tool_is_invalid_params(fake_whoop):
     assert body["error"]["code"] == -32602
 
 
+def test_bad_limit_value_is_graceful_arg_error(fake_whoop):
+    conn, fwd = _setup(fake_whoop)
+    # Non-scalar limit: int([1,2]) raises TypeError, which must NOT escape as a 502.
+    _s, _h, body = _rpc(fwd, conn, "tools/call",
+                        {"name": "get_cycles", "arguments": {"limit": [1, 2]}})
+    assert body["result"]["isError"] is True
+    assert "argument" in body["result"]["content"][0]["text"].lower()
+    # Non-numeric string limit: int("abc") raises ValueError, same graceful path.
+    _s, _h, body = _rpc(fwd, conn, "tools/call",
+                        {"name": "get_cycles", "arguments": {"limit": "abc"}})
+    assert body["result"]["isError"] is True
+    assert "argument" in body["result"]["content"][0]["text"].lower()
+    # Infinity (JSON parses it by default): int(inf) raises OverflowError, which
+    # must ALSO be a graceful arg error, not an escaped 502.
+    _s, _h, body = _rpc(fwd, conn, "tools/call",
+                        {"name": "get_cycles", "arguments": {"limit": float("inf")}})
+    assert body["result"]["isError"] is True
+    assert "argument" in body["result"]["content"][0]["text"].lower()
+
+
 def test_upstream_429_and_500_become_tool_errors(fake_whoop):
     conn, fwd = _setup(fake_whoop)
     fake_whoop.data_status = 429

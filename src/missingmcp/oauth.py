@@ -377,9 +377,15 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
                                f"{adapter.display_name} declined the connection — go back to Claude and try again.")
     try:
         result = await adapter.handle_callback(q)
+        # verify is a blocking network step (WhoopAdapter.verify does a 15s
+        # httpx.get) — bound it off the loop exactly like the login/MFA paths,
+        # so a rate-limiting provider can't freeze the single-node event loop.
         t0 = time.monotonic()
-        name = adapter.verify(result.blob)
+        name = await _bounded(config, adapter.verify, result.blob)
         log("upstream-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
+    except TimeoutError:  # verify hung (rate-limited provider): send the user back to retry
+        log_warn("upstream-verify-timeout", adapter=adapter.name, timeout=config.login_timeout)
+        return _upstream_error(config, adapter, _timeout_message(adapter))
     except LoginError as e:
         log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
                 error=str(e))

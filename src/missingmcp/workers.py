@@ -67,9 +67,23 @@ class WorkerManager:
     async def ensure_worker(self, key: str, blob: str) -> int:
         async with self._locks[key]:
             h = self._workers.get(key)
-            if h is not None and h.process.poll() is None and await self._healthy(h.port):
-                h.last_active = self._clock()
-                return h.port
+            if h is not None and h.process.poll() is None:
+                # Hold the worker busy across the awaited /healthz probe so a
+                # concurrent reap_idle / _enforce_cap (neither takes this key's
+                # lock) can't evict it during the yield (TOCTOU). Always released
+                # in `finally`, so no accounting is leaked.
+                h.inflight += 1
+                try:
+                    healthy = await self._healthy(h.port)
+                finally:
+                    h.inflight -= 1
+                # Reuse when healthy, OR when a request is still streaming through
+                # it: a momentarily slow /healthz on a busy worker must not kill
+                # the live stream (mirrors the inflight guard in reap_idle /
+                # _enforce_cap). Only an idle *and* unhealthy worker is replaced.
+                if healthy or h.inflight > 0:
+                    h.last_active = self._clock()
+                    return h.port
             if h is not None:
                 self._terminate(h)
                 self._workers.pop(key, None)
@@ -179,7 +193,10 @@ class WorkerManager:
     # --- internals ------------------------------------------------------
 
     def _enforce_cap(self) -> None:
-        while len(self._workers) >= self._cfg.max_workers:
+        # Count in-flight spawns (ports reserved but not yet registered in
+        # _workers) toward the cap — mirrors _alloc_port's union of _reserved —
+        # so concurrent distinct-key spawns can't overshoot MAX_WORKERS.
+        while len(self._workers) + len(self._reserved) >= self._cfg.max_workers:
             idle = [h for h in self._workers.values() if h.inflight == 0]
             if not idle:
                 # Every worker is mid-request; evicting one would abort a live

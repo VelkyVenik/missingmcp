@@ -154,7 +154,10 @@ class WhoopLocalForward:
             return _rpc_error(rid, -32602, "arguments must be an object")
         try:
             path, query = tool[3](args)
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError, OverflowError) as e:
+            # Any failure coercing client-supplied arguments is a client error
+            # (-32602 / tool error), never an escaped 502. OverflowError covers
+            # JSON's Infinity/-Infinity reaching int().
             return _tool_error(rid, f"Invalid or missing argument: {e}")
         try:
             status, payload = await self.api.get(conn, account_key,

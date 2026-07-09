@@ -107,6 +107,114 @@ def test_enforce_cap_spares_busy_worker(tmp_path):
     assert "a@x.cz" not in mgr._workers and busy.killed is True
 
 
+async def test_busy_worker_not_replaced_on_healthz_miss(tmp_path):
+    # A worker mid-stream (inflight>0) whose /healthz momentarily misses (2s
+    # timeout on a slow, busy worker) must NOT be terminated/replaced — that
+    # would abort the live request it's serving. Keep serving it instead.
+    spawned = []
+
+    class FakeProc:
+        def __init__(self): self.alive = True
+        def poll(self): return None if self.alive else 0
+        def terminate(self): self.alive = False
+
+    busy = FakeProc()
+    dead_port = 59998                              # nothing listening -> /healthz fails fast
+    cfg = _config(tmp_path, worker_port_start=dead_port, worker_port_end=dead_port)
+
+    def spawn(key, port, token_dir):
+        spawned.append(port)
+        return FakeProc()
+
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=spawn)
+    mgr._workers["me@x.cz"] = workers.WorkerHandle("me@x.cz", dead_port, busy, 1.0, inflight=1)
+    port = await mgr.ensure_worker("me@x.cz", "{}")
+    assert port == dead_port                       # reused the busy worker
+    assert busy.alive is True                      # NOT terminated
+    assert spawned == []                           # NOT respawned
+
+
+async def test_idle_worker_replaced_on_healthz_miss(tmp_path):
+    # Counterpart: an *idle* worker (inflight==0) that fails /healthz is a genuinely
+    # broken worker and must be replaced.
+    spawned = []
+
+    class FakeProc:
+        def __init__(self): self.alive = True
+        def poll(self): return None if self.alive else 0
+        def terminate(self): self.alive = False
+
+    stale = FakeProc()
+    dead_port = 59998
+    cfg = _config(tmp_path, worker_port_start=dead_port, worker_port_end=dead_port,
+                  worker_startup_timeout=1)
+
+    def spawn(key, port, token_dir):
+        spawned.append(port)
+        return FakeProc()                          # new proc, also never healthy on dead_port
+
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=spawn)
+    mgr._workers["me@x.cz"] = workers.WorkerHandle("me@x.cz", dead_port, stale, 1.0, inflight=0)
+    with pytest.raises(workers.WorkerStartError):
+        await mgr.ensure_worker("me@x.cz", "{}")
+    assert stale.alive is False                    # the broken idle worker was terminated
+    assert spawned == [dead_port]                  # a replacement was attempted
+
+
+async def test_worker_not_reaped_during_health_check(tmp_path):
+    # TOCTOU: while ensure_worker is validating an existing worker (awaiting
+    # /healthz), a concurrent reap_idle must not pop it out from under the caller
+    # even though it is past its idle TTL.
+    clock = [1000.0]
+
+    class FakeProc:
+        def __init__(self): self.alive = True
+        def poll(self): return None if self.alive else 0
+        def terminate(self): self.alive = False
+
+    proc = FakeProc()
+    cfg = _config(tmp_path, worker_idle_ttl=10,
+                  worker_port_start=59997, worker_port_end=59997)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: proc, clock=lambda: clock[0])
+    mgr._workers["me@x.cz"] = workers.WorkerHandle("me@x.cz", 59997, proc, 1000.0, inflight=0)
+    clock[0] = 2000.0                              # far past the idle TTL
+
+    observed = {}
+
+    async def healthy_that_triggers_reap(port):
+        # Fire the reaper during the validation await, then report survival.
+        await mgr.reap_idle()
+        observed["survived"] = "me@x.cz" in mgr._workers
+        return True
+
+    mgr._healthy = healthy_that_triggers_reap
+    port = await mgr.ensure_worker("me@x.cz", "{}")
+    assert observed["survived"] is True            # not reaped mid-validation
+    assert proc.alive is True
+    assert port == 59997
+    assert mgr._workers["me@x.cz"].inflight == 0   # temp hold released -> no leak
+
+
+def test_enforce_cap_counts_reserved_spawns(tmp_path):
+    # An in-flight spawn holds a reserved port not yet registered in _workers; it
+    # must count toward MAX_WORKERS so concurrent distinct-key spawns don't
+    # overshoot the cap.
+    cfg = _config(tmp_path, max_workers=2)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
+
+    class P:
+        def __init__(self): self.killed = False
+        def poll(self): return None
+        def terminate(self): self.killed = True
+
+    idle = P()
+    mgr._workers["a@x.cz"] = workers.WorkerHandle("a@x.cz", 9000, idle, 1.0, inflight=0)
+    mgr._reserved.add(9001)                        # a distinct-key spawn in flight
+    mgr._enforce_cap()                             # 1 worker + 1 reserved == cap(2) -> free a slot
+    assert "a@x.cz" not in mgr._workers and idle.killed is True
+
+
 def test_alloc_port_excludes_reserved(tmp_path):
     cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9001)
     mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)

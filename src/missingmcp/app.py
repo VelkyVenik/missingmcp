@@ -232,6 +232,10 @@ def build_app(config: Config) -> Starlette:
             return await oauth.register_client(request, conn, adapter)
 
         async def authz_get(request):
+            # Throttle per IP like register/token: authz_get mutates process-local
+            # state (csrf.issue / put_mfa) on every call. Shares the oauth: bucket.
+            if not rate.check(f"oauth:{request.client.host}", 20, 60):
+                return HTMLResponse("Too many attempts, wait a minute.", status_code=429)
             return await oauth.authorize_get(request, adapter, auth_state, conn, config)
 
         async def authz_post(request):
@@ -370,5 +374,18 @@ def main() -> None:
     # log_config=None: don't let uvicorn install its own STDERR handlers — its
     # records propagate to the root logger, where log.py's _StructuredHandler
     # turns them into JSON on stdout (Railway reads plain stderr as error).
+    # proxy_headers + forwarded_allow_ips: the container is only reachable via
+    # the TLS edge (Railway), so without trusting X-Forwarded-For every request's
+    # client.host is the shared edge IP and all per-IP rate limits collapse into
+    # one global bucket. Default "*" makes uvicorn take the LEFTMOST X-Forwarded-For
+    # entry — which on Railway is the real client IP and is NOT client-spoofable:
+    # Railway's edge controls that leftmost position ("clients can send a spoofed
+    # X-Forwarded-For, but the real client IP will always be the leftmost entry
+    # since our edge proxy appends to the chain" — Railway support). SELF-HOST
+    # CAVEAT: behind a proxy that appends to (rather than controls) a client's
+    # X-Forwarded-For, "*" + leftmost is spoofable — set FORWARDED_ALLOW_IPS to
+    # your proxy's IP(s) so uvicorn walks the trusted hops from the right instead.
     uvicorn.run(build_app(config), host="0.0.0.0", port=config.port,
-                log_level=resolve_log_level(), access_log=False, log_config=None)
+                log_level=resolve_log_level(), access_log=False, log_config=None,
+                proxy_headers=True,
+                forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "*"))

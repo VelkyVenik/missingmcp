@@ -48,6 +48,29 @@ def test_setup_logging_is_idempotent(capsys):
     assert len(events) == 1
 
 
+def test_file_tee_writes_each_record_once_as_json(tmp_path):
+    """With GATEWAY_LOG_FILE set, a bridged stdlib record must land in the tee
+    file exactly once, and every line in the file must be valid JSON (the
+    structured format) — no duplicate plain-text copy from a second handler."""
+    logfile = tmp_path / "gateway.log"
+    try:
+        mlog.setup_logging(path=str(logfile))
+        logging.getLogger("filetee").info("hello file")
+    finally:                                   # reset global tee + handlers
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+        if mlog._file is not None:
+            mlog._file.close()
+            mlog._file = None
+    lines = [l for l in logfile.read_text(encoding="utf-8").splitlines() if l.strip()]
+    parsed = [json.loads(l) for l in lines]    # every line must be valid JSON
+    hits = [p for p in parsed if p.get("message") == "hello file"]
+    assert len(hits) == 1                       # exactly once, not twice
+    assert hits[0]["event"] == "stdlib-log" and hits[0]["logger"] == "filetee"
+
+
 def test_worker_pump_emits_structured_lines_with_severity(capsys):
     lines = io.StringIO(
         "INFO:     Uvicorn running on http://127.0.0.1:9000\n"

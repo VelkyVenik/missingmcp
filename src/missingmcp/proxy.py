@@ -36,21 +36,28 @@ def _mcp_tool(body) -> "str | None":
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
     ip = request.client.host if request.client else "unknown"
-    if not rate.check(f"unauth:{ip}", limit=30, window=60):
-        return JSONResponse({"error": "rate_limited"}, status_code=429)
+
+    def unauth_limited() -> bool:
+        # Per-IP budget for traffic WITHOUT a valid Bearer token. Kept off the
+        # hot path of a legitimate client (a valid token is governed by its own
+        # tok:<hash> bucket alone) but still caps unauthenticated / token-guessing
+        # floods — every distinct guess would otherwise get a fresh tok bucket.
+        return not rate.check(f"unauth:{ip}", limit=30, window=60)
+
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
+        if unauth_limited():
+            return JSONResponse({"error": "rate_limited"}, status_code=429)
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     token_hash = store.hash_token(header[7:])
     if not rate.check(f"tok:{token_hash}", limit=60, window=60):
         return JSONResponse({"error": "rate_limited"}, status_code=429)
     found = store.account_key_for_token_hash(conn, token_hash)
-    if found is None:
+    if found is None or found[0] != adapter_name:   # unknown, or belongs to another connector
+        if unauth_limited():
+            return JSONResponse({"error": "rate_limited"}, status_code=429)
         return JSONResponse({"error": "invalid_token"}, status_code=401)
-    tok_adapter, account_key = found
-    if tok_adapter != adapter_name:                 # token belongs to another connector
-        return JSONResponse({"error": "invalid_token"}, status_code=401)
-    return account_key
+    return found[1]
 
 
 def _session_expired(adapter) -> JSONResponse:

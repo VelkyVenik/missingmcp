@@ -85,6 +85,52 @@ def test_worker_start_failure_maps_to_session_expired(tmp_path, fake_worker):
     }
 
 
+def test_authenticated_client_exceeds_unauth_limit(tmp_path, fake_worker):
+    """A valid Bearer token is governed by the 60/min token bucket alone, NOT the
+    stricter 30/min unauth-IP bucket — a data-heavy Claude session must not 429 at
+    ~31 tool calls. (Finding #4: the unauth limit used to be consumed on every
+    request, capping legitimate authenticated clients well below their token budget.)"""
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-heavy"
+    store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)
+    headers = {"Authorization": f"Bearer {token}"}
+    statuses = [c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+                       headers=headers).status_code for _ in range(40)]
+    assert 429 not in statuses           # 40 < 60 token budget → never rate-limited
+    assert all(s == 200 for s in statuses)
+
+
+def test_unauth_flood_still_hits_unauth_limit(tmp_path, fake_worker):
+    """Requests WITHOUT a valid Bearer token remain capped by the 30/min unauth-IP
+    bucket: the 31st unauthenticated request in the window is 429, not 401."""
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)
+    statuses = [c.post("/mcp", json={"jsonrpc": "2.0"}).status_code for _ in range(35)]
+    assert statuses[:30] == [401] * 30   # first 30 unauthenticated → 401 unauthorized
+    assert 429 in statuses[30:]          # once the unauth bucket is spent → 429
+
+
+def test_invalid_token_flood_hits_unauth_limit(tmp_path, fake_worker):
+    """An unknown Bearer token is still governed by the unauth-IP bucket, so
+    token-guessing floods stay capped even though each guess gets its own tok
+    bucket: the 31st bad-token request in the window is 429, not 401."""
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)
+    statuses = [c.post("/mcp", json={"jsonrpc": "2.0"},
+                       headers={"Authorization": f"Bearer guess-{i}"}).status_code
+                for i in range(35)]
+    assert statuses[:30] == [401] * 30   # first 30 bad tokens → 401 invalid_token
+    assert 429 in statuses[30:]          # unauth bucket caps the guessing flood
+
+
 # Remote-forward (strategy A) coverage lives in tests/test_remote_forward.py.
 
 

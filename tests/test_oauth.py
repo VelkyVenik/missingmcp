@@ -468,14 +468,14 @@ def test_mfa_login_id_from_another_adapter_is_rejected(conn, fake_remote):
 from conftest import StubUpstreamOAuthAdapter
 
 
-def _upstream_app(conn, adapter):
+def _upstream_app(conn, adapter, cfg=CONFIG):
     state = oauth.AuthState(security.CsrfStore())
 
     async def aget(request):
-        return await oauth.authorize_get(request, adapter, state, conn, CONFIG)
+        return await oauth.authorize_get(request, adapter, state, conn, cfg)
 
     async def cb(request):
-        return await oauth.authorize_callback(request, adapter, state, conn, CONFIG)
+        return await oauth.authorize_callback(request, adapter, state, conn, cfg)
 
     async def reg(request):
         return await oauth.register_client(request, conn, adapter)
@@ -583,6 +583,29 @@ def test_upstream_callback_unexpected_exception_is_400_not_500(conn):
     r = c.get("/oauth/callback", params={"code": "x", "state": sid})
     assert r.status_code == 400
     assert "sign-in failed" in r.text
+    assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None
+
+
+def test_upstream_callback_bounds_slow_verify(conn):
+    # WhoopAdapter.verify does a blocking 15s httpx.get; the callback must bound
+    # it off the loop (like the login/MFA verify paths) and, on timeout, show the
+    # retry page instead of hanging or persisting an unverified blob.
+    import time as _time
+    import dataclasses
+    cfg = dataclasses.replace(CONFIG, login_timeout=0.05)
+    adapter = StubUpstreamOAuthAdapter()
+
+    def _slow(blob):
+        _time.sleep(0.4)  # far longer than the 0.05s deadline
+        return "Acme User"
+    adapter.verify = _slow
+
+    c = _upstream_app(conn, adapter, cfg)
+    _reg, r = _register_and_authorize(c)
+    sid = r.headers["location"].split("state=")[1]
+    r = c.get("/oauth/callback", params={"code": "x", "state": sid})
+    assert r.status_code == 400
+    assert "timed out" in r.text.lower()                 # honest timeout message
     assert store.get_account_tokens(conn, "acmeauth", "me@x.cz", CONFIG.gateway_secret) is None
 
 

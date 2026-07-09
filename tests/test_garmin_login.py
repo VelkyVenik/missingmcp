@@ -101,10 +101,25 @@ def test_verify_tokens_returns_name():
     assert name == "Vaclav S"
 
 
-def test_verify_tokens_raises_when_no_profile():
+def test_verify_tokens_succeeds_when_name_empty():
+    # A valid, authenticated account can legitimately have an empty fullName
+    # (garminconnect defaults fullName to ""). Successful login (no exception)
+    # already proves authentication, so an empty name must NOT be rejected.
     def make(*a, **k):
         g = MagicMock()
-        g.get_full_name.return_value = None
+        g.login.return_value = (None, None)
+        g.get_full_name.return_value = ""
+        return g
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        name = garmin_login.verify_tokens('{"oauth":"tok"}')
+    assert name == ""
+
+
+def test_verify_tokens_raises_when_login_fails():
+    # A genuine auth failure (login raises) must still surface as GarminLoginError.
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectAuthenticationError("401 Unauthorized")
         return g
     with patch.object(garmin_login, "Garmin", side_effect=make):
         with pytest.raises(garmin_login.GarminLoginError):

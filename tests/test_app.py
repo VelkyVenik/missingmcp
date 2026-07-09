@@ -87,6 +87,14 @@ def test_metadata_endpoint(tmp_path):
     assert m["authorization_endpoint"] == "https://gw.example.com/garmin/oauth/authorize"
 
 
+def test_authorize_get_is_rate_limited(tmp_path):
+    # authz_get mutates process-local state (csrf.issue / put_mfa) on every call,
+    # so it must throttle per IP like its OAuth siblings (oauth: bucket, 20/60).
+    c = _client(tmp_path)
+    codes = [c.get("/garmin/oauth/authorize").status_code for _ in range(25)]
+    assert 429 in codes                                        # 20/60s window exceeded
+
+
 def test_protected_resource_endpoint(tmp_path):
     c = _client(tmp_path)
     m = c.get("/.well-known/oauth-protected-resource/garmin/mcp").json()

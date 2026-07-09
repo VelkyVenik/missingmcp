@@ -59,12 +59,10 @@ def setup_logging(path: str | None = None) -> None:
     root.addHandler(_StructuredHandler())
     logging.captureWarnings(True)
     if path:
+        # Tee JSON once: _emit writes to _file, and _StructuredHandler bridges
+        # stdlib/uvicorn records through _emit too — so a plain-text FileHandler
+        # would double-write every bridged record and open the file twice.
         _file = open(path, "a", encoding="utf-8", buffering=1)
-        handler = logging.FileHandler(path, encoding="utf-8")
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
-        root.addHandler(handler)
     if path or level != logging.INFO:
         _emit("info", "logging-initialised",
               {"path": path or "", "log_level": logging.getLevelName(level)})
