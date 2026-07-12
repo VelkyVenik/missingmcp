@@ -2,6 +2,8 @@
 
 *The MCP servers exist. Connecting them shouldn't be complicated.*
 
+[![smithery badge](https://smithery.ai/badge/vaclav/garmin)](https://smithery.ai/servers/vaclav/garmin)
+
 A multi-user, OAuth 2.1–protected gateway that hosts the connectors Claude is
 missing, so a small trusted circle can connect their own accounts from any
 Claude client (iOS, Android, Web, Desktop). The flagship connector is
