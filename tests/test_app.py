@@ -168,6 +168,22 @@ def test_seo_crawler_surface(tmp_path):
     assert "https://gw.example.com/garmin/mcp" in llms
 
 
+def test_mcp_server_cards(tmp_path):
+    # SEP-2127 / Smithery discovery: per-adapter server card + a root default,
+    # served at every path convention scanners are known to probe.
+    c = _client(tmp_path)
+    for path in ("/.well-known/mcp/server-card.json",
+                 "/garmin/mcp/.well-known/mcp/server-card.json",
+                 "/.well-known/mcp-server-card/garmin"):
+        r = c.get(path)
+        assert r.status_code == 200 and "application/json" in r.headers["content-type"], path
+        card = r.json()
+        assert card["serverInfo"]["name"] == "missingmcp-garmin", path
+        assert card["transport"] == {"type": "streamable-http", "endpoint": "/garmin/mcp"}, path
+        assert card["authentication"] == {"required": True, "schemes": ["oauth2"]}, path
+        assert card["tools"] == "dynamic", path
+
+
 def test_wellknown_glama_json(tmp_path):
     # Glama connector-directory ownership proof (glama.ai/mcp/connectors)
     r = _client(tmp_path).get("/.well-known/glama.json")

@@ -184,6 +184,28 @@ def build_app(config: Config) -> Starlette:
     glama_json = ('{"$schema": "https://glama.ai/mcp/schemas/server.json",\n'
                   ' "maintainers": ["vaclav@slajs.eu"]}\n')
 
+    # MCP server cards (SEP-2127): pre-connection discovery for scanners that
+    # can't get past the OAuth wall (e.g. Smithery). "tools": "dynamic" defers
+    # the tool list to a real authorized session.
+    def _server_card(a):
+        return json.dumps({
+            "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+            "version": "1.0",
+            "protocolVersion": "2025-06-18",
+            "serverInfo": {"name": f"missingmcp-{a.name}",
+                           "title": f"{a.display_name} — MissingMCP",
+                           "version": "1.0.0"},
+            "description": f"Hosted {a.display_name} MCP server — your "
+                           f"{a.display_name} data in Claude and other MCP "
+                           "clients. Free and open source.",
+            "iconUrl": f"{base}/static/icon.png",
+            "documentationUrl": f"{base}/{a.name}",
+            "transport": {"type": "streamable-http", "endpoint": f"/{a.name}/mcp"},
+            "capabilities": {"tools": {}},
+            "authentication": {"required": True, "schemes": ["oauth2"]},
+            "tools": "dynamic",
+        }, indent=1)
+
     def _text(body: str, media_type: str):
         async def handler(request):
             return Response(body, media_type=media_type,
@@ -342,6 +364,15 @@ def build_app(config: Config) -> Starlette:
     ]
     for a in adapters.values():
         routes.extend(adapter_routes(a))
+        # Server card under every path convention scanners are known to probe:
+        # endpoint-relative and the SEP-2127 multi-server sub-path.
+        card = _text(_server_card(a), "application/json")
+        routes.append(Route(f"/{a.name}/mcp/.well-known/mcp/server-card.json", card, methods=["GET"]))
+        routes.append(Route(f"/.well-known/mcp-server-card/{a.name}", card, methods=["GET"]))
+    # Origin-root card (single-card convention): the first registered adapter.
+    routes.append(Route("/.well-known/mcp/server-card.json",
+                        _text(_server_card(next(iter(adapters.values()))), "application/json"),
+                        methods=["GET"]))
     # Catch-all (must stay last): unknown GET paths get the home page.
     routes.append(Route("/{path:path}", notfound, methods=["GET"]))
     app = Starlette(routes=routes, lifespan=lifespan)
