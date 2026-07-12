@@ -72,6 +72,8 @@ def test_tools_list_exposes_all_eight(fake_whoop):
     assert [t["name"] for t in tools] == [name for name, _d, _s2, _r in TOOLS]
     assert len(tools) == 8
     assert all(t["description"] and t["inputSchema"]["type"] == "object" for t in tools)
+    # every whoop tool only reads data — advertise it (MCP tool annotations)
+    assert all(t["annotations"] == {"readOnlyHint": True} for t in tools)
 
 
 def test_tools_call_get_profile(fake_whoop):

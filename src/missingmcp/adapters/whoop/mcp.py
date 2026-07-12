@@ -134,8 +134,11 @@ class WhoopLocalForward:
         if method == "ping":
             return _result(rid, {})
         if method == "tools/list":
+            # all tools are reads — the annotation lets clients (and directory
+            # quality scans) treat them as side-effect-free
             return _result(rid, {"tools": [
-                {"name": name, "description": desc, "inputSchema": schema}
+                {"name": name, "description": desc, "inputSchema": schema,
+                 "annotations": {"readOnlyHint": True}}
                 for name, desc, schema, _resolve in TOOLS]})
         if method == "tools/call":
             params = req.get("params")
