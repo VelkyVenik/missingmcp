@@ -50,6 +50,10 @@ def test_register_returns_client_id(conn):
     body = resp.json()
     assert body["client_id"]
     assert body["client_secret"]
+    # RFC 7591: REQUIRED (as a number) whenever a client_secret is issued;
+    # strict clients (oauth4webapi, e.g. Smithery) reject the response without it.
+    assert body["client_secret_expires_at"] == 0
+    assert isinstance(body["client_id_issued_at"], int)
     assert body["redirect_uris"] == ["https://claude.ai/cb"]
     stored = store.get_client(conn, body["client_id"])
     assert stored is not None

@@ -52,7 +52,12 @@ async def register_client(request, conn, adapter) -> JSONResponse:
     return JSONResponse(
         {
             "client_id": client_id,
+            "client_id_issued_at": int(time.time()),
             "client_secret": client_secret,
+            # RFC 7591 requires this (as a number) whenever a client_secret is
+            # issued; 0 = never expires. Strict clients (oauth4webapi) reject
+            # the registration response without it.
+            "client_secret_expires_at": 0,
             "redirect_uris": uris,
             "token_endpoint_auth_method": "client_secret_post",
         },
