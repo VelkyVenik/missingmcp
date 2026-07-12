@@ -179,6 +179,10 @@ def build_app(config: Config) -> Starlette:
         "## Source\n"
         "- Gateway: https://github.com/VelkyVenik/missingmcp\n"
         "- Garmin worker: https://github.com/Taxuspt/garmin_mcp\n")
+    # Glama connector-directory ownership proof (glama.ai/mcp/connectors):
+    # the email must match the operator's Glama account email.
+    glama_json = ('{"$schema": "https://glama.ai/mcp/schemas/server.json",\n'
+                  ' "maintainers": ["vaclav@slajs.eu"]}\n')
 
     def _text(body: str, media_type: str):
         async def handler(request):
@@ -330,6 +334,7 @@ def build_app(config: Config) -> Starlette:
         Route("/robots.txt", _text(robots_txt, "text/plain"), methods=["GET"]),
         Route("/sitemap.xml", _text(sitemap_xml, "application/xml"), methods=["GET"]),
         Route("/llms.txt", _text(llms_txt, "text/plain"), methods=["GET"]),
+        Route("/.well-known/glama.json", _text(glama_json, "application/json"), methods=["GET"]),
         Route("/static/site.js", _text(site_js, "application/javascript"), methods=["GET"]),
         Route("/static/icon.png", static_png("icon.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),

@@ -168,6 +168,14 @@ def test_seo_crawler_surface(tmp_path):
     assert "https://gw.example.com/garmin/mcp" in llms
 
 
+def test_wellknown_glama_json(tmp_path):
+    # Glama connector-directory ownership proof (glama.ai/mcp/connectors)
+    r = _client(tmp_path).get("/.well-known/glama.json")
+    assert r.status_code == 200 and "application/json" in r.headers["content-type"]
+    assert r.json() == {"$schema": "https://glama.ai/mcp/schemas/server.json",
+                        "maintainers": ["vaclav@slajs.eu"]}
+
+
 def test_seo_head_meta(tmp_path):
     c = _client(tmp_path)
     home = c.get("/").text
