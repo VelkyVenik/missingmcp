@@ -64,9 +64,12 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         worker_startup_timeout=int(env.get("WORKER_STARTUP_TIMEOUT", "20")),
         max_workers=int(env.get("MAX_WORKERS", "10")),
         access_token_ttl=int(env.get("ACCESS_TOKEN_TTL_DAYS", "90")) * 86400,
-        # Deliberately a hardcoded constant, not env-configurable (docs/adr/0001):
-        # comfortably above the 600s oauth-code TTL, so it never races an in-flight flow.
-        orphan_client_ttl=3600,
+        # Deliberately a hardcoded constant, not env-configurable (docs/adr/0001).
+        # 30 DAYS, not hours: Claude/ChatGPT cache their DCR client per org and
+        # re-use it for later (re-)authorizations — sweeping a cached client
+        # strands the user on "unknown client_id" until they remove + re-add
+        # the connector. The sweep only bounds scanner-registration growth.
+        orphan_client_ttl=30 * 86400,
         # Hardcoded wall-clock cap on a blocking adapter sign-in (garminconnect does
         # synchronous network I/O). Long enough for a normal login + one transient
         # retry, short enough that a rate-limited Garmin can't hang the request for

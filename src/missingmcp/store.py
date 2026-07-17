@@ -309,10 +309,13 @@ def get_client(conn, client_id) -> dict | None:
 
 
 def cleanup_orphan_clients(conn, older_than_seconds: int) -> int:
-    """Delete OAuth clients that never produced an access token and are older than
-    the cutoff — abandoned or failed DCR registrations (Claude registers a fresh
-    client per connection attempt). The age guard keeps an in-flight OAuth flow
-    (client registered, token not yet issued) safe. Returns rows deleted."""
+    """Delete OAuth clients with no live access token that are older than the
+    cutoff — abandoned DCR registrations (directory scanners register clients
+    they never use). NOTE: real clients (Claude, ChatGPT) CACHE their
+    registration per org and re-use it for later re-authorizations, so the
+    cutoff must be generous (days, not hours) — sweeping a cached client
+    strands its users on "unknown client_id" until they remove + re-add the
+    connector. Returns rows deleted."""
     cur = conn.execute(
         "DELETE FROM oauth_clients WHERE created_at < datetime('now', ?) "
         "AND NOT EXISTS (SELECT 1 FROM access_tokens t WHERE t.client_id = oauth_clients.client_id)",

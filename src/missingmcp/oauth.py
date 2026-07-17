@@ -168,7 +168,18 @@ async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse |
     params = _oauth_params_from(request.query_params)
     client = store.get_client(conn, params["client_id"])
     if client is None:
-        return HTMLResponse("unknown client_id", status_code=400)
+        # Claude/ChatGPT cache their DCR registration per org — when it's gone
+        # (orphan sweep, DB reset), every retry dead-ends here until the user
+        # re-adds the connector (which re-registers). Say so, and log it:
+        # these GET 400s were previously invisible in the logs.
+        log_error("authorize-unknown-client", client_id=params["client_id"][:8])
+        return HTMLResponse(
+            "<h1>Connector registration expired</h1>"
+            "<p>Your AI client is using a registration this server no longer "
+            "knows. To fix it: <strong>remove the connector</strong> in your "
+            "client (Claude: Settings &rarr; Connectors &rarr; Remove), then "
+            "<strong>add it again</strong> and sign in.</p>",
+            status_code=400)
     if not security.validate_redirect_uri(params["redirect_uri"], client["redirect_uris"]):
         return HTMLResponse("invalid redirect_uri", status_code=400)
     if params["code_challenge_method"] != "S256" or not params["code_challenge"]:

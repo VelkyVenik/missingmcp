@@ -173,6 +173,18 @@ def test_login_mfa_then_verify_redirects(conn):
     assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) == '{"t":9}'
 
 
+def test_authorize_get_unknown_client_explains_recovery(conn):
+    # Claude/ChatGPT cache their DCR registration — when it's gone (orphan
+    # sweep), the user is stuck until they re-add the connector. Tell them.
+    client, _ = _authz_app(conn)
+    r = client.get("/oauth/authorize?response_type=code&client_id=nope"
+                   "&redirect_uri=https://claude.ai/cb&code_challenge=abc"
+                   "&code_challenge_method=S256&state=x")
+    assert r.status_code == 400
+    assert "remove the connector" in r.text.lower()
+    assert "add it again" in r.text.lower()
+
+
 def test_authorize_post_bad_csrf_rerenders_form(conn):
     # An expired/forged one-time token must NOT dead-end the sign-in (prod logs
     # showed 41% of login POSTs dying here): re-render the form with a fresh

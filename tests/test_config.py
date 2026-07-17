@@ -12,11 +12,14 @@ def test_loads_defaults():
     assert c.garmin_mcp_cmd == ["garmin-mcp"]
 
 
-def test_orphan_client_ttl_default_is_one_hour():
+def test_orphan_client_ttl_default_is_thirty_days():
     # A 0-token OAuth client older than this is an abandoned DCR and gets swept.
     # Intentionally not env-configurable (see docs/adr/0001) — a hardcoded default.
+    # DAYS, not hours: Claude/ChatGPT cache their DCR client per org and re-use
+    # it for later re-authorizations; a short TTL strands users on
+    # "unknown client_id" (observed in production, 2026-07-17).
     c = load_config(BASE)
-    assert c.orphan_client_ttl == 3600
+    assert c.orphan_client_ttl == 30 * 86400
 
 
 def test_login_timeout_default_is_30s():
