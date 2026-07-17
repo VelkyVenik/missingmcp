@@ -69,3 +69,14 @@ document.addEventListener("submit", function (e) {
     }
   });
 });
+
+// Double-submit guard for regular (non-fetch) forms. The OAuth sign-in forms
+// POST one-time CSRF tokens, so a double-click would burn the token on the
+// first request and fail the second. Fetch-driven forms (data-endpoint)
+// manage their own button state above.
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  if (form.matches("[data-endpoint]")) { return; }
+  if (form.dataset.busy) { e.preventDefault(); return; }
+  form.dataset.busy = "1";
+});

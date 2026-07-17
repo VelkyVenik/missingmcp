@@ -218,7 +218,13 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         has_csrf=bool(form.get("csrf")), client_id=form.get("client_id", ""))
     if not state.csrf.consume(form.get("csrf", "")):
         log_error("authorize-csrf-invalid", step="mfa" if has_login_id else "login")
-        return HTMLResponse("invalid or expired CSRF token", status_code=400)
+        # A dead-end 400 here loses real sign-ins: the one-time token expires
+        # while people hunt for credentials, and a double-submit burns it.
+        # Re-render the sign-in form with a fresh token instead (the hidden
+        # OAuth params round-trip through the form; values are html-escaped).
+        return render_authorize(_oauth_params_from(form), state.csrf.issue(),
+                                config, adapter,
+                                error="Your session expired. Please sign in again.")
 
     # second-factor step (Garmin: MFA)
     if has_login_id:

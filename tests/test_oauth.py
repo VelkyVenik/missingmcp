@@ -173,7 +173,10 @@ def test_login_mfa_then_verify_redirects(conn):
     assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) == '{"t":9}'
 
 
-def test_authorize_post_rejects_bad_csrf(conn):
+def test_authorize_post_bad_csrf_rerenders_form(conn):
+    # An expired/forged one-time token must NOT dead-end the sign-in (prod logs
+    # showed 41% of login POSTs dying here): re-render the form with a fresh
+    # token and the OAuth params preserved, so the user just tries again.
     client, _ = _authz_app(conn)
     cid = _register(conn)
     r = client.post("/oauth/authorize", data={
@@ -181,7 +184,11 @@ def test_authorize_post_rejects_bad_csrf(conn):
         "state": "xyz", "code_challenge": "abc", "code_challenge_method": "S256",
         "garmin_email": "me@x.cz", "garmin_password": "pw",
     })
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert "session expired" in r.text.lower()               # inline error, not a 400 page
+    assert f'name="client_id" value="{cid}"' in r.text       # OAuth params preserved
+    assert 'name="csrf" value="forged"' not in r.text        # fresh token issued
+    assert 'name="csrf" value="' in r.text
 
 
 def test_authorize_get_rejects_non_s256(conn):

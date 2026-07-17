@@ -53,7 +53,9 @@ def build_app(config: Config) -> Starlette:
     managers = {a.name: WorkerManager(config, a.forward)
                 for a in adapters.values()
                 if not is_remote(a.forward) and not is_local(a.forward)}
-    auth_state = oauth.AuthState(security.CsrfStore())
+    # 30 min CSRF TTL: people hunt for passwords / wait on MFA mails longer than
+    # 10 min; tokens are one-time-consume, so the longer life costs nothing.
+    auth_state = oauth.AuthState(security.CsrfStore(ttl=1800))
     rate = security.RateLimiter()
     bk = backup.Backup(config)
 
