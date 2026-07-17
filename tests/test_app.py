@@ -168,6 +168,15 @@ def test_seo_crawler_surface(tmp_path):
     assert "https://gw.example.com/garmin/mcp" in llms
 
 
+def test_support_link_sits_at_the_connect_moment(tmp_path):
+    # The old gateway converted supporters with the BMC link right under the
+    # connect steps (3/28); buried below the full tool list it converts 0.
+    # Keep it inside the connect moment on every connector page.
+    for page in (_client(tmp_path).get("/garmin").text,
+                 _whoop_client().get("/whoop").text):
+        assert page.index("buymeacoffee.com") < page.index('id="tips"')
+
+
 def test_mcp_server_cards(tmp_path):
     # SEP-2127 / Smithery discovery: per-adapter server card + a root default,
     # served at every path convention scanners are known to probe.
