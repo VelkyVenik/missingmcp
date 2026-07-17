@@ -175,6 +175,10 @@ def test_support_link_sits_at_the_connect_moment(tmp_path):
     for page in (_client(tmp_path).get("/garmin").text,
                  _whoop_client().get("/whoop").text):
         assert page.index("buymeacoffee.com") < page.index('id="tips"')
+    # home: inside "How it works" (i.e. before the security section)
+    home = _client(tmp_path).get("/").text
+    assert home.index("buymeacoffee.com") < home.index('id="security"')
+    assert "Everything here is free" in home
 
 
 def test_mcp_server_cards(tmp_path):
