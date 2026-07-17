@@ -204,9 +204,15 @@
                     padding: 3rem 1.5rem; text-align: center; }
     .final h2 { font-size: clamp(1.9rem, 5vw, 3rem); letter-spacing: -.02em; line-height: 1.05; }
     .final p { margin: 1rem auto 1.8rem; max-width: 44ch; color: var(--muted); }
-    .beer { margin-top: 1.4rem; font-size: .9rem; color: var(--muted); }
-    /* keep "🍺 Buy me a beer" on one line — it was breaking to "…a / beer" */
-    .beer a { white-space: nowrap; }
+    /* Support callout: the one warm-amber element in an indigo UI — visible
+       at the connect moment without shouting. The emoji lives in ::before. */
+    .beer { display: flex; align-items: center; gap: .9rem; margin-top: 1.6rem;
+            padding: .95rem 1.15rem; border: 1px solid rgba(217, 119, 6, .4);
+            background: rgba(245, 158, 11, .1); border-radius: 12px;
+            font-size: .95rem; }
+    .beer::before { content: "\1F37A"; font-size: 1.7rem; line-height: 1; flex-shrink: 0; }
+    /* keep "buy me a beer" on one line — it was breaking to "…a / beer" */
+    .beer a { white-space: nowrap; font-weight: 700; }
 
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
     footer .wrap > div + div { margin-top: .45rem; }
