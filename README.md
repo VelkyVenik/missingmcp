@@ -234,6 +234,16 @@ morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
 `SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
 demand for testing.
 
+**Hourly health digest** — a GitHub Actions workflow
+(`.github/workflows/hourly-digest.yml`) runs `scripts/hourly_digest.py` every
+hour: it reads the last 60 min of the gateway's Railway logs via the Railway API,
+does a liveness probe, and posts to Slack **only** on an anomaly (≥3 5xx/error, any
+`critical`, or a failed probe → `<!here>`) or once a day as a healthy heartbeat —
+silent otherwise. Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
+(service/environment ids are set as workflow env). Run it by hand with
+`python scripts/hourly_digest.py --dry-run` (needs `RAILWAY_API_TOKEN`,
+`RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID` in the environment).
+
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
 inside the container. `status.py` finds the DB under `/data` automatically:
 
