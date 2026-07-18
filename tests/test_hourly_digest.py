@@ -38,6 +38,25 @@ def test_parse_row_json_message_fallback():
     assert p["status"] == 502 and p["account"] == "z@x"
 
 
+def test_parse_row_fallback_when_platform_attrs_present_but_no_event():
+    # Railway injects platform attributes (source/podId) but not our fields, and
+    # dumps our JSON into `message` → fallback must still run (not blocked by
+    # non-empty attrs) so the row isn't invisible to the digest.
+    raw = '{"level":"error","event":"local-forward-error","status":502,"account":"z@x"}'
+    entry = {"timestamp": "t", "severity": None, "message": raw,
+             "attributes": [{"key": "source", "value": "railway"},
+                            {"key": "podId", "value": "abc"}]}
+    p = hd.parse_row(entry)
+    assert p["event"] == "local-forward-error" and p["status"] == 502 and p["level"] == "error"
+
+
+def test_summarize_does_not_double_count_a_row():
+    # A single row carrying BOTH a 5xx status and error level counts once.
+    rows = [_entry(level="error", event="mcp-forward-error", status=502, account="a@x")]
+    s = hd.summarize(rows)
+    assert s["problems"] == 1
+
+
 def _mixed():
     return [
         _entry(event="mcp-request"), _entry(event="mcp-request"),

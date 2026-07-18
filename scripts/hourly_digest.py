@@ -83,13 +83,15 @@ def fetch_logs(token: str, deployment_id: str, start_iso: str, end_iso: str,
 def parse_row(entry: dict) -> dict:
     """Normalize a Railway Log entry into {level, event, account, status}. Reads
     the structured `severity` + `attributes[]`; falls back to JSON-parsing
-    `message` when attributes are absent (our log.py emits no top-level
-    `message` key, so Railway's promotion into attributes[] is unconfirmed —
-    ticket 01 watch-out)."""
+    `message` whenever our `event` isn't present in the attributes (our log.py
+    emits no top-level `message` key, so Railway's promotion into attributes[]
+    is unconfirmed — ticket 01 watch-out; and Railway may inject its own
+    platform attributes, so `attrs` being non-empty does NOT mean our fields
+    are there)."""
     attrs = {a["key"]: a["value"] for a in (entry.get("attributes") or [])}
     level = (entry.get("severity") or attrs.get("level") or "").lower()
     event = attrs.get("event")
-    if not event and not attrs:
+    if not event:
         try:
             j = json.loads(entry.get("message") or "")
             if isinstance(j, dict):
@@ -127,11 +129,18 @@ def summarize(rows: list[dict]) -> dict:
     reauth = sum(events.get(e, 0) for e in SELF_HEAL_EVENTS)
     requests = events.get("mcp-request", 0)
     accounts = len({p["account"] for p in parsed if p["account"]})
+    # count each row at most once: a row is a "problem" if it's a 5xx OR an
+    # unexpected (non-self-heal) error — never both, so no double-counting.
+    problems = sum(
+        1 for p in parsed
+        if (p["status"] is not None and 500 <= p["status"] < 600)
+        or (p["level"] in ("error", "critical") and p["event"] not in SELF_HEAL_EVENTS)
+    )
     return {
         "rows": len(parsed), "requests": requests, "accounts": accounts,
         "http_5xx": http_5xx, "err_rows": err_rows, "critical": critical,
         "reauth": reauth, "statuses": dict(statuses),
-        "problems": http_5xx + err_rows,
+        "problems": problems,
     }
 
 
