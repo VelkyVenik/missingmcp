@@ -240,7 +240,10 @@ hour: it reads the last 60 min of the gateway's Railway logs via the Railway API
 does a liveness probe, and posts to Slack **only** on an anomaly (≥3 5xx/error, any
 `critical`, or a failed probe → `<!here>`) or once a day as a healthy heartbeat —
 silent otherwise. Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
-(service/environment ids are set as workflow env). Run it by hand with
+(service/environment ids are set as workflow env). `RAILWAY_API_TOKEN` may be a
+Railway **project** token (narrowest scope — reaches only this project; sent via
+the `Project-Access-Token` header) or an account/workspace token (sent as
+`Authorization: Bearer`); the script tries both. Run it by hand with
 `python scripts/hourly_digest.py --dry-run` (needs `RAILWAY_API_TOKEN`,
 `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID` in the environment).
 
