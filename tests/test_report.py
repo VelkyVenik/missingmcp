@@ -103,6 +103,18 @@ def test_run_posts_and_advances(tmp_path, monkeypatch):
     assert dr._last_date == NOW.date()        # advanced → won't repost today
 
 
+def test_open_ro_handles_special_chars_in_path(tmp_path):
+    # A '#' (legal on POSIX) would break a raw file:{path}?mode=ro URI; as_uri()
+    # escapes it so the right file opens read-only.
+    db = tmp_path / "we#ird gateway.db"
+    store.init_db(str(db)).close()
+    conn = report.open_ro(str(db))
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
 def test_run_never_raises_and_still_advances(tmp_path, monkeypatch):
     store.init_db(str(tmp_path / "gateway.db"))
     cfg = _cfg(tmp_path)

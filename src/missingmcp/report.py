@@ -11,6 +11,7 @@ executes in a worker thread via asyncio.to_thread, like Backup.run).
 from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 import httpx
 from . import store
@@ -77,8 +78,11 @@ def post_slack(webhook_url: str, text: str) -> None:
 
 
 def open_ro(db_path: str) -> sqlite3.Connection:
-    """Read-only connection for a report run (own connection, thread-safe use)."""
-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    """Read-only connection for a report run (own connection, thread-safe use).
+    Build the file: URI via as_uri() so a path with `?`/`#`/spaces is escaped and
+    can't be mis-parsed into a different file or mode."""
+    uri = Path(db_path).absolute().as_uri() + "?mode=ro"
+    return sqlite3.connect(uri, uri=True)
 
 
 class DailyReport:
