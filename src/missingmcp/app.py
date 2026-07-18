@@ -138,10 +138,9 @@ def build_app(config: Config) -> Starlette:
         # API/discovery clients still read it as "not here".
         return HTMLResponse(home_page, status_code=404)
 
-    favicon_svg = (_TPL / "favicon.svg").read_text()
     # Brand assets (the MissingMCP logo mark). Read once at startup and served
-    # from memory, same as the favicon — same-origin, so CSP `default-src 'self'`
-    # covers them without an img-src rule.
+    # from memory — same-origin, so CSP `default-src 'self'` covers them
+    # without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png")}
     site_js = (_STATIC / "site.js").read_text()
@@ -150,7 +149,10 @@ def build_app(config: Config) -> Starlette:
         return PlainTextResponse("ok")
 
     async def favicon(request):
-        return Response(favicon_svg, media_type="image/svg+xml",
+        # Browsers auto-request /favicon.ico regardless of the <head> link; serve
+        # the same 32px PNG mark the pages link, so the tab icon is always the
+        # brand rather than a stale second design.
+        return Response(_assets["favicon-32.png"], media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
 
     # --- crawler & AI-assistant surface, generated from the adapter registry
@@ -357,7 +359,6 @@ def build_app(config: Config) -> Starlette:
         Route("/subscribe", subscribe, methods=["POST"]),
         Route("/suggest", suggest, methods=["POST"]),
         Route("/healthz", healthz, methods=["GET"]),
-        Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
         Route("/robots.txt", _text(robots_txt, "text/plain"), methods=["GET"]),
         Route("/sitemap.xml", _text(sitemap_xml, "application/xml"), methods=["GET"]),

@@ -146,6 +146,15 @@ def test_static_logo_assets_served(tmp_path):
         assert r.content[:8] == b"\x89PNG\r\n\x1a\n", f"{path} is a PNG"
 
 
+def test_favicon_ico_serves_png_brand_mark(tmp_path):
+    # Browsers auto-request /favicon.ico regardless of the <head> link, so it
+    # must be the PNG brand mark — not a second, stale design served elsewhere.
+    r = _client(tmp_path).get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_home_shows_logo_lockup(tmp_path):
     c = _client(tmp_path)
     r = c.get("/").text
