@@ -211,6 +211,39 @@ def stats_counts(conn) -> dict:
     }
 
 
+# --- daily user-stats (report.py) -----------------------------------------
+# created_at / last_used are UTC strings in SQLite's datetime('now') format
+# ("YYYY-MM-DD HH:MM:SS"), so callers pass UTC bounds in the same format and
+# lexicographic comparison == chronological comparison.
+
+def new_accounts_between(conn, start_utc: str, end_utc: str) -> dict:
+    """Accounts created in [start_utc, end_utc), grouped by adapter."""
+    rows = conn.execute(
+        "SELECT adapter, COUNT(*) FROM accounts "
+        "WHERE created_at >= ? AND created_at < ? GROUP BY adapter",
+        (start_utc, end_utc),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def active_accounts_between(conn, start_utc: str, end_utc: str) -> dict:
+    """Distinct accounts that made a tool call in [start_utc, end_utc), by adapter."""
+    rows = conn.execute(
+        "SELECT adapter, COUNT(DISTINCT account_key) FROM tool_usage "
+        "WHERE last_used >= ? AND last_used < ? GROUP BY adapter",
+        (start_utc, end_utc),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def total_accounts_by_adapter(conn) -> dict:
+    """Cumulative account count per adapter."""
+    rows = conn.execute(
+        "SELECT adapter, COUNT(*) FROM accounts GROUP BY adapter"
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 # --- access tokens --------------------------------------------------------
 
 # Access tokens have no TTL and are not auto-revoked. To revoke a device,

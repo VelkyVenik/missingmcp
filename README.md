@@ -225,7 +225,14 @@ python scripts/usage.py                               # per-account tool usage +
 python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
 python scripts/subscribers.py                         # newsletter signups + suggestions
 python scripts/subscribers.py --emails                # subscriber emails, one per line
+python scripts/daily_report.py                        # yesterday's new/active/total users (print)
+python scripts/daily_report.py --post                 # + POST it to Slack ($SLACK_WEBHOOK_URL)
 ```
+
+The gateway also posts this daily user-stats report to Slack on its own each
+morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
+`SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
+demand for testing.
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
 inside the container. `status.py` finds the DB under `/data` automatically:

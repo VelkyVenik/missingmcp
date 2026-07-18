@@ -36,6 +36,10 @@ class Config:
     whoop_client_id: str
     whoop_client_secret: str
     whoop_api_base: str           # tests/staging override; both OAuth and data URLs derive from it
+    # Daily user-stats report to Slack (report.py); disabled when the webhook is unset.
+    slack_webhook_url: str
+    daily_report_hour: int        # local hour (0-23) to post the daily report
+    daily_report_tz: str          # IANA tz the report hour + "yesterday" are computed in
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -88,4 +92,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         whoop_client_id=env.get("WHOOP_CLIENT_ID", ""),
         whoop_client_secret=env.get("WHOOP_CLIENT_SECRET", ""),
         whoop_api_base=env.get("WHOOP_API_BASE", "https://api.prod.whoop.com").rstrip("/"),
+        slack_webhook_url=env.get("SLACK_WEBHOOK_URL", ""),
+        daily_report_hour=int(env.get("DAILY_REPORT_HOUR", "8")),
+        daily_report_tz=env.get("DAILY_REPORT_TZ", "Europe/Prague"),
     )
