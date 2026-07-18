@@ -11,3 +11,6 @@ data/
 .pytest_cache/
 .DS_Store
 **/.DS_Store
+
+# marketing drafts — kept local, not published to the public repo
+.scratch/promotion/
