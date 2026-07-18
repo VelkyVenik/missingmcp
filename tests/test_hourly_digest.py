@@ -30,6 +30,71 @@ def test_parse_row_normalizes_severity():
     assert hd.parse_row(_entry(level="warn", event="x"))["level"] == "warn"
 
 
+def test_parse_row_decodes_json_encoded_attribute_values():
+    # Railway JSON-encodes string attr values (event -> '"mcp-response"'), numbers
+    # bare (status -> "200"). parse_row must decode so events/accounts are clean
+    # and status is an int — otherwise event names keep their quotes and the
+    # SELF_HEAL_EVENTS exclusion silently fails.
+    entry = {"timestamp": "t", "severity": "info", "message": "",
+             "attributes": [{"key": "event", "value": '"mcp-response"'},
+                            {"key": "status", "value": "200"},
+                            {"key": "account", "value": '"me@x"'}]}
+    p = hd.parse_row(entry)
+    assert p == {"level": "info", "event": "mcp-response", "account": "me@x", "status": 200}
+
+
+def test_parse_row_self_heal_event_decoded_is_excluded():
+    # A JSON-encoded self-heal event must still be recognized after decoding.
+    rows = [{"timestamp": "t", "severity": "error", "message": "",
+             "attributes": [{"key": "event", "value": '"worker-start-failed"'}]}]
+    assert hd.summarize(rows)["err_rows"] == 0 and hd.summarize(rows)["reauth"] == 1
+
+
+def test_railway_graphql_prefers_project_token_then_falls_back_to_bearer(monkeypatch):
+    calls = []
+
+    class _Resp:
+        def __init__(self, payload):
+            self._p = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._p
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(headers)
+        if "Project-Access-Token" in headers:
+            return _Resp({"errors": [{"message": "Not Authorized"}]})
+        return _Resp({"data": {"ok": 1}})
+
+    monkeypatch.setattr(hd.httpx, "post", fake_post)
+    assert hd.railway_graphql("tok", "q", {}) == {"ok": 1}
+    assert "Project-Access-Token" in calls[0] and "Authorization" in calls[1]
+
+
+def test_railway_graphql_does_not_retry_on_non_auth_error(monkeypatch):
+    import pytest
+    calls = []
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"errors": [{"message": "Field 'foo' doesn't exist"}]}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(headers)
+        return _Resp()
+
+    monkeypatch.setattr(hd.httpx, "post", fake_post)
+    with pytest.raises(RuntimeError):
+        hd.railway_graphql("tok", "q", {})
+    assert len(calls) == 1   # a real query error is not retried with the other header
+
+
 def test_parse_row_json_message_fallback():
     # attributes empty → parse the raw JSON message (log.py emits no `message` key)
     raw = '{"level":"error","event":"local-forward-error","account":"z@x","status":502}'

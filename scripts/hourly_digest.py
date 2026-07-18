@@ -48,13 +48,26 @@ SELF_HEAL_EVENTS = {"worker-start-failed", "local-forward-auth-stale",
 # --- Railway GraphQL I/O ---------------------------------------------------
 
 def railway_graphql(token: str, query: str, variables: dict) -> dict:
-    resp = httpx.post(RAILWAY_API, headers={"Authorization": f"Bearer {token}"},
-                      json={"query": query, "variables": variables}, timeout=30.0)
-    resp.raise_for_status()
-    payload = resp.json()
-    if payload.get("errors"):
-        raise RuntimeError(f"railway graphql errors: {payload['errors']}")
-    return payload["data"]
+    """POST a GraphQL query, supporting either Railway token type. A **project**
+    token authenticates with the `Project-Access-Token` header; an **account/
+    workspace** token uses `Authorization: Bearer`. Railway rejects the wrong
+    header with a `Not Authorized` GraphQL error (HTTP 200), so try the
+    project-token header first and fall back to Bearer on an auth error — this
+    way `RAILWAY_API_TOKEN` can hold either type. (A project token is the
+    narrower, preferred scope for CI: it only reaches this one project.)"""
+    errors = None
+    for headers in ({"Project-Access-Token": token},
+                    {"Authorization": f"Bearer {token}"}):
+        resp = httpx.post(RAILWAY_API, headers=headers,
+                          json={"query": query, "variables": variables}, timeout=30.0)
+        resp.raise_for_status()
+        payload = resp.json()
+        if not payload.get("errors"):
+            return payload["data"]
+        errors = payload["errors"]
+        if not any("Not Authorized" in str(e.get("message", "")) for e in errors):
+            break   # a real query error — don't bother trying the other header
+    raise RuntimeError(f"railway graphql errors: {errors}")
 
 
 def resolve_deployment_id(token: str, service_id: str, environment_id: str) -> str:
@@ -88,8 +101,17 @@ def parse_row(entry: dict) -> dict:
     is unconfirmed — ticket 01 watch-out; and Railway may inject its own
     platform attributes, so `attrs` being non-empty does NOT mean our fields
     are there)."""
-    attrs = {a["key"]: a["value"] for a in (entry.get("attributes") or [])}
-    level = (entry.get("severity") or attrs.get("level") or "").lower()
+    # Railway returns each attribute `value` JSON-encoded — a string field comes
+    # back WITH quotes (event -> '"mcp-request"'), a number bare (status -> "200").
+    # Decode so `event`/`account` are clean and status is an int; fall back to the
+    # raw value when it isn't valid JSON.
+    def _dec(v):
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return v
+    attrs = {a["key"]: _dec(a["value"]) for a in (entry.get("attributes") or [])}
+    level = str(entry.get("severity") or attrs.get("level") or "").lower()
     event = attrs.get("event")
     if not event:
         try:
