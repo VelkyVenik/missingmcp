@@ -1,0 +1,41 @@
+name: Hourly health digest
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # top of every hour (UTC; GitHub cron is best-effort)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the digest but do not post to Slack"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hourly-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      RAILWAY_SERVICE_ID: 46a897db-2758-4cc0-855b-194a3a9a4164
+      RAILWAY_ENVIRONMENT_ID: 622730fa-6d86-40d3-b0bd-6de19bd42728
+      GATEWAY_URL: https://missingmcp.com
+      # HEARTBEAT_HOUR / REPORT_TZ / ANOMALY_MIN use the script defaults
+      # (08:00 Europe/Prague, >=3). Override here if needed.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "httpx>=0.27"
+      - name: Run digest
+        run: >
+          python scripts/hourly_digest.py
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
