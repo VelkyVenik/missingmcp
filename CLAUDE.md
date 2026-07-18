@@ -92,3 +92,17 @@ Modules (`src/missingmcp/`), in dependency order — each has one responsibility
 
 - `garminconnect` is **fully mocked** — the unit/integration suite never touches real Garmin. The worker manager and proxy are tested against a **fake worker HTTP server** (`tests/conftest.py::fake_worker`); the remote strategy against a **fake remote upstream** (`fake_remote`) driven through `conftest.StubRemoteAdapter` (`tests/test_remote_forward.py` + the generic authorize-flow tests in `test_oauth.py`); the local strategy the same way, through `conftest.StubLocalAdapter` (`tests/test_local_forward.py`); the upstream-OAuth login shape generically through `conftest.StubUpstreamOAuthAdapter` (`test_oauth.py`); backups against the same fake upstream posing as S3 (`tests/test_backup.py` — the SigV4 signer was additionally verified once against a real bucket). The whoop adapter itself (both pieces wired together) is covered end-to-end against a **fake WHOOP upstream** (`tests/conftest.py::fake_whoop`, a `FakeWhoopUpstream`) in `tests/test_whoop_e2e.py`.
 - Consequently the **real `garminconnect` login/token-dump/resume path is not covered by automated tests**, and neither is the real WHOOP OAuth exchange/refresh. A manual end-to-end smoke test — Garmin (email/password, MFA) and WHOOP (provider sign-in, tool calls, and a token refresh once the access token expires) — is the release gate before connecting real users.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as markdown files under `.scratch/<feature>/` in this repo (no remote issue tracker). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary — each triage role's string equals its name (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
