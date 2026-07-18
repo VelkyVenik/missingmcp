@@ -59,16 +59,18 @@ def test_get_and_delete_are_405():
     assert adapter.forward.handled == []
 
 
-def test_session_expired_maps_to_502_shape():
+def test_session_expired_maps_to_reauth_401():
     _conn, adapter, c = _setup()
     adapter.forward.expire = True
     r = _post(c)
-    assert r.status_code == 502
+    assert r.status_code == 401     # RFC 9728 challenge, not a dead-end 502
     assert r.json() == {
-        "error": "acmelocal_session_expired",
+        "error": "invalid_token",
         "message": "Your AcmeLocal session expired. "
                    "Please reconnect the AcmeLocal MCP server.",
     }
+    assert 'resource_metadata="https://x/.well-known/oauth-protected-resource/acmelocal/mcp"' \
+        in r.headers["www-authenticate"]
 
 
 def test_local_forward_exception_maps_to_502_shape(monkeypatch):

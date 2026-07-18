@@ -106,7 +106,7 @@ def test_authorize_post_is_not_registered_for_whoop(fake_whoop):
     assert r.status_code == 405        # GET-only route: no credential form to POST
 
 
-def test_stale_refresh_maps_to_session_expired(fake_whoop):
+def test_stale_refresh_maps_to_reauth_401(fake_whoop):
     client, _cfg = _client(fake_whoop)
     token, _reg = _connect(client)
     fake_whoop.refresh_fails = True
@@ -114,8 +114,12 @@ def test_stale_refresh_maps_to_session_expired(fake_whoop):
     r = client.post("/whoop/mcp", headers={"Authorization": f"Bearer {token}"},
                     json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                           "params": {"name": "get_cycles", "arguments": {}}})
-    assert r.status_code == 502
-    assert r.json()["error"] == "whoop_session_expired"
+    # end-to-end (full middleware): dead refresh → 401 + RFC 9728 challenge, so
+    # Claude re-runs authorization instead of retrying a dead-end 502.
+    assert r.status_code == 401
+    assert r.json()["error"] == "invalid_token"
+    assert 'resource_metadata="https://gw.example.com/.well-known/oauth-protected-resource/whoop/mcp"' \
+        in r.headers["www-authenticate"]
 
 
 def test_without_credentials_whoop_is_absent():

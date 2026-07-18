@@ -65,7 +65,7 @@ def test_bearer_for_other_adapter_is_rejected(tmp_path, fake_worker):
     assert r.json() == {"error": "invalid_token"}   # authenticate() rejected it, not the unknown_account path
 
 
-def test_worker_start_failure_maps_to_session_expired(tmp_path, fake_worker):
+def test_worker_start_failure_maps_to_reauth_401(tmp_path, fake_worker):
     conn = store.init_db(":memory:")
     cfg = _cfg(tmp_path, fake_worker)
     token = "tok-fail"
@@ -78,11 +78,35 @@ def test_worker_start_failure_maps_to_session_expired(tmp_path, fake_worker):
     c = _app(conn, mgr, cfg)
     r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
                headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 502
+    # Dead upstream credentials must be a 401 with the RFC 9728 challenge, NOT a
+    # 502 — a 502 is a dead end the MCP client retries forever; a 401 makes Claude
+    # re-run authorization so the user self-heals with a fresh sign-in.
+    assert r.status_code == 401
     assert r.json() == {                       # stable error shape, byte-for-byte
-        "error": "garmin_session_expired",
+        "error": "invalid_token",
         "message": "Your Garmin session expired. Please reconnect the Garmin MCP server.",
     }
+    wa = r.headers["www-authenticate"]
+    assert wa.startswith("Bearer ")
+    assert 'error="invalid_token"' in wa
+    assert 'resource_metadata="https://x/.well-known/oauth-protected-resource/garmin/mcp"' in wa
+
+
+def test_unknown_account_maps_to_reauth_401(tmp_path, fake_worker):
+    # Valid Bearer, but the account blob is gone (e.g. off-boarded upstream). Same
+    # self-heal path: 401 + challenge so the client re-authorizes.
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-orphan"
+    store.create_access_token(conn, store.hash_token(token), "garmin", "gone@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+    c = _app(conn, mgr, cfg)
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+    assert r.json()["error"] == "invalid_token"
+    assert 'resource_metadata="https://x/.well-known/oauth-protected-resource/garmin/mcp"' \
+        in r.headers["www-authenticate"]
 
 
 def test_authenticated_client_exceeds_unauth_limit(tmp_path, fake_worker):

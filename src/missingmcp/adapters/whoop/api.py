@@ -18,7 +18,8 @@ SCOPES = "read:recovery read:cycles read:workout read:sleep read:profile read:bo
 
 class WhoopAuthError(Exception):
     """The account's tokens can't be made valid (refresh rejected, or the API
-    keeps answering 401). Callers surface this as whoop_session_expired."""
+    keeps answering 401). Callers raise SessionExpired, which the proxy surfaces
+    as a re-auth 401 with the RFC 9728 challenge."""
 
 
 def _blob_from_token_response(tok: dict) -> dict:

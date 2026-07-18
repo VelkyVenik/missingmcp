@@ -87,8 +87,8 @@ def is_upstream_oauth(adapter) -> bool:
 
 class SessionExpired(Exception):
     """A local forward's stored credentials went stale beyond repair (e.g. a
-    rotated-away refresh token). The proxy surfaces the standard
-    <adapter>_session_expired 502 so the client prompts a reconnect."""
+    rotated-away refresh token). The proxy surfaces a re-auth 401 with the
+    RFC 9728 challenge so the client re-runs authorization and self-heals."""
 
 
 class LocalForward(Protocol):
