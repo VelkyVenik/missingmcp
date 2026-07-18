@@ -60,14 +60,24 @@ async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
     return found[1]
 
 
-def _session_expired(adapter) -> JSONResponse:
-    """Stored credentials went stale: worker start failed (strategy B) or the
-    remote upstream rejected the injected credentials (strategy A)."""
+def _reauth_required(config, adapter) -> JSONResponse:
+    """Stored upstream credentials are stale or gone — worker start failed (worker
+    strategy), the local server raised SessionExpired, the remote upstream rejected
+    the injected credentials, or the account blob is missing. Answer 401 with the
+    RFC 9728 resource-metadata challenge so the MCP client re-runs authorization and
+    the user self-heals with a fresh sign-in. A 502 here is a dead end: MCP clients
+    don't recover from it and retry forever (oauth-client-lifecycle follow-up #2)."""
+    resource_meta = (f"{config.public_url}/.well-known/"
+                     f"oauth-protected-resource/{adapter.name}/mcp")
+    challenge = (f'Bearer error="invalid_token", '
+                 f'error_description="stored {adapter.display_name} session expired", '
+                 f'resource_metadata="{resource_meta}"')
     return JSONResponse(
-        {"error": f"{adapter.name}_session_expired",
+        {"error": "invalid_token",
          "message": f"Your {adapter.display_name} session expired. "
                     f"Please reconnect the {adapter.display_name} MCP server."},
-        status_code=502,
+        status_code=401,
+        headers={"WWW-Authenticate": challenge},
     )
 
 
@@ -91,7 +101,8 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
 
     tokens = store.get_account_tokens(conn, adapter.name, key, secret)
     if tokens is None:
-        return JSONResponse({"error": "unknown_account"}, status_code=401)
+        # valid Bearer, but the account blob is gone → re-authorize to self-heal
+        return _reauth_required(config, adapter)
 
     tool = _mcp_tool(body)
     if tool:
@@ -105,7 +116,7 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
             status, headers, payload = await adapter.forward.handle(conn, key, tokens, body)
         except SessionExpired:
             log_error("local-forward-auth-stale", adapter=adapter.name, account=key)
-            return _session_expired(adapter)
+            return _reauth_required(config, adapter)
         except Exception as e:  # noqa: BLE001 - a local forward must never leak a raw 500
             log_exc("local-forward-error", e, adapter=adapter.name, account=key, tool=tool)
             return JSONResponse({"error": "bad_gateway"}, status_code=502)
@@ -127,7 +138,7 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
                 ms=int((time.monotonic() - t0) * 1000))
         except WorkerStartError as e:
             log_exc("worker-start-failed", e, error=str(e), account=key)
-            return _session_expired(adapter)
+            return _reauth_required(config, adapter)
         url = f"http://127.0.0.1:{port}/mcp"
         extra_headers = {}
 
@@ -176,7 +187,7 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
                   status=upstream.status_code, account=key)
         await upstream.aclose()
         await client.aclose()
-        return _session_expired(adapter)
+        return _reauth_required(config, adapter)
 
     resp_headers = {}
     ct = upstream.headers.get("content-type")

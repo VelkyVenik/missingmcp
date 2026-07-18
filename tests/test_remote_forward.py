@@ -71,15 +71,17 @@ def test_sse_response_streams_through(fake_remote):
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_upstream_auth_rejection_maps_to_session_expired(fake_remote, status):
+def test_upstream_auth_rejection_maps_to_reauth_401(fake_remote, status):
     fake_remote.response_status = status
     _, c = _setup(fake_remote)
     r = _post(c)
-    assert r.status_code == 502                      # not streamed through
-    assert r.json() == {                             # stable <adapter>_session_expired shape
-        "error": "acme_session_expired",
+    assert r.status_code == 401                      # not streamed through; re-auth challenge
+    assert r.json() == {                             # stable shape, byte-for-byte
+        "error": "invalid_token",
         "message": "Your Acme session expired. Please reconnect the Acme MCP server.",
     }
+    assert 'resource_metadata="https://x/.well-known/oauth-protected-resource/acme/mcp"' \
+        in r.headers["www-authenticate"]
 
 
 def test_upstream_timeout_maps_to_504(fake_remote, monkeypatch):
