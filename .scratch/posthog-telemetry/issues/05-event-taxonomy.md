@@ -17,3 +17,15 @@ data?
    funnel (visit → OAuth start → account created → first tool call).
 3. **Naming/property conventions** the spec locks down — stable-schema discipline,
    mirroring the "log event names are a stable schema" invariant.
+
+## Comments
+
+- 2026-07-19 (while resolving ticket 06): PostHog ships **canonical MCP analytics event
+  definitions** — `$mcp_tool_call` (tool name, duration, error state, agent intent),
+  `$mcp_initialize` (client name/version handshake), `$mcp_tools_list`, `$mcp_custom` —
+  normally emitted by the `@posthog/mcp` TypeScript SDK, and a matching family of
+  built-in query tools (`query-mcp-tool-stats`, `query-mcp-harness-breakdown`,
+  `query-mcp-tool-failures`, `query-mcp-tool-top-users`, …). Our gateway is Python and
+  hand-rolled, but if it emits these canonical names/properties for `/​<adapter>/mcp`
+  traffic, PostHog's MCP analytics lights up for free. Weigh this against inventing our
+  own event names when resolving this ticket.

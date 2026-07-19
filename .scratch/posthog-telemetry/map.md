@@ -44,6 +44,12 @@ Claude IS (a task ticket).
   created by the operator (2026-07-19); public `phc_` ingestion token handed over, parked
   for a Railway env var at implementation time; personal-API-key question deferred to the
   MCP ticket (OAuth may make it moot).
+- [PostHog platform facts](issues/01-posthog-platform-research.md) — EU capture at eu.i.posthog.com (`/i/v0/e/`, `/batch/` <20MB, no rate limits, `phc_` key in body — httpx-direct beats the thread-based SDK); Logs is beta via OTLP (`/i/v1/logs`, Railway has no drains); ~10 users ≈ $0/mo inside the 1M free tier (identified ~5x anonymous price); posthog-js auto-UTM + cookieless `on_reject`; distinct_id must be a hash of `adapter:email` (PII); alerts → Slack native; MCP at mcp.posthog.com/mcp is EU-auto-routed with OAuth. Full asset: [assets/posthog-platform-research.md](assets/posthog-platform-research.md).
+- [Connect PostHog MCP to Claude](issues/06-connect-posthog-mcp.md) — done via the
+  first-party claude.ai connector (OAuth, no personal key); verified live against project
+  MissingMCP.com (id 227772) on eu.posthog.com; exposes HogQL, insights, dashboards and a
+  built-in MCP-analytics query family — plus a lead for ticket 05: emit PostHog's
+  canonical `$mcp_*` events and that analytics UI works out of the box.
 
 ## Not yet specified
 
