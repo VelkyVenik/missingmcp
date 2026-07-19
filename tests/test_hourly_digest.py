@@ -115,6 +115,38 @@ def test_parse_row_fallback_when_platform_attrs_present_but_no_event():
     assert p["event"] == "local-forward-error" and p["status"] == 502 and p["level"] == "error"
 
 
+def _worker_row(line):
+    return {"timestamp": "t", "severity": "error", "message": "",
+            "attributes": [{"key": "event", "value": '"worker-log"'},
+                           {"key": "account", "value": '"a@x"'},
+                           {"key": "line", "value": f'"{line}"'}]}
+
+
+def test_worker_log_error_head_line_counts():
+    s = hd.summarize([_worker_row("[07/19/26 10:05:22] ERROR    API call failed")])
+    assert s["err_rows"] == 1 and s["problems"] == 1
+
+
+def test_worker_log_traceback_continuation_does_not_count():
+    # workers.py elevates traceback decoration lines to error too — they are
+    # continuations of the preceding ERROR row, not separate anomalies. On
+    # 2026-07-19 two failed Garmin calls arrived as 4 error rows and tripped
+    # the <!here> threshold (3) for what was really 2 problems.
+    rows = [_worker_row("[07/19/26 10:05:22] ERROR    API call failed"),
+            _worker_row("╭─ Traceback (most recent call la─╮"),
+            _worker_row("[07/19/26 10:05:39] ERROR    API call failed"),
+            _worker_row("╭─ Traceback (most recent call la─╮")]
+    s = hd.summarize(rows)
+    assert s["err_rows"] == 2 and s["problems"] == 2
+
+
+def test_non_worker_error_rows_are_not_demoted():
+    # The continuation-folding is scoped to worker-log rows; the gateway's own
+    # error events have no `line` attr and must keep counting.
+    s = hd.summarize([_entry(level="error", event="local-forward-error", account="b@x")])
+    assert s["err_rows"] == 1
+
+
 def test_summarize_does_not_double_count_a_row():
     # A single row carrying BOTH a 5xx status and error level counts once.
     rows = [_entry(level="error", event="mcp-forward-error", status=502, account="a@x")]
@@ -179,6 +211,40 @@ def test_verdict_self_heal_alone_is_not_an_anomaly():
             for i in range(5)]
     v = hd.verdict(hd.summarize(rows), probe_ok=True, is_heartbeat=False, anomaly_min=3)
     assert not v["loud"] and not v["minor"] and not v["should_post"]
+
+
+def _prague(day, hour, minute=0):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime(2026, 7, day, hour, minute, tzinfo=ZoneInfo("Europe/Prague"))
+
+
+def test_heartbeat_due_on_the_hour():
+    assert hd.heartbeat_due(_prague(19, 8, 17), 8, [_prague(19, 7, 17)])
+
+
+def test_heartbeat_not_due_before_the_hour():
+    assert not hd.heartbeat_due(_prague(19, 7, 45), 8, [])
+
+
+def test_heartbeat_catches_up_when_the_hour_was_skipped():
+    # GitHub dropped the 08:xx run — the 10:06 run posts instead.
+    assert hd.heartbeat_due(_prague(19, 10, 6), 8, [_prague(19, 7, 45), _prague(19, 4, 7)])
+
+
+def test_heartbeat_not_repeated_after_an_eligible_run():
+    # A successful run already landed at/after the heartbeat hour today.
+    assert not hd.heartbeat_due(_prague(19, 10, 6), 8, [_prague(19, 8, 17)])
+    assert not hd.heartbeat_due(_prague(19, 11, 52), 8, [_prague(19, 10, 6)])
+
+
+def test_heartbeat_yesterday_run_does_not_block_today():
+    assert hd.heartbeat_due(_prague(19, 8, 17), 8, [_prague(18, 8, 17), _prague(18, 23, 47)])
+
+
+def test_heartbeat_falls_back_to_exact_hour_without_run_visibility():
+    assert hd.heartbeat_due(_prague(19, 8, 30), 8, None)
+    assert not hd.heartbeat_due(_prague(19, 10, 6), 8, None)
 
 
 def test_render_down_and_loud_ping_here():

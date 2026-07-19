@@ -11,10 +11,13 @@ Verdict (decided in .scratch/slack-hourly-digest ticket 03):
   * loud  (<!here>): >= ANOMALY_MIN 5xx/error rows, OR any `critical`, OR the
                      liveness probe failed.
   * minor (post, no ping): 1..ANOMALY_MIN-1 5xx/error rows.
-  * heartbeat: a one-line "healthy" post, only on the HEARTBEAT_HOUR run.
+  * heartbeat: a one-line "healthy" post, from the first successful run at/after
+               HEARTBEAT_HOUR each day (GitHub cron is best-effort — a later run
+               catches up when the scheduled hour was skipped; see heartbeat_due).
   * otherwise: silent.
 Re-auth signals (worker-start-failed / *-forward-auth-stale) are the expected
-self-heal path and are NOT counted as anomalies.
+self-heal path and are NOT counted as anomalies; worker-log traceback
+continuation lines are folded into their preceding ERROR row.
 
 Env:
   RAILWAY_API_TOKEN       account/workspace token (Bearer)         [required]
@@ -25,6 +28,8 @@ Env:
   HEARTBEAT_HOUR          local hour for the daily healthy heartbeat (default 8)
   REPORT_TZ               tz for HEARTBEAT_HOUR (default Europe/Prague)
   ANOMALY_MIN             min 5xx/error rows to escalate <!here> (default 3)
+  GITHUB_TOKEN            Actions token for heartbeat catch-up (ambient in CI;
+                          without it the heartbeat falls back to exact-hour match)
 
 Usage: python scripts/hourly_digest.py [--dry-run] [--window-min 60]
 """
@@ -32,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -40,9 +46,15 @@ from zoneinfo import ZoneInfo
 import httpx
 
 RAILWAY_API = "https://backboard.railway.com/graphql/v2"
+GITHUB_API = "https://api.github.com"
 # Re-auth self-heal events: logged at error level but NOT anomalies (ticket 03).
 SELF_HEAL_EVENTS = {"worker-start-failed", "local-forward-auth-stale",
                     "remote-forward-auth-stale"}
+# workers.py elevates every worker stdout line matching ERROR|CRITICAL|Traceback|
+# Exception — so one failed worker API call arrives as SEVERAL error rows (the
+# ERROR head line plus its traceback decoration). Only head lines count as
+# anomalies; the rest are continuations of the same failure.
+_WORKER_ERR_HEAD = re.compile(r"\b(ERROR|CRITICAL)\b")
 
 
 # --- Railway GraphQL I/O ---------------------------------------------------
@@ -134,6 +146,9 @@ def parse_row(entry: dict) -> dict:
         level = "critical"
     elif level in ("warn", "warning"):
         level = "warn"
+    if (event == "worker-log" and level in ("error", "critical")
+            and not _WORKER_ERR_HEAD.search(str(attrs.get("line") or ""))):
+        level = "info"   # traceback continuation, part of the preceding ERROR row
     return {"level": level, "event": event,
             "account": attrs.get("account"), "status": status}
 
@@ -191,6 +206,48 @@ def render(summary: dict, probe_ok: bool, v: dict, window_min: int,
     return f":large_green_circle: MissingMCP healthy — {detail}"
 
 
+def heartbeat_due(now_local: datetime, heartbeat_hour: int,
+                  prior_success_local: list[datetime] | None) -> bool:
+    """True when this run should post the daily heartbeat. GitHub's cron is
+    best-effort — runs get delayed or dropped outright — so exact hour-equality
+    routinely misses the day's heartbeat. Instead the heartbeat belongs to the
+    FIRST successful run at/after HEARTBEAT_HOUR local time each day; a later
+    run catches up when the scheduled hour was skipped. With no visibility into
+    prior runs (local invocation, API failure) fall back to hour-equality."""
+    if prior_success_local is None:
+        return now_local.hour == heartbeat_hour
+    if now_local.hour < heartbeat_hour:
+        return False
+    return not any(t.date() == now_local.date() and t.hour >= heartbeat_hour
+                   for t in prior_success_local)
+
+
+def github_prior_successes(tz: ZoneInfo) -> list[datetime] | None:
+    """Created-times (converted to tz) of this workflow's recent successful runs,
+    via the GitHub API (the in-progress current run never matches status=success).
+    None when not running in Actions or on any API failure."""
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return None
+    ref = os.environ.get("GITHUB_WORKFLOW_REF", "")   # owner/repo/.github/workflows/<file>@ref
+    wf = ref.split("@")[0].rsplit("/", 1)[-1] if ref else "hourly-digest.yml"
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        r = httpx.get(
+            f"{GITHUB_API}/repos/{repo}/actions/workflows/{wf}/runs",
+            params={"status": "success", "created": f">={since}", "per_page": 100},
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github+json"},
+            timeout=15.0)
+        r.raise_for_status()
+        runs = r.json().get("workflow_runs") or []
+        return [datetime.strptime(x["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+                .replace(tzinfo=timezone.utc).astimezone(tz) for x in runs]
+    except (httpx.HTTPError, KeyError, ValueError, TypeError):
+        return None
+
+
 def probe(url: str) -> bool:
     """True if the gateway answers (any HTTP status < 500)."""
     try:
@@ -235,7 +292,10 @@ def main():
     rows = fetch_logs(token, deployment_id, start_iso, end_iso)
     summary = summarize(rows)
     probe_ok = probe(gateway_url)
-    is_heartbeat = datetime.now(tz).hour == heartbeat_hour
+    now_local = datetime.now(tz)
+    is_heartbeat = heartbeat_due(now_local, heartbeat_hour, github_prior_successes(tz))
+    if is_heartbeat and now_local.hour != heartbeat_hour:
+        print(f"[heartbeat] catch-up — no successful run landed in hour {heartbeat_hour} today")
     v = verdict(summary, probe_ok, is_heartbeat, anomaly_min)
     text = render(summary, probe_ok, v, args.window_min, gateway_url)
 

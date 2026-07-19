@@ -2,7 +2,10 @@ name: Hourly health digest
 
 on:
   schedule:
-    - cron: "0 * * * *"   # top of every hour (UTC; GitHub cron is best-effort)
+    # Minute 0 is GitHub's most congested cron slot — on 2026-07-19 it skipped
+    # 5 of 12 hours outright and delayed the rest 6–52 min. An off-peak minute
+    # fires far more reliably (GitHub cron is still best-effort).
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -12,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read   # the script lists today's runs to catch up a skipped heartbeat
 
 concurrency:
   group: hourly-digest
@@ -24,6 +28,7 @@ jobs:
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      GITHUB_TOKEN: ${{ github.token }}   # heartbeat catch-up (list prior runs)
       RAILWAY_SERVICE_ID: 46a897db-2758-4cc0-855b-194a3a9a4164
       RAILWAY_ENVIRONMENT_ID: 622730fa-6d86-40d3-b0bd-6de19bd42728
       GATEWAY_URL: https://missingmcp.com
