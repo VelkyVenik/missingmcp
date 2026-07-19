@@ -293,7 +293,11 @@ def main():
     summary = summarize(rows)
     probe_ok = probe(gateway_url)
     now_local = datetime.now(tz)
-    is_heartbeat = heartbeat_due(now_local, heartbeat_hour, github_prior_successes(tz))
+    prior = github_prior_successes(tz)
+    is_heartbeat = heartbeat_due(now_local, heartbeat_hour, prior)
+    print("[heartbeat] due=%s, run visibility %s" % (
+        is_heartbeat,
+        "none — exact-hour fallback" if prior is None else f"ok ({len(prior)} recent)"))
     if is_heartbeat and now_local.hour != heartbeat_hour:
         print(f"[heartbeat] catch-up — no successful run landed in hour {heartbeat_hour} today")
     v = verdict(summary, probe_ok, is_heartbeat, anomaly_min)
