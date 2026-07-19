@@ -40,6 +40,11 @@ Claude IS (a task ticket).
 
 <!-- one line per closed ticket: gist + link -->
 
+- [Create the EU PostHog project + keys](issues/02-create-posthog-project.md) — project
+  created by the operator (2026-07-19); public `phc_` ingestion token handed over, parked
+  for a Railway env var at implementation time; personal-API-key question deferred to the
+  MCP ticket (OAuth may make it moot).
+
 ## Not yet specified
 
 - The PostHog dashboard/insight/alert set to build once data flows — depends on the event
