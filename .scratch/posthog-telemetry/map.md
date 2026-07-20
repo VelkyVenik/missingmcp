@@ -55,6 +55,11 @@ Claude IS (a task ticket).
   stitching via the posthog cookie on successful authorize (cross-device loss accepted);
   egress rule "identity + metadata yes, content never" (raw IP discarded, autocapture
   only on marketing pages); person deletion joins the revoke path.
+- [Ingestion architecture](issues/04-ingestion-architecture.md) — in-process via the
+  official `posthog` Python SDK (operator's call: less owned code + free exception
+  autocapture, threads/4 deps accepted); logs tee'd to PostHog Logs via app-side OTLP
+  (stdout→Railway stays the durable archive, hourly digest unchanged); everything
+  env-gated (`POSTHOG_*`) and fire-and-forget à la backup.py.
 
 ## Not yet specified
 
