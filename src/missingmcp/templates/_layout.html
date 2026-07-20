@@ -44,8 +44,17 @@
     .logo .tld { color: var(--dim); font-weight: 700; }
     /* Flex with gaps (not margins): links wrap as whole units on narrow
        screens instead of breaking mid-label ("No longer / missing"). */
-    nav { display: flex; flex-wrap: wrap; column-gap: 1.1rem; row-gap: .25rem; }
+    nav { display: flex; flex-wrap: wrap; align-items: center; column-gap: 1.1rem; row-gap: .25rem; }
     nav a { color: var(--muted); font-size: .9rem; white-space: nowrap; }
+    /* Persistent support button — the one warm-amber element in the indigo
+       header, a pill so it reads as an action rather than another nav link.
+       Same amber as the .beer callout, so the two feel like one system. */
+    nav a.beer-btn { color: var(--warn); font-weight: 700;
+                     border: 1px solid rgba(217, 119, 6, .5);
+                     background: rgba(245, 158, 11, .12);
+                     border-radius: 999px; padding: .32rem .85rem; }
+    nav a.beer-btn:hover { border-color: var(--warn);
+                           background: rgba(245, 158, 11, .2); text-decoration: none; }
 
     h1 { letter-spacing: -.03em; line-height: 1.05; }
     .hero { padding: 4rem 0 3rem; }
@@ -214,6 +223,20 @@
     /* keep "buy me a beer" on one line — it was breaking to "…a / beer" */
     .beer a { white-space: nowrap; font-weight: 700; }
 
+    /* Dedicated support section: same amber as .beer/.beer-btn, sized like the
+       .final CTA box so the page ends on two peers (support, then browse). */
+    .support { padding: 2.4rem 0; }
+    .support .inner { border: 1px solid rgba(217, 119, 6, .4);
+                      background: rgba(245, 158, 11, .1); border-radius: 24px;
+                      padding: 2.6rem 1.5rem; text-align: center; }
+    .support .inner h2 { font-size: clamp(1.7rem, 4.5vw, 2.5rem); letter-spacing: -.02em; line-height: 1.1; }
+    .support .inner p { margin: 1rem auto 1.7rem; max-width: 52ch; color: var(--muted); }
+    /* filled amber button; text is var(--bg) so it stays legible on both the
+       dark-amber (light theme) and bright-amber (dark theme) fill. */
+    .btn-beer { display: inline-block; background: var(--warn); color: var(--bg);
+                font-weight: 700; padding: .75rem 1.5rem; border-radius: 10px; white-space: nowrap; }
+    .btn-beer:hover { text-decoration: none; opacity: .92; }
+
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
     footer .wrap > div + div { margin-top: .45rem; }
     /* No separator dots between links — a wrapping flex row with gaps stays
@@ -236,6 +259,7 @@
         <a href="/#how">How it works</a>
         <a href="/#security">Security</a>
         <a href="/#graduated">No longer missing</a>
+        <a class="beer-btn" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a>
       </nav>
     </div>
   </header>
