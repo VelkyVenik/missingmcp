@@ -50,6 +50,11 @@ Claude IS (a task ticket).
   MissingMCP.com (id 227772) on eu.posthog.com; exposes HogQL, insights, dashboards and a
   built-in MCP-analytics query family — plus a lead for ticket 05: emit PostHog's
   canonical `$mcp_*` events and that analytics UI works out of the box.
+- [Identity & privacy model](issues/03-identity-privacy-model.md) — distinct_id = plain
+  normalized email (person = human, adapter = event property); server-side `$identify`
+  stitching via the posthog cookie on successful authorize (cross-device loss accepted);
+  egress rule "identity + metadata yes, content never" (raw IP discarded, autocapture
+  only on marketing pages); person deletion joins the revoke path.
 
 ## Not yet specified
 
