@@ -60,13 +60,18 @@ Claude IS (a task ticket).
   autocapture, threads/4 deps accepted); logs tee'd to PostHog Logs via app-side OTLP
   (stdout→Railway stays the durable archive, hourly digest unchanged); everything
   env-gated (`POSTHOG_*`) and fire-and-forget à la backup.py.
+- [Event taxonomy & campaign analytics model](issues/05-event-taxonomy.md) — canonical
+  `$mcp_tool_call`/`$mcp_initialize`/`$mcp_tools_list` per request (built-in MCP
+  analytics lights up); lean server set = connect funnel + conversions
+  (`account_connected` new|returning is the campaign outcome; ops stays in logs);
+  posthog-js defaults on marketing pages; canonical funnel $pageview→authorize→
+  account_connected→first $mcp_tool_call; UTM discipline = utm_source+utm_campaign
+  required on every shared link.
 
 ## Not yet specified
 
 - The PostHog dashboard/insight/alert set to build once data flows — depends on the event
   taxonomy; likely graduates out of ticket 05 or lands in the spec.
-- Concrete UTM conventions for marketing campaigns (LinkedIn etc.) — may graduate within
-  ticket 05.
 - Whether PostHog alerts eventually take over the hourly digest's anomaly/heartbeat role —
   revisit once both run side by side.
 

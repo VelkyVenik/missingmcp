@@ -1,7 +1,7 @@
 # 05 — Event taxonomy & campaign analytics model
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 01, 03
 
 ## Question
@@ -29,3 +29,26 @@ data?
   hand-rolled, but if it emits these canonical names/properties for `/​<adapter>/mcp`
   traffic, PostHog's MCP analytics lights up for free. Weigh this against inventing our
   own event names when resolving this ticket.
+
+## Answer
+
+Decided with the operator, 2026-07-20:
+
+1. **Canonical `$mcp_*` events for MCP traffic**: the gateway emits `$mcp_tool_call` for
+   every forward (properties from the `mcp-response` record — tool, status, ttfb/total
+   ms, bytes — plus our `adapter`), and `$mcp_initialize` / `$mcp_tools_list` for
+   handshake/list requests, so PostHog's built-in MCP analytics (`query-mcp-*`) works
+   out of the box. Granularity: every call is an event (~20–30k/mo, no volume concern).
+2. **Server events = product/campaign analytics only** — ops stays in the OTLP log
+   channel. The set: connect funnel `login_succeeded` / `login_failed` /
+   `mfa_challenged` / `account_connected` (property `new|returning` — the key campaign
+   outcome) / `account_revoked`; conversions `subscribe` (anonymous web person, no email
+   property) and `suggest`; plus the `$identify` stitch from ticket 03. snake_case
+   names; event names/properties are a stable schema (same discipline as the log-event
+   invariant).
+3. **Web via posthog-js defaults on marketing pages** (pageview/pageleave/autocapture,
+   auto-UTM, cookieless `on_reject`), explicit pageview only on OAuth pages. Canonical
+   campaign funnel: `$pageview` (UTM) → authorize-form pageview → `account_connected`
+   (new) → first `$mcp_tool_call`. **Mini UTM discipline**: every shared link carries
+   `utm_source` + `utm_campaign` (`utm_medium` optional); the spec holds the agreed
+   `utm_source` value table (linkedin / twitter / reddit / direct / …).
