@@ -1,6 +1,7 @@
 # Wayfinder map: PostHog telemetry
 
 Label: wayfinder:map
+Status: complete (2026-07-20) — destination reached, all 7 tickets resolved.
 
 ## Destination
 
@@ -67,6 +68,9 @@ Claude IS (a task ticket).
   posthog-js defaults on marketing pages; canonical funnel $pageview→authorize→
   account_connected→first $mcp_tool_call; UTM discipline = utm_source+utm_campaign
   required on every shared link.
+- [Write the design spec](issues/07-write-spec.md) — spec written and operator-approved:
+  [2026-07-20-posthog-telemetry-design.md](../../docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md).
+  **Destination reached — the map is complete.**
 
 ## Not yet specified
 
