@@ -3,7 +3,7 @@ import json
 import time
 import httpx
 from starlette.responses import JSONResponse, Response, StreamingResponse
-from . import store, security
+from . import store, security, telemetry
 from .adapters.base import is_remote, is_local, SessionExpired
 from .workers import WorkerStartError
 from .log import log, log_error, log_exc
@@ -32,6 +32,49 @@ def _mcp_tool(body) -> "str | None":
         name = (d.get("params") or {}).get("name")
         return name if isinstance(name, str) else "tools/call"
     return method
+
+
+def _mcp_event(body, adapter_name: str) -> "tuple[str, dict] | None":
+    """Map the JSON-RPC request to PostHog's canonical $mcp_* event + the
+    property keys the built-in MCP analytics expects (the @posthog/mcp wire
+    contract, docs/mcp-analytics/events). Only metadata leaves: tool name and
+    clientInfo — never params/arguments (egress rule, spec ticket 03)."""
+    if not body:
+        return None
+    try:
+        d = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    method = d.get("method")
+    server = {"$mcp_server_name": f"missingmcp-{adapter_name}", "adapter": adapter_name}
+    if method == "tools/call":
+        name = (d.get("params") or {}).get("name")
+        if not isinstance(name, str):
+            name = "tools/call"
+        return "$mcp_tool_call", {"$mcp_tool_name": name, **server}
+    if method == "initialize":
+        info = ((d.get("params") or {}).get("clientInfo") or {})
+        props = dict(server)
+        if isinstance(info.get("name"), str):
+            props["$mcp_client_name"] = info["name"]
+        if isinstance(info.get("version"), str):
+            props["$mcp_client_version"] = info["version"]
+        return "$mcp_initialize", props
+    if method == "tools/list":
+        return "$mcp_tools_list", server
+    return None
+
+
+def _capture_mcp(event, key: str, status: int, ttfb_ms: int, total_ms: int,
+                 nbytes: int) -> None:
+    name, props = event
+    props = {**props, "$mcp_duration_ms": total_ms, "$mcp_is_error": status >= 400,
+             "status": status, "ttfb_ms": ttfb_ms, "bytes": nbytes}
+    if status >= 400:
+        props["$mcp_error_status"] = status
+    telemetry.capture(name, distinct_id=key, properties=props)
 
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
@@ -110,6 +153,7 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
             store.record_usage(conn, adapter.name, key, tool)
         except Exception:  # noqa: BLE001 - usage metrics must never break a request
             pass
+    ph_event = _mcp_event(body, adapter.name)
 
     if is_local(adapter.forward):
         try:
@@ -123,6 +167,8 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         ms = int((time.monotonic() - t0) * 1000)
         log("mcp-response", adapter=adapter.name, account=key, tool=tool,
             status=status, ttfb_ms=ms, total_ms=ms, bytes=len(payload))
+        if ph_event:
+            _capture_mcp(ph_event, key, status, ms, ms, len(payload))
         return Response(payload, status_code=status, headers=headers)
 
     # --- strategy dispatch: where the upstream is and what extra headers it needs
@@ -209,8 +255,12 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
             finish()
             # The per-request latency record: ttfb_ms = gateway overhead +
             # upstream time to headers, total_ms includes streaming the body.
+            total_ms = int((time.monotonic() - t0) * 1000)
             log("mcp-response", adapter=adapter.name, account=key, tool=tool,
                 status=upstream.status_code, ttfb_ms=ttfb_ms,
-                total_ms=int((time.monotonic() - t0) * 1000), bytes=sent)
+                total_ms=total_ms, bytes=sent)
+            if ph_event:
+                _capture_mcp(ph_event, key, upstream.status_code,
+                             ttfb_ms, total_ms, sent)
 
     return StreamingResponse(stream(), status_code=upstream.status_code, headers=resp_headers)

@@ -156,6 +156,10 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
 | `BACKUP_INTERVAL_HOURS` | no | `6` | Hours between backup uploads. First backup runs right after startup. |
+| `POSTHOG_API_KEY` | no | — | Public `phc_` project key. Unset ⇒ **all** PostHog telemetry (events, log tee, web analytics) is off. |
+| `POSTHOG_HOST` | no | `https://eu.i.posthog.com` | Server-side ingestion host (SDK events + OTLP log tee). |
+| `POSTHOG_WEB_HOST` | no | `$POSTHOG_HOST` | posthog-js `api_host` — set it to the managed reverse proxy (e.g. `https://j.missingmcp.com`) for ad-blocker resilience. |
+| `POSTHOG_UI_HOST` | no | `https://eu.posthog.com` | PostHog app host; posthog-js needs it when `POSTHOG_WEB_HOST` is a proxy. |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
 
@@ -246,6 +250,20 @@ the `Project-Access-Token` header) or an account/workspace token (sent as
 `Authorization: Bearer`); the script tries both. Run it by hand with
 `python scripts/hourly_digest.py --dry-run` (needs `RAILWAY_API_TOKEN`,
 `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID` in the environment).
+
+**PostHog telemetry** — with `POSTHOG_API_KEY` set (see the env table), the
+gateway also ships analytics to PostHog (EU cloud; design:
+`docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md`):
+per-request `$mcp_*` events (PostHog's built-in MCP analytics), a lean
+connect-funnel/conversion event set, an OTLP tee of the structured log stream
+(PostHog Logs, beta — Railway stays the durable archive), and posthog-js on the
+site (UTM campaign attribution; autocapture disabled on OAuth pages). Egress
+rule: identity + metadata only — never MCP bodies, credentials, or form
+contents; the account email travels only as `distinct_id`. Everything is
+fire-and-forget: a PostHog outage never blocks a request. The Slack reports
+above keep running unchanged — PostHog complements them. When off-boarding a
+user (`revoke.py --purge`), also delete the person in PostHog (People → delete)
+to complete the GDPR path.
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
 inside the container. `status.py` finds the DB under `/data` automatically:

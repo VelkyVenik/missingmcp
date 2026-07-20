@@ -12,7 +12,8 @@ _SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def security_headers() -> dict[str, str]:
+def security_headers(script_hosts: tuple[str, ...] = (),
+                     connect_hosts: tuple[str, ...] = ()) -> dict[str, str]:
     # NOTE: no `form-action` directive. This is an OAuth authorization server:
     # the login/MFA form POSTs to /oauth/authorize and the server replies with a
     # 302 to the client's registered redirect_uri (an arbitrary origin/port, e.g.
@@ -21,8 +22,16 @@ def security_headers() -> dict[str, str]:
     # the auth code never reaches the client's callback. Redirect safety is
     # enforced by validate_redirect_uri() (exact match against the DCR-registered
     # URIs), not by CSP.
+    # script_hosts/connect_hosts widen script-src/connect-src beyond 'self' —
+    # used only for the PostHog assets CDN + ingestion host when telemetry is
+    # enabled (both directives otherwise fall back to default-src 'self').
+    csp = "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    if script_hosts:
+        csp += "; script-src 'self' " + " ".join(script_hosts)
+    if connect_hosts:
+        csp += "; connect-src 'self' " + " ".join(connect_hosts)
     return {
-        "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline'",
+        "Content-Security-Policy": csp,
         "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",

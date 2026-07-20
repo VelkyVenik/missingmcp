@@ -20,11 +20,31 @@ On Railway: railway ssh --service gateway "python3 /app/scripts/revoke.py --acco
 """
 from __future__ import annotations
 import argparse
+import json
 import os
 import sqlite3
 import sys
+import urllib.request
 
 DEFAULT_ADAPTER = "garmin"
+
+
+def posthog_event(event: str, distinct_id: str, props: dict) -> None:
+    """Best-effort one-shot capture (stdlib only — this script stays
+    dependency-free). Silent no-op without POSTHOG_API_KEY or on any error:
+    revocation must never be blocked by telemetry."""
+    key = os.environ.get("POSTHOG_API_KEY", "")
+    if not key:
+        return
+    host = os.environ.get("POSTHOG_HOST", "https://eu.i.posthog.com").rstrip("/")
+    payload = json.dumps({"api_key": key, "event": event,
+                          "distinct_id": distinct_id, "properties": props}).encode()
+    req = urllib.request.Request(f"{host}/i/v0/e/", data=payload,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=5).close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def resolve_db() -> str:
@@ -119,7 +139,11 @@ def main():
     else:
         msg += " They must reconnect in Claude."
     conn.commit()
+    posthog_event("account_revoked", key, {"adapter": adapter, "purged": bool(args.purge)})
     print(msg)
+    if args.purge:
+        print("Reminder: also delete the person in PostHog "
+              "(EU project → People) to complete the off-boarding.")
 
 
 if __name__ == "__main__":
