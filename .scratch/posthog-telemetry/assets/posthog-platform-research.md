@@ -220,6 +220,13 @@ consent-light EU posture appropriate for a hobby-scale site.
 
 ### Implications for this repo
 
+> ⚠️ **Superseded by [ticket 03](../issues/03-identity-privacy-model.md)** (2026-07-20):
+> the hash recommendation below was **rejected** — `distinct_id` is the **plain normalized
+> email** (person = human) with `adapter` as an event property; a per-adapter hash would
+> fragment one person per adapter, and account emails already flow to Railway logs
+> (the 8-char-prefix invariant covers *secrets*, not account identity). This section is
+> kept as the original research record.
+
 `account_key` is a lowercased email — **PII**, and the map forbids leaking it. Use a
 pseudonymous distinct_id: **`SHA-256(adapter + ":" + account_key)`** (full hash, not the
 8-char log prefix — that convention is for log readability, not identity) or

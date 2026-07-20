@@ -262,7 +262,9 @@ def test_login_failure_emits_login_failed(conn, recorder):
     events = [e for e, _, _ in recorder.events]
     assert events == ["login_failed"]
     _, did, props = recorder.events[0]
-    assert did == "me@x.cz" and props["adapter"] == "garmin" and props["reason"]
+    # personless by design: the form email is unverified — it must never
+    # become a PostHog person via a failure event
+    assert did is None and props["adapter"] == "garmin" and props["reason"]
 
 
 def test_returning_account_status(conn, recorder):

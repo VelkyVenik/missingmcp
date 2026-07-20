@@ -84,18 +84,23 @@ still configuration, never committed). No other secrets: log/OTLP auth reuses th
 
 ### `telemetry.py` (new module)
 
-Owns the SDK client and the OTLP log tee behind one seam:
+Owns the SDK client and the OTLP log tee behind one seam. **Module-level** functions
+around a module-global client — the same pattern as `log.py`, so call sites stay
+one-import cheap (`from . import telemetry`) and no object needs threading through
+`oauth`/`proxy` signatures:
 
-- `Telemetry(config)` — no-op object when `POSTHOG_API_KEY` is unset (every method a
-  cheap early return; mirrors `Backup.enabled`).
-- `capture(event, distinct_id, properties, anonymous=False)` — thin wrapper over the SDK
-  client's non-blocking enqueue. `anonymous=True` sets `$process_person_profile: false`
-  (keeps subscribe/suggest on anonymous pricing and out of person profiles).
+- `telemetry.init(config)` — creates the SDK client + attaches the log tee; a no-op
+  when `POSTHOG_API_KEY` is unset, after which **every** function below is a cheap
+  early return (gating mirrors `Backup.enabled`). `telemetry.enabled()` reports it.
+- `capture(event, *, distinct_id=None, properties=None, anonymous=False)` — thin
+  wrapper over the SDK client's non-blocking enqueue. `distinct_id=None` → personless;
+  `anonymous=True` sets `$process_person_profile: false` (keeps subscribe/suggest on
+  anonymous pricing and out of person profiles).
 - `identify(email, anon_distinct_id)` — the stitch event.
-- `anon_id_from_cookie(request)` — parses the `ph_<key>_posthog` cookie, returns the
-  anonymous distinct_id or `None`. Pure function, unit-testable.
-- Lifespan wiring in `app.py`: construct at startup, `await asyncio.to_thread(shutdown)`
-  on exit.
+- `anon_id_from_cookie(cookies)` — parses the `ph_<key>_posthog` cookie mapping,
+  returns the anonymous distinct_id or `None`. Pure function, unit-testable.
+- Lifespan wiring in `app.py`: `telemetry.init(config)` in `build_app`,
+  `await asyncio.to_thread(telemetry.shutdown)` on lifespan exit.
 - SDK's own stdlib logging flows through the existing `_StructuredHandler` bridge — no
   plain-text stderr (verify at implementation).
 
@@ -106,8 +111,8 @@ Owns the SDK client and the OTLP log tee behind one seam:
 | `$mcp_tool_call` | `proxy.handle_mcp`, beside the `mcp-response` log | account email | tool, adapter, status, ttfb_ms, total_ms, bytes |
 | `$mcp_initialize` | proxy, on JSON-RPC `initialize` | account email | client name/version from `params.clientInfo`, adapter |
 | `$mcp_tools_list` | proxy, on `tools/list` | account email | adapter |
-| `login_succeeded` / `login_failed` | `oauth.authorize_post` / callback | account email (failed: form email) | adapter, reason (failed only; error class, never credentials) |
-| `mfa_challenged` | oauth, on `SecondFactorNeeded` | account email | adapter |
+| `login_succeeded` / `login_failed` | `oauth.authorize_post` / callback | account email (failed: **personless** — the form email is unverified, an identified event would let anyone attach a stranger's address to a person) | adapter, reason (failed only; error class, never credentials) |
+| `mfa_challenged` | oauth, on `SecondFactorNeeded` | personless (same rule — pre-verify) | adapter |
 | `account_connected` | `oauth._finish` (after verify) | account email | adapter, `status: new\|returning` (from the upsert) |
 | `$identify` | `oauth._finish`, when the request carries a posthog cookie | account email | `$anon_distinct_id` = cookie anon id |
 | `account_revoked` | `scripts/revoke.py` (best-effort) | account email | adapter |
@@ -186,11 +191,16 @@ arrive in PostHog via the OTLP tee.
    identified-only default.
 2. Set `POSTHOG_API_KEY` (+ optionally `POSTHOG_HOST`) in Railway; push to main
    (= deploy).
-3. Smoke: visit the landing via a UTM-tagged link → connect a test account (Garmin) →
-   run one tool call → verify in PostHog: `$pageview` with UTM, `$identify` stitch (one
-   person, email distinct_id, UTM person props), `account_connected`, `$mcp_tool_call`
-   with correct properties, log rows arriving in Logs, and `query-mcp-tool-stats`
-   answering via the Claude-connected PostHog MCP.
+3. Release-gate smoke — telemetry touches the **shared** oauth/proxy paths, so both
+   adapters are exercised before real users:
+   - **Garmin**: UTM-tagged landing visit → connect a test account (exercise the MFA
+     branch when available) → one tool call.
+   - **WHOOP**: provider login via `/whoop/oauth/callback` → one tool call.
+   - Per flow, verify in PostHog: `$pageview` with UTM, `$identify` stitch (one person,
+     email distinct_id, UTM person props), `account_connected`, the login funnel events,
+     `$mcp_tool_call` with correct properties, log rows arriving in Logs, and
+     `query-mcp-tool-stats` answering via the Claude-connected PostHog MCP.
+   - All checks must pass before announcing the change or connecting real users.
 4. Confirm the no-op path: unset key locally → gateway starts clean, zero PostHog
    traffic (existing tests keep passing with telemetry off).
 5. Dashboards/insights/alerts: built in PostHog after data flows (deliberately not

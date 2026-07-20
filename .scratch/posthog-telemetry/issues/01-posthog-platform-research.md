@@ -50,6 +50,9 @@ Full findings: [assets/posthog-platform-research.md](../assets/posthog-platform-
   consent-light EU posture. **Identity**: use `SHA-256(adapter:email)` as distinct_id
   (account_key is PII); `identify()` on the connect-success page stitches UTM visitor →
   account; EU data in Frankfurt; person+events deletion via UI/API (async).
+  *(Identity recommendation superseded by
+  [ticket 03](03-identity-privacy-model.md): plain normalized email won — the
+  per-adapter hash would fragment persons.)*
 - **Alerts**: insight alerts post to Slack natively (trends/funnels/HogQL; hourly+ on free).
 - **MCP**: hosted `https://mcp.posthog.com/mcp`, OAuth or `phx_` key (MCP-Server preset),
   **EU auto-routed**, tools incl. insights + HogQL; claude.ai has a first-party PostHog

@@ -31,7 +31,8 @@ Claude IS (a task ticket).
   (`report.py`), and the hourly log-derived health digest (`scripts/hourly_digest.py`,
   standalone in GitHub Actions).
 - CLAUDE.md invariants apply throughout: secrets never logged, logs carry at most an
-  8-char hash prefix, `account_key` is a lowercased email (PII!), no plain-text stderr,
+  8-char hash prefix (a *secrets* rule — account identity is logged plain, see the
+  Identity & privacy decision), `account_key` is a lowercased email (PII!), no plain-text stderr,
   single-node process-local state, dependency-light ethos (`backup.py`'s dependency-free
   SigV4 signer is the precedent to match).
 - Skills to consult per ticket: `/research` (ticket 01), `/grilling` + `/domain-modeling`
@@ -45,7 +46,7 @@ Claude IS (a task ticket).
   created by the operator (2026-07-19); public `phc_` ingestion token handed over, parked
   for a Railway env var at implementation time; personal-API-key question deferred to the
   MCP ticket (OAuth may make it moot).
-- [PostHog platform facts](issues/01-posthog-platform-research.md) — EU capture at eu.i.posthog.com (`/i/v0/e/`, `/batch/` <20MB, no rate limits, `phc_` key in body — httpx-direct beats the thread-based SDK); Logs is beta via OTLP (`/i/v1/logs`, Railway has no drains); ~10 users ≈ $0/mo inside the 1M free tier (identified ~5x anonymous price); posthog-js auto-UTM + cookieless `on_reject`; distinct_id must be a hash of `adapter:email` (PII); alerts → Slack native; MCP at mcp.posthog.com/mcp is EU-auto-routed with OAuth. Full asset: [assets/posthog-platform-research.md](assets/posthog-platform-research.md).
+- [PostHog platform facts](issues/01-posthog-platform-research.md) — EU capture at eu.i.posthog.com (`/i/v0/e/`, `/batch/` <20MB, no rate limits, `phc_` key in body — httpx-direct beats the thread-based SDK); Logs is beta via OTLP (`/i/v1/logs`, Railway has no drains); ~10 users ≈ $0/mo inside the 1M free tier (identified ~5x anonymous price); posthog-js auto-UTM + cookieless `on_reject`; distinct_id-as-hash was the research recommendation (superseded by the Identity & privacy decision below — plain email won); alerts → Slack native; MCP at mcp.posthog.com/mcp is EU-auto-routed with OAuth. Full asset: [assets/posthog-platform-research.md](assets/posthog-platform-research.md).
 - [Connect PostHog MCP to Claude](issues/06-connect-posthog-mcp.md) — done via the
   first-party claude.ai connector (OAuth, no personal key); verified live against project
   MissingMCP.com (id 227772) on eu.posthog.com; exposes HogQL, insights, dashboards and a

@@ -11,11 +11,13 @@ from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded, is
 from .log import log, log_warn, log_error, log_exc
 
 
-def _login_failed(adapter, reason: str, email: str = "") -> None:
+def _login_failed(adapter, reason: str) -> None:
     # Funnel event (spec ticket 05): reason is an error class, never error text
-    # (upstream messages could echo user input). distinct_id only when we have
-    # the attempted email; otherwise personless.
-    telemetry.capture("login_failed", distinct_id=email or None,
+    # (upstream messages could echo user input). Personless by design — the
+    # form email is UNVERIFIED here, and an identified event would let anyone
+    # attach a stranger's address to a PostHog person. Identity attaches only
+    # after adapter.verify() succeeds (login_succeeded / account_connected).
+    telemetry.capture("login_failed",
                       properties={"adapter": adapter.name, "reason": reason})
 
 
@@ -331,21 +333,20 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     except TimeoutError:  # sign-in hung (rate-limited upstream): let the user retry fast
         log_warn("login-start-timeout", ms=int((time.monotonic() - t0) * 1000),
                  timeout=config.login_timeout)
-        _login_failed(adapter, "timeout", adapter.login_hint(form))
+        _login_failed(adapter, "timeout")
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-start-failed", e, reason=e.reason, error=str(e))
-        _login_failed(adapter, e.reason, adapter.login_hint(form))
+        _login_failed(adapter, e.reason)
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     except Exception as e:  # noqa: BLE001 - unexpected failure
         log_exc("login-start-failed", e, reason="unknown", error_type=type(e).__name__, error=str(e))
-        _login_failed(adapter, "unknown", adapter.login_hint(form))
+        _login_failed(adapter, "unknown")
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 f"{adapter.display_name} sign-in failed, please try again.")
     if isinstance(result, SecondFactorNeeded):
-        telemetry.capture("mfa_challenged", distinct_id=adapter.login_hint(form) or None,
-                          properties={"adapter": adapter.name})
+        telemetry.capture("mfa_challenged", properties={"adapter": adapter.name})
         lid = state.put_mfa(result.state, params, adapter.name)
         body = _fill(_second_factor_page(adapter, config),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
@@ -359,12 +360,12 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     except TimeoutError:  # verification hung: let the user retry fast
         log_warn("login-verify-timeout", ms=int((time.monotonic() - t0) * 1000),
                  timeout=config.login_timeout)
-        _login_failed(adapter, "timeout", adapter.login_hint(form))
+        _login_failed(adapter, "timeout")
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-verify-failed", e, error=str(e))
-        _login_failed(adapter, "verify_failed", adapter.login_hint(form))
+        _login_failed(adapter, "verify_failed")
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     log("authorize-finish", step="login")
     telemetry.capture("login_succeeded", distinct_id=result.account_key,
