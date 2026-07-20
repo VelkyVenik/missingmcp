@@ -180,6 +180,15 @@ def upsert_account(conn, adapter: str, account_key: str, blob: str, secret: str)
     conn.commit()
 
 
+def account_exists(conn, adapter: str, account_key: str) -> bool:
+    """Cheap existence probe (no decrypt) — telemetry's new|returning signal,
+    checked before upsert_account overwrites the row."""
+    return conn.execute(
+        "SELECT 1 FROM accounts WHERE adapter=? AND account_key=?",
+        (adapter, account_key),
+    ).fetchone() is not None
+
+
 def get_account_tokens(conn, adapter: str, account_key: str, secret: str) -> str | None:
     row = conn.execute(
         "SELECT blob_enc FROM accounts WHERE adapter=? AND account_key=?",

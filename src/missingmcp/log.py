@@ -9,7 +9,19 @@ from typing import Any, TextIO
 
 _file: TextIO | None = None
 
+# Optional tee of every emitted record (telemetry.py ships the log stream to
+# PostHog through this). The sink sees the exact record dict that went to
+# stdout, AFTER it was written — so a broken sink can never lose a log line.
+_sink = None
+
 _VALID_LEVELS = {"debug", "info", "warning", "error", "critical"}
+
+
+def set_sink(fn) -> None:
+    """Install (or with None, remove) the record tee. The sink must never
+    raise into callers; _emit guards it anyway."""
+    global _sink
+    _sink = fn
 
 
 def resolve_log_level() -> str:
@@ -80,6 +92,11 @@ def _emit(level: str, event: str, fields: dict[str, Any]) -> None:
     if _file is not None:
         _file.write(line)
         _file.flush()
+    if _sink is not None:
+        try:
+            _sink(record)
+        except Exception:  # noqa: BLE001 - the tee must never break logging
+            pass
 
 
 def log(event: str, **fields: Any) -> None:

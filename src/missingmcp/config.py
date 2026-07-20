@@ -40,6 +40,11 @@ class Config:
     slack_webhook_url: str
     daily_report_hour: int        # local hour (0-23) to post the daily report
     daily_report_tz: str          # IANA tz the report hour + "yesterday" are computed in
+    # PostHog telemetry (telemetry.py); disabled when the key is unset.
+    posthog_api_key: str          # public phc_ project key — gates events AND the log tee
+    posthog_host: str             # server-side ingestion host (EU cloud by default)
+    posthog_web_host: str         # posthog-js api_host — the managed reverse proxy
+    posthog_ui_host: str          # PostHog app host; posthog-js needs it behind a proxy
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -95,4 +100,12 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         slack_webhook_url=env.get("SLACK_WEBHOOK_URL", ""),
         daily_report_hour=int(env.get("DAILY_REPORT_HOUR", "8")),
         daily_report_tz=env.get("DAILY_REPORT_TZ", "Europe/Prague"),
+        posthog_api_key=env.get("POSTHOG_API_KEY", ""),
+        posthog_host=env.get("POSTHOG_HOST", "https://eu.i.posthog.com").rstrip("/"),
+        # The browser goes through the managed reverse proxy (ad-blocker
+        # resilience); the server talks to the ingestion host directly, so
+        # backend telemetry never depends on the proxy being up.
+        posthog_web_host=env.get("POSTHOG_WEB_HOST",
+                                 env.get("POSTHOG_HOST", "https://eu.i.posthog.com")).rstrip("/"),
+        posthog_ui_host=env.get("POSTHOG_UI_HOST", "https://eu.posthog.com").rstrip("/"),
     )

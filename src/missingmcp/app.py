@@ -9,7 +9,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import backup, report, store, oauth, pages, proxy, security
+from . import backup, report, store, oauth, pages, proxy, security, telemetry
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
@@ -21,9 +21,13 @@ _STATIC = Path(__file__).parent / "static"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, headers: dict[str, str] | None = None):
+        super().__init__(app)
+        self._headers = headers or security.security_headers()
+
     async def dispatch(self, request, call_next):
         resp = await call_next(request)
-        for k, v in security.security_headers().items():
+        for k, v in self._headers.items():
             resp.headers.setdefault(k, v)
         return resp
 
@@ -45,6 +49,7 @@ def _run_data_cleanup(conn, orphan_ttl: int, retired_adapters) -> None:
 
 def build_app(config: Config) -> Starlette:
     conn = store.init_db(config.db_path)
+    telemetry.init(config)   # no-op without POSTHOG_API_KEY
     adapters = build_adapters(config)
     # One WorkerManager per worker-based adapter; remote and local adapters need none.
     # NOTE: managers share one port range, one DATA_DIR/users/<key> namespace and
@@ -62,6 +67,9 @@ def build_app(config: Config) -> Starlette:
 
     def _render(name: str, title: str, desc: str | None = None,
                 path: str = "/", extra_head: str = "") -> str:
+        ph = telemetry.web_head(config)
+        if ph:
+            extra_head = f"{extra_head}\n{ph}" if extra_head else ph
         return pages.render_page(
             name, title, desc, public_url=config.public_url, path=path,
             extra_head=extra_head,
@@ -111,6 +119,9 @@ def build_app(config: Config) -> Starlette:
             return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
         store.add_subscriber(conn, email)
         log("subscribe")                                # never log the address itself
+        # anonymous conversion event — the email stays local (egress rule)
+        telemetry.capture("subscribe", anonymous=True,
+                          distinct_id=telemetry.anon_id_from_cookie(request.cookies))
         return JSONResponse({"ok": True})
 
     async def suggest(request):
@@ -130,6 +141,9 @@ def build_app(config: Config) -> Starlette:
         wants = (form.get("wants_updates", [""])[0] or "").lower() in ("1", "true", "on", "yes")
         store.add_suggestion(conn, email, description, wants)
         log("suggest", wants_updates=wants)
+        # anonymous conversion event — email and suggestion text stay local
+        telemetry.capture("suggest", anonymous=True,
+                          distinct_id=telemetry.anon_id_from_cookie(request.cookies))
         return JSONResponse({"ok": True})
 
     async def notfound(request):
@@ -352,6 +366,8 @@ def build_app(config: Config) -> Starlette:
                 await task
             for manager in managers.values():
                 manager.shutdown()
+            # blocking queue flush (SDK + OTLP) — keep it off the event loop
+            await asyncio.to_thread(telemetry.shutdown)
 
     routes = [
         Route("/", home, methods=["GET"]),
@@ -365,6 +381,11 @@ def build_app(config: Config) -> Starlette:
         Route("/llms.txt", _text(llms_txt, "text/plain"), methods=["GET"]),
         Route("/.well-known/glama.json", _text(glama_json, "application/json"), methods=["GET"]),
         Route("/static/site.js", _text(site_js, "application/javascript"), methods=["GET"]),
+        # posthog-js bootstrap (CSP forbids inline scripts, so it's a same-origin
+        # file); registered unconditionally, empty JS when telemetry is off.
+        Route("/static/ph.js",
+              _text(telemetry.web_bootstrap_js(config) if telemetry.enabled() else "",
+                    "application/javascript"), methods=["GET"]),
         Route("/static/icon.png", static_png("icon.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
         Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),
@@ -383,7 +404,15 @@ def build_app(config: Config) -> Starlette:
     # Catch-all (must stay last): unknown GET paths get the home page.
     routes.append(Route("/{path:path}", notfound, methods=["GET"]))
     app = Starlette(routes=routes, lifespan=lifespan)
-    app.add_middleware(SecurityHeadersMiddleware)
+    if telemetry.enabled():
+        # widen CSP for posthog-js: scripts load via the web host (the managed
+        # reverse proxy in production), events post back to the same host
+        ph_hosts = {config.posthog_web_host, telemetry.asset_host(config.posthog_web_host)}
+        sec_headers = security.security_headers(
+            script_hosts=tuple(sorted(ph_hosts)), connect_hosts=tuple(sorted(ph_hosts)))
+    else:
+        sec_headers = security.security_headers()
+    app.add_middleware(SecurityHeadersMiddleware, headers=sec_headers)
     return app
 
 

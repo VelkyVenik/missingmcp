@@ -6,9 +6,17 @@ import json
 import time
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
-from . import pages, store, security
+from . import pages, store, security, telemetry
 from .adapters.base import LoginError, SecondFactorError, SecondFactorNeeded, is_upstream_oauth
 from .log import log, log_warn, log_error, log_exc
+
+
+def _login_failed(adapter, reason: str, email: str = "") -> None:
+    # Funnel event (spec ticket 05): reason is an error class, never error text
+    # (upstream messages could echo user input). distinct_id only when we have
+    # the attempted email; otherwise personless.
+    telemetry.capture("login_failed", distinct_id=email or None,
+                      properties={"adapter": adapter.name, "reason": reason})
 
 
 def metadata(config, adapter) -> dict:
@@ -69,16 +77,20 @@ def _authorize_page(adapter, config) -> str:
     # {OPERATOR} is trusted HTML (escaped inside operator_html) — it must be
     # replaced into the raw template, never through _fill's escaping pass.
     # noindex: sign-in forms must not land in search results.
+    # telemetry.web_head: posthog-js runs here too so the landing page's
+    # anonymous cookie reaches the authorize POST (the ticket-03 stitch); the
+    # bootstrap disables autocapture on /oauth/ paths — credential forms get
+    # explicit pageviews only.
     return pages.render_page(
         adapter.authorize_template, f"Connect {adapter.display_name} — MissingMCP",
-        noindex=True,
+        noindex=True, extra_head=telemetry.web_head(config),
     ).replace("{OPERATOR}", pages.operator_html(config))
 
 
 def _second_factor_page(adapter, config) -> str:
     return pages.render_page(
         adapter.second_factor_template, f"{adapter.display_name} verification — MissingMCP",
-        noindex=True,
+        noindex=True, extra_head=telemetry.web_head(config),
     ).replace("{OPERATOR}", pages.operator_html(config))
 
 
@@ -194,9 +206,21 @@ async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse |
     return render_authorize(params, state.csrf.issue(), config, adapter)
 
 
-def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_key: str) -> RedirectResponse:
+def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_key: str,
+            request=None) -> RedirectResponse:
     # blob already verified by the caller (adapter.verify) before we persist
+    existed = store.account_exists(conn, adapter_name, account_key)
     store.upsert_account(conn, adapter_name, account_key, blob, config.gateway_secret)
+    # The campaign outcome event + the web↔account stitch (spec tickets 03/05):
+    # the browser's posthog-js cookie rides on this authorize request because
+    # the form pages share the landing pages' domain.
+    telemetry.capture("account_connected", distinct_id=account_key,
+                      properties={"adapter": adapter_name,
+                                  "status": "returning" if existed else "new"})
+    if request is not None:
+        anon = telemetry.anon_id_from_cookie(request.cookies)
+        if anon and anon != account_key:
+            telemetry.identify(account_key, anon)
     code = security.new_secret(32)
     store.create_code(
         conn, store.hash_token(code), params["client_id"], params["redirect_uri"],
@@ -255,10 +279,12 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         except TimeoutError:  # resume hung (rate-limited upstream): start over
             log_warn("mfa-resume-timeout", ms=int((time.monotonic() - t0) * 1000),
                      timeout=config.login_timeout)
+            _login_failed(adapter, "timeout")
             return render_authorize(params, state.csrf.issue(), config, adapter,
                                     _timeout_message(adapter))
         except SecondFactorError as e:  # wrong/expired code: re-prompt
             log_exc("mfa-resume-failed", e, error_type=type(e).__name__, error=str(e))
+            _login_failed(adapter, "mfa_invalid")
             lid = state.put_mfa(e.state, params, adapter.name)
             body = _fill(_second_factor_page(adapter, config),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
@@ -268,6 +294,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             return HTMLResponse(body, status_code=400)
         except LoginError as e:  # contract: "start over" — back to the credential form
             log_exc("mfa-resume-fatal", e, error=str(e))
+            _login_failed(adapter, "mfa_fatal")
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         try:
             t0 = time.monotonic()
@@ -276,13 +303,18 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         except TimeoutError:  # verification hung: start over
             log_warn("mfa-verify-timeout", ms=int((time.monotonic() - t0) * 1000),
                      timeout=config.login_timeout)
+            _login_failed(adapter, "timeout")
             return render_authorize(params, state.csrf.issue(), config, adapter,
                                     _timeout_message(adapter))
         except LoginError as e:  # blob didn't authenticate: start over
             log_exc("mfa-verify-failed", e, error=str(e))
+            _login_failed(adapter, "verify_failed")
             return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
         log("authorize-finish", step="mfa")
-        return _finish(conn, config, params, result.blob, adapter.name, result.account_key)
+        telemetry.capture("login_succeeded", distinct_id=result.account_key,
+                          properties={"adapter": adapter.name, "step": "mfa"})
+        return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+                       request=request)
 
     # login step
     params = _oauth_params_from(form)
@@ -299,16 +331,21 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     except TimeoutError:  # sign-in hung (rate-limited upstream): let the user retry fast
         log_warn("login-start-timeout", ms=int((time.monotonic() - t0) * 1000),
                  timeout=config.login_timeout)
+        _login_failed(adapter, "timeout", adapter.login_hint(form))
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-start-failed", e, reason=e.reason, error=str(e))
+        _login_failed(adapter, e.reason, adapter.login_hint(form))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     except Exception as e:  # noqa: BLE001 - unexpected failure
         log_exc("login-start-failed", e, reason="unknown", error_type=type(e).__name__, error=str(e))
+        _login_failed(adapter, "unknown", adapter.login_hint(form))
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 f"{adapter.display_name} sign-in failed, please try again.")
     if isinstance(result, SecondFactorNeeded):
+        telemetry.capture("mfa_challenged", distinct_id=adapter.login_hint(form) or None,
+                          properties={"adapter": adapter.name})
         lid = state.put_mfa(result.state, params, adapter.name)
         body = _fill(_second_factor_page(adapter, config),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
@@ -322,13 +359,18 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     except TimeoutError:  # verification hung: let the user retry fast
         log_warn("login-verify-timeout", ms=int((time.monotonic() - t0) * 1000),
                  timeout=config.login_timeout)
+        _login_failed(adapter, "timeout", adapter.login_hint(form))
         return render_authorize(params, state.csrf.issue(), config, adapter,
                                 _timeout_message(adapter))
     except LoginError as e:
         log_exc("login-verify-failed", e, error=str(e))
+        _login_failed(adapter, "verify_failed", adapter.login_hint(form))
         return render_authorize(params, state.csrf.issue(), config, adapter, str(e))
     log("authorize-finish", step="login")
-    return _finish(conn, config, params, result.blob, adapter.name, result.account_key)
+    telemetry.capture("login_succeeded", distinct_id=result.account_key,
+                      properties={"adapter": adapter.name, "step": "login"})
+    return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+                   request=request)
 
 
 async def token_exchange(request, conn, config) -> JSONResponse:
@@ -395,6 +437,7 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
         # the user declined at the provider — expected, not an anomaly
         log_warn("upstream-oauth-callback", adapter=adapter.name, status="denied",
                  reason=q.get("error", "no_code"))
+        _login_failed(adapter, "denied")
         return _upstream_error(config, adapter,
                                f"{adapter.display_name} declined the connection — go back to Claude and try again.")
     try:
@@ -407,16 +450,22 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
         log("upstream-verify-ok", name=name, ms=int((time.monotonic() - t0) * 1000))
     except TimeoutError:  # verify hung (rate-limited provider): send the user back to retry
         log_warn("upstream-verify-timeout", adapter=adapter.name, timeout=config.login_timeout)
+        _login_failed(adapter, "timeout")
         return _upstream_error(config, adapter, _timeout_message(adapter))
     except LoginError as e:
         log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
                 error=str(e))
+        _login_failed(adapter, "callback_error")
         return _upstream_error(config, adapter, str(e))
     except Exception as e:  # noqa: BLE001 - unexpected failure (network, provider bug)
         log_exc("upstream-oauth-callback", e, adapter=adapter.name, status="error",
                 error_type=type(e).__name__, error=str(e))
+        _login_failed(adapter, "unknown")
         return _upstream_error(config, adapter,
                                f"{adapter.display_name} sign-in failed, please try again.")
     log("upstream-oauth-callback", adapter=adapter.name, status="ok")
     log("authorize-finish", step="upstream")
-    return _finish(conn, config, params, result.blob, adapter.name, result.account_key)
+    telemetry.capture("login_succeeded", distinct_id=result.account_key,
+                      properties={"adapter": adapter.name, "step": "upstream"})
+    return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+                   request=request)
