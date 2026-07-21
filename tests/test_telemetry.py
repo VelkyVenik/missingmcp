@@ -252,7 +252,7 @@ def test_login_flow_emits_funnel_events_and_stitch(conn, recorder):
     assert r.status_code == 302
     by_name = {e: (d, p) for e, d, p in recorder.events}
     assert by_name["login_succeeded"][0] == "me@x.cz"
-    assert by_name["account_connected"] == ("me@x.cz", {"adapter": "garmin", "status": "new"})
+    assert by_name["account_connected"] == ("me@x.cz", {"adapter": "garmin", "connect_status": "new"})
     assert by_name["$identify"] == ("me@x.cz", {"$anon_distinct_id": "anon-123"})
 
 
