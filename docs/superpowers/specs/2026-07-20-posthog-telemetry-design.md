@@ -140,13 +140,17 @@ arrive in PostHog via the OTLP tee.
 
 ### Web (posthog-js)
 
-- Snippet rendered by `pages.py` into `templates/_layout.html` only when telemetry is
-  enabled (key + host threaded through `render_page`).
+- Head tag rendered by `pages.py` into `templates/_layout.html` only when telemetry is
+  enabled: a single same-origin `/static/ph.js` containing PostHog's **official loader
+  snippet** + init. The loader is mandatory — `array.js` loaded standalone does not
+  create `window.posthog` (verified 2026-07-21).
 - Marketing pages (home, connector landings): full defaults — pageview/pageleave,
-  autocapture, auto-UTM, `person_profiles: 'identified_only'`,
-  `cookieless_mode: 'on_reject'` with a lightweight footer consent affordance (no
-  blocking banner) — the exact consent UX is an implementation-time detail to verify
-  against posthog-js's consent API.
+  autocapture, auto-UTM, `person_profiles: 'identified_only'`. **No cookieless/consent
+  mode in v1**: `cookieless_mode: 'on_reject'` captures nothing until an explicit
+  opt-in/out call (verified in the 2026-07-21 smoke test — zero web events), so it can
+  only ship together with a consent banner. That banner + `on_reject` is the flagged
+  follow-up; until then the site sets standard analytics cookies (matching the
+  PostHog-UI install snippet).
 - OAuth/sign-in pages: snippet with `autocapture: false`, explicit `$pageview` only
   (pages with credential forms get belt-and-suspenders treatment).
 

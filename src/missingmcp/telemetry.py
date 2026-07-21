@@ -125,30 +125,41 @@ def asset_host(host: str) -> str:
 
 
 def web_head(config) -> str:
-    """<head> tags for pages: load posthog-js (via the web host — the managed
-    reverse proxy in production), then our same-origin bootstrap (CSP forbids
-    inline scripts; `defer` preserves order). Empty when telemetry is off."""
+    """<head> tag for pages: the same-origin bootstrap only (CSP forbids inline
+    scripts). The bootstrap embeds PostHog's official loader, which injects
+    array.js itself — array.js loaded standalone does NOT create
+    `window.posthog` (verified 2026-07-21), so the loader is mandatory.
+    Empty when telemetry is off."""
     if _client is None:
         return ""
-    return (f'<script defer src="{asset_host(config.posthog_web_host)}/static/array.js"></script>\n'
-            '  <script defer src="/static/ph.js"></script>')
+    return '<script defer src="/static/ph.js"></script>'
+
+
+# PostHog's official loader stub, verbatim from the project's install page: it
+# creates the queueing `window.posthog` stub and injects array.js from
+# api_host (rewriting *.i.posthog.com to the assets CDN; a reverse-proxy host
+# passes through unchanged, so CSP script-src needs only the web host).
+_PH_LOADER = r"""!function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="Ji Yi init fn mn Ur pn bn cn capture calculateEventProperties Sn register register_once register_for_session unregister unregister_for_session Tn getFeatureFlag getFeatureFlagPayload getFeatureFlagResult getAllFeatureFlags isFeatureEnabled reloadFeatureFlags updateFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey displaySurvey cancelPendingSurvey canRenderSurvey canRenderSurveyAsync Mn identify setPersonProperties unsetPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset shutdown setIdentity clearIdentity get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException addExceptionStep captureLog startExceptionAutocapture stopExceptionAutocapture loadToolbar get_property getSessionProperty Cn xn createPersonProfile setInternalOrTestUser In hn Pn opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing get_explicit_consent_status is_capturing clear_opt_in_out_capturing debug Vr Rt getPageViewId captureTraceFeedback captureTraceMetric an".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);"""
 
 
 def web_bootstrap_js(config) -> str:
-    """The same-origin posthog-js init (served at /static/ph.js). OAuth/sign-in
-    pages carry credential forms, so they get explicit pageviews only —
-    autocapture stays on the marketing pages (spec, ticket 03). ui_host points
-    generated links back at the PostHog app when api_host is the proxy."""
+    """The same-origin posthog-js bootstrap (served at /static/ph.js): the
+    official loader followed by init. No cookieless/consent mode in v1 —
+    `cookieless_mode: 'on_reject'` captures NOTHING until an explicit
+    opt-in/out call, so it must ship together with a consent banner (spec
+    follow-up; smoke-tested 2026-07-21). OAuth/sign-in pages carry credential
+    forms, so they get explicit pageviews only — autocapture stays on the
+    marketing pages (spec, ticket 03). ui_host points generated links back at
+    the PostHog app when api_host is the proxy."""
     opts = {
         "api_host": config.posthog_web_host,
         "defaults": "2026-05-30",
         "person_profiles": "identified_only",
-        "cookieless_mode": "on_reject",
     }
     if ".i.posthog.com" not in config.posthog_web_host:  # behind a reverse proxy
         opts["ui_host"] = config.posthog_ui_host
-    return f"""(function () {{
-  if (!window.posthog || !window.posthog.init) return;
+    init = f"""
+(function () {{
   var oauthPage = location.pathname.indexOf('/oauth/') !== -1;
   var opts = {json.dumps(opts, indent=2)};
   opts.autocapture = !oauthPage;
@@ -156,6 +167,7 @@ def web_bootstrap_js(config) -> str:
   window.posthog.init({json.dumps(config.posthog_api_key)}, opts);
 }})();
 """
+    return _PH_LOADER + init
 
 
 # --- OTLP log tee ------------------------------------------------------------
