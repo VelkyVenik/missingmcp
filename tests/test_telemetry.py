@@ -65,9 +65,9 @@ def test_init_without_key_stays_disabled():
 
 def test_capture_records_event(recorder):
     telemetry.capture("account_connected", distinct_id="me@x.cz",
-                      properties={"adapter": "garmin", "status": "new"})
+                      properties={"adapter": "garmin", "connect_status": "new"})
     assert recorder.events == [
-        ("account_connected", "me@x.cz", {"adapter": "garmin", "status": "new"})]
+        ("account_connected", "me@x.cz", {"adapter": "garmin", "connect_status": "new"})]
 
 
 def test_capture_anonymous_marks_personless(recorder):
@@ -293,4 +293,4 @@ def test_returning_account_status(conn, recorder):
         })
     assert r.status_code == 302
     by_name = {e: p for e, _, p in recorder.events}
-    assert by_name["account_connected"]["status"] == "returning"
+    assert by_name["account_connected"]["connect_status"] == "returning"

@@ -216,9 +216,13 @@ def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_ke
     # The campaign outcome event + the web↔account stitch (spec tickets 03/05):
     # the browser's posthog-js cookie rides on this authorize request because
     # the form pages share the landing pages' domain.
+    # `connect_status`, not `status`: the $mcp_* events already typed the
+    # shared `status` property as numeric (HTTP codes), and PostHog's typed
+    # reads coerce string values of a numeric property to NULL — the
+    # new|returning split silently vanished until renamed (2026-07-21).
     telemetry.capture("account_connected", distinct_id=account_key,
                       properties={"adapter": adapter_name,
-                                  "status": "returning" if existed else "new"})
+                                  "connect_status": "returning" if existed else "new"})
     if request is not None:
         anon = telemetry.anon_id_from_cookie(request.cookies)
         if anon and anon != account_key:

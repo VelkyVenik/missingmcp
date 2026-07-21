@@ -113,7 +113,7 @@ one-import cheap (`from . import telemetry`) and no object needs threading throu
 | `$mcp_tools_list` | proxy, on `tools/list` | account email | adapter |
 | `login_succeeded` / `login_failed` | `oauth.authorize_post` / callback | account email (failed: **personless** — the form email is unverified, an identified event would let anyone attach a stranger's address to a person) | adapter, reason (failed only; error class, never credentials) |
 | `mfa_challenged` | oauth, on `SecondFactorNeeded` | personless (same rule — pre-verify) | adapter |
-| `account_connected` | `oauth._finish` (after verify) | account email | adapter, `status: new\|returning` (from the upsert) |
+| `account_connected` | `oauth._finish` (after verify) | account email | adapter, `connect_status: new\|returning` (from the upsert). Named `connect_status`, not `status`: the `$mcp_*` events typed the shared `status` property as numeric (HTTP codes) and PostHog's typed reads coerce strings of a numeric property to NULL — property names are typed project-wide, so never reuse one name for two value types (learned 2026-07-21) |
 | `$identify` | `oauth._finish`, when the request carries a posthog cookie | account email | `$anon_distinct_id` = cookie anon id |
 | `account_revoked` | `scripts/revoke.py` (best-effort) | account email | adapter |
 | `subscribe` / `suggest` | `app.py` POST handlers | cookie anon id (anonymous) | none (email/suggestion text stay local per the egress rule) |
