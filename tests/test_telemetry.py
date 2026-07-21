@@ -135,8 +135,13 @@ def test_log_sink_sees_records_and_never_breaks_logging():
 
 def test_web_head_is_bootstrap_only(recorder):
     head = telemetry.web_head(PH_CONFIG)
-    assert 'src="/static/ph.js"' in head
+    assert 'src="/static/ph.js?v=' in head  # cache-busted like site.js
     assert "array.js" not in head           # the loader injects array.js itself
+    # the buster must track the bootstrap content, or the edge serves stale JS
+    other = load_config({"GATEWAY_SECRET": "z" * 40, "POSTHOG_API_KEY": "phc_other"})
+    import re
+    v = lambda h: re.search(r"v=([0-9a-f]{8})", h).group(1)
+    assert v(head) != v(telemetry.web_head(other))
 
 
 def test_asset_host_rewrites_cloud_but_not_proxy():
