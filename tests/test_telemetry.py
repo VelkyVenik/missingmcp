@@ -133,23 +133,28 @@ def test_log_sink_sees_records_and_never_breaks_logging():
 
 # --- web snippet -------------------------------------------------------------
 
-def test_web_head_uses_proxy_host(recorder):
+def test_web_head_is_bootstrap_only(recorder):
     head = telemetry.web_head(PH_CONFIG)
-    assert 'src="https://j.example.com/static/array.js"' in head
     assert 'src="/static/ph.js"' in head
+    assert "array.js" not in head           # the loader injects array.js itself
 
 
-def test_web_head_rewrites_cloud_host_to_assets(recorder):
-    cfg = load_config({"GATEWAY_SECRET": "z" * 40, "POSTHOG_API_KEY": "phc_test"})
-    assert "eu-assets.i.posthog.com/static/array.js" in telemetry.web_head(cfg)
+def test_asset_host_rewrites_cloud_but_not_proxy():
+    assert telemetry.asset_host("https://eu.i.posthog.com") == "https://eu-assets.i.posthog.com"
+    assert telemetry.asset_host("https://j.example.com") == "https://j.example.com"
 
 
 def test_bootstrap_js_proxied(recorder):
     js = telemetry.web_bootstrap_js(PH_CONFIG)
+    assert js.startswith("!function")                        # official loader stub
+    assert "e.__SV=1" in js                                  # loader really present
     assert '"phc_test"' in js
     assert '"api_host": "https://j.example.com"' in js
     assert '"ui_host": "https://eu.posthog.com"' in js      # proxy needs ui_host
     assert "'/oauth/'" in js                                 # oauth pages branch
+    # cookieless without a consent banner captures nothing (2026-07-21 smoke) —
+    # it must never reappear without the banner shipping alongside
+    assert "cookieless_mode" not in js
 
 
 def test_bootstrap_js_direct_cloud_has_no_ui_host(recorder):
