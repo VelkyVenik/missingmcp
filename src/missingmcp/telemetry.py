@@ -14,6 +14,7 @@ form contents. The account email travels only as distinct_id.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import urllib.parse
@@ -129,10 +130,16 @@ def web_head(config) -> str:
     scripts). The bootstrap embeds PostHog's official loader, which injects
     array.js itself — array.js loaded standalone does NOT create
     `window.posthog` (verified 2026-07-21), so the loader is mandatory.
-    Empty when telemetry is off."""
+    Empty when telemetry is off.
+
+    The `?v=` content hash mirrors site.js's cache buster: the Cloudflare edge
+    caches /static/* aggressively (observed rewriting max-age to 4h), so a
+    changed bootstrap must ship under a fresh URL or browsers keep the stale
+    copy for hours (bitten 2026-07-21)."""
     if _client is None:
         return ""
-    return '<script defer src="/static/ph.js"></script>'
+    ver = hashlib.sha256(web_bootstrap_js(config).encode()).hexdigest()[:8]
+    return f'<script defer src="/static/ph.js?v={ver}"></script>'
 
 
 # PostHog's official loader stub, verbatim from the project's install page: it
