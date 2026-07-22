@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Status / stats snapshot for the MCP gateway (reads the DB read-only).
 
-One overview: every connected account (adapter:key) with its devices —
-token-hash prefixes you can pass to revoke.py --device — plus a tool-usage
-summary, the registered OAuth clients, and the running workers. Safe to run
-while the gateway is live (opens the SQLite DB read-only).
+By default prints just the Summary counts. With --detail it also lists every
+connected account (adapter:key) with its devices — token-hash prefixes you can
+pass to revoke.py --device — plus a tool-usage summary, the registered OAuth
+clients, and the running workers. Safe to run while the gateway is live (opens
+the SQLite DB read-only).
 
 Usage:
-  python scripts/status.py                 # uses ./.localdata/gateway.db
+  python scripts/status.py                 # summary counts only
+  python scripts/status.py --detail        # + per-account devices, clients, workers
   python scripts/status.py --db /data/gateway.db
-  railway ssh --service gateway "python3 /app/scripts/status.py"
+  railway ssh --service gateway "python3 /app/scripts/status.py --detail"
 """
 from __future__ import annotations
 import argparse
@@ -37,6 +39,9 @@ def main():
     p.add_argument("--db", default=None,
                    help="SQLite DB path (default: $DB_PATH, $DATA_DIR/gateway.db, "
                         "/data/gateway.db, or ./.localdata/gateway.db)")
+    p.add_argument("-d", "--detail", action="store_true",
+                   help="also print the full per-account, OAuth-client and worker "
+                        "listing (default: summary counts only)")
     args = p.parse_args()
     db_path = args.db or resolve_db()
 
@@ -60,6 +65,10 @@ def main():
     print(f"  Accounts            : {accounts}")
     print(f"  OAuth clients       : {clients}   (registered apps)")
     print(f"  Pending auth codes  : {pending}")
+
+    if not args.detail:
+        print("\n(run with --detail for the per-account, OAuth-client and worker breakdown)\n")
+        return
 
     client_names = {c["client_id"]: (c["client_name"] or "(unnamed)")
                     for c in db.execute("SELECT client_id, client_name FROM oauth_clients")}

@@ -57,8 +57,18 @@ def seeded_db(tmp_path):
 
 # --- status.py -------------------------------------------------------------
 
-def test_status_overview_is_adapter_aware(seeded_db, capsys, monkeypatch):
+def test_status_default_is_summary_counts_only(seeded_db, capsys, monkeypatch):
+    # Default output is the counts only — no per-account list (which leaks every
+    # login email); the breakdown is opt-in behind --detail.
     out = run_script("status", ["--db", seeded_db], capsys, monkeypatch)
+    assert "Summary" in out and "Accounts            :" in out   # count line
+    assert "garmin:alice@example.com" not in out                 # no per-account list
+    assert "aa110000" not in out                                 # no device lines
+    assert "--detail" in out                                     # hint to get the list
+
+
+def test_status_overview_is_adapter_aware(seeded_db, capsys, monkeypatch):
+    out = run_script("status", ["--db", seeded_db, "--detail"], capsys, monkeypatch)
     assert "MissingMCP" in out
     assert "Garmin MCP Gateway" not in out
     assert "garmin:alice@example.com" in out
@@ -66,7 +76,7 @@ def test_status_overview_is_adapter_aware(seeded_db, capsys, monkeypatch):
 
 
 def test_status_shows_devices_and_usage(seeded_db, capsys, monkeypatch):
-    out = run_script("status", ["--db", seeded_db], capsys, monkeypatch)
+    out = run_script("status", ["--db", seeded_db, "--detail"], capsys, monkeypatch)
     assert "aa110000" in out                       # device line: token-hash prefix
     assert "calls: 3 across 2 tool(s)" in out      # garmin usage summary
     assert "calls: 1 across 1 tool(s)" in out      # rohlik usage summary

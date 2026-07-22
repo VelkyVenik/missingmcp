@@ -218,8 +218,9 @@ workers respawn lazily.
 Three helper scripts work directly on the gateway's DB (safe to run while the gateway is live):
 
 ```bash
-python scripts/status.py          # snapshot: accounts, their devices (token
-                                  #   prefixes), usage summary, running workers
+python scripts/status.py          # summary counts only (safe to paste/share)
+python scripts/status.py --detail # + per-account devices (token prefixes),
+                                  #   usage summary, OAuth clients, running workers
 python scripts/revoke.py --list                       # accounts + token counts
 python scripts/revoke.py --account [<adapter>:]<key>  # kill-switch: revoke ALL the
                                                       #   account's tokens (bare key = garmin)
