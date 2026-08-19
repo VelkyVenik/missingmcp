@@ -1,0 +1,41 @@
+name: Daily triage
+
+on:
+  schedule:
+    # 05:45 UTC = 07:45 Europe/Prague in summer (06:45 in winter) — lands just
+    # before the gateway's own 08:00 daily user-stats post. Off-peak minute:
+    # GitHub cron is best-effort and minute 0 is its most congested slot.
+    - cron: "45 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the triage but do not post to Slack"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POSTHOG_QUERY_KEY: ${{ secrets.POSTHOG_QUERY_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      # POSTHOG_PROJECT_ID / POSTHOG_HOST / TRIAGE_MODEL use the script defaults.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "httpx>=0.27"
+      - name: Run daily triage
+        run: >
+          python scripts/daily_triage.py
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}

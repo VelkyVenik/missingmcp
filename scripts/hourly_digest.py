@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Hourly health digest → Slack.
+"""Hourly hard-signal pager → Slack.
 
 Reads the gateway's last ~60 min of Railway logs via the Railway GraphQL API,
-summarizes them, does a liveness probe, and posts to Slack — but QUIETLY: it
-stays silent on healthy hours except one daily heartbeat, and escalates with a
-Slack `<!here>` only on a real anomaly or a failed probe. Runs standalone in
-GitHub Actions (httpx + stdlib only — does NOT import the missingmcp package).
+does a liveness probe, and pages (`<!here>`) ONLY on hard "our fault, act now"
+signals — everything else belongs to the daily triage analysis
+(scripts/daily_triage.py; design: .scratch/reliability/issues/08, which retired
+the old error-counting/minor/heartbeat behaviour). Runs standalone in GitHub
+Actions (httpx + stdlib only — does NOT import the missingmcp package).
 
-Verdict (decided in .scratch/slack-hourly-digest ticket 03):
-  * loud  (<!here>): >= ANOMALY_MIN 5xx/error rows, OR any `critical`, OR the
-                     liveness probe failed.
-  * minor (post, no ping): 1..ANOMALY_MIN-1 5xx/error rows.
-  * heartbeat: a one-line "healthy" post, from the first successful run at/after
-               HEARTBEAT_HOUR each day (GitHub cron is best-effort — a later run
-               catches up when the scheduled hour was skipped; see heartbeat_due).
-  * otherwise: silent.
+Hard signals (any one → loud post; otherwise fully silent):
+  * the liveness probe failed (web down — the one signal no log pipeline sees),
+  * `worker-start-failed` across >= 2 distinct accounts in the hour (the
+    validated 2026-07-31 broken-image signature; a single account's crash is
+    the daily triage's business),
+  * any 5xx, or any `critical` row.
 Re-auth signals (*-forward-auth-stale) are the expected self-heal path and are
-NOT counted as anomalies; worker-log traceback continuation lines are folded into
-their preceding ERROR row.
+never signals; worker-log traceback continuation lines are folded into their
+preceding ERROR row.
 
 Env:
   RAILWAY_API_TOKEN       account/workspace token (Bearer)         [required]
@@ -25,11 +24,6 @@ Env:
   RAILWAY_ENVIRONMENT_ID  production environment uuid              [required]
   SLACK_WEBHOOK_URL       incoming webhook            [required unless --dry-run]
   GATEWAY_URL             liveness-probe target (default https://missingmcp.com)
-  HEARTBEAT_HOUR          local hour for the daily healthy heartbeat (default 8)
-  REPORT_TZ               tz for HEARTBEAT_HOUR (default Europe/Prague)
-  ANOMALY_MIN             min 5xx/error rows to escalate <!here> (default 3)
-  GITHUB_TOKEN            Actions token for heartbeat catch-up (ambient in CI;
-                          without it the heartbeat falls back to exact-hour match)
 
 Usage: python scripts/hourly_digest.py [--dry-run] [--window-min 60]
 """
@@ -41,12 +35,10 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import httpx
 
 RAILWAY_API = "https://backboard.railway.com/graphql/v2"
-GITHUB_API = "https://api.github.com"
 # Re-auth self-heal events: the account's stored credentials went stale, the user
 # fixes it by signing in again. Counted as `reauth`, never as anomalies (ticket 03).
 # `worker-start-failed` is deliberately NOT here: since the worker strategy split
@@ -177,21 +169,38 @@ def summarize(rows: list[dict]) -> dict:
         if (p["status"] is not None and 500 <= p["status"] < 600)
         or (p["level"] in ("error", "critical") and p["event"] not in SELF_HEAL_EVENTS)
     )
+    # Distinct accounts hitting a real worker fault — the broken-image
+    # signature: on 2026-07-31 a bad dependency killed EVERY spawn (mcp 2.0.0),
+    # and many-accounts-at-once is what separates "our image is broken" from
+    # "one user's account is unhappy".
+    worker_fault_accounts = len({
+        p["account"] for p in parsed
+        if p["event"] == "worker-start-failed"
+        and p["level"] in ("error", "critical") and p["account"]
+    })
     return {
         "rows": len(parsed), "requests": requests, "accounts": accounts,
         "http_5xx": http_5xx, "err_rows": err_rows, "critical": critical,
         "reauth": reauth, "statuses": dict(statuses),
-        "problems": problems,
+        "problems": problems, "worker_fault_accounts": worker_fault_accounts,
     }
 
 
-def verdict(summary: dict, probe_ok: bool, is_heartbeat: bool,
-            anomaly_min: int) -> dict:
-    loud = (summary["problems"] >= anomaly_min or summary["critical"] > 0
-            or not probe_ok)
-    minor = (not loud) and summary["problems"] > 0
-    return {"should_post": loud or minor or is_heartbeat,
-            "loud": loud, "minor": minor, "heartbeat": is_heartbeat and not (loud or minor)}
+def verdict(summary: dict, probe_ok: bool) -> dict:
+    """Hard signals only — everything below this bar is the daily triage's
+    business (design: .scratch/reliability/issues/08). No minor tier, no
+    heartbeat: this workflow either pages or says nothing."""
+    reasons = []
+    if not probe_ok:
+        reasons.append("probe-failed")
+    if summary["worker_fault_accounts"] >= 2:
+        reasons.append(f"worker-faults:{summary['worker_fault_accounts']}-accounts")
+    if summary["http_5xx"] > 0:
+        reasons.append(f"5xx:{summary['http_5xx']}")
+    if summary["critical"] > 0:
+        reasons.append(f"critical:{summary['critical']}")
+    loud = bool(reasons)
+    return {"should_post": loud, "loud": loud, "reasons": reasons}
 
 
 def render(summary: dict, probe_ok: bool, v: dict, window_min: int,
@@ -203,53 +212,8 @@ def render(summary: dict, probe_ok: bool, v: dict, window_min: int,
               f"re-auth {s['reauth']} · last {window_min}m")
     if not probe_ok:
         return f":red_circle: *MissingMCP gateway DOWN* — liveness probe to {gateway_url} failed. <!here>\n{detail}"
-    if v["loud"]:
-        return f":large_orange_circle: *MissingMCP — anomaly (last {window_min}m)* <!here>\n{detail}"
-    if v["minor"]:
-        return f":large_yellow_circle: MissingMCP — {s['problems']} problem(s) in the last {window_min}m (below alert threshold)\n{detail}"
-    return f":large_green_circle: MissingMCP healthy — {detail}"
-
-
-def heartbeat_due(now_local: datetime, heartbeat_hour: int,
-                  prior_success_local: list[datetime] | None) -> bool:
-    """True when this run should post the daily heartbeat. GitHub's cron is
-    best-effort — runs get delayed or dropped outright — so exact hour-equality
-    routinely misses the day's heartbeat. Instead the heartbeat belongs to the
-    FIRST successful run at/after HEARTBEAT_HOUR local time each day; a later
-    run catches up when the scheduled hour was skipped. With no visibility into
-    prior runs (local invocation, API failure) fall back to hour-equality."""
-    if prior_success_local is None:
-        return now_local.hour == heartbeat_hour
-    if now_local.hour < heartbeat_hour:
-        return False
-    return not any(t.date() == now_local.date() and t.hour >= heartbeat_hour
-                   for t in prior_success_local)
-
-
-def github_prior_successes(tz: ZoneInfo) -> list[datetime] | None:
-    """Created-times (converted to tz) of this workflow's recent successful runs,
-    via the GitHub API (the in-progress current run never matches status=success).
-    None when not running in Actions or on any API failure."""
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        return None
-    ref = os.environ.get("GITHUB_WORKFLOW_REF", "")   # owner/repo/.github/workflows/<file>@ref
-    wf = ref.split("@")[0].rsplit("/", 1)[-1] if ref else "hourly-digest.yml"
-    since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-    try:
-        r = httpx.get(
-            f"{GITHUB_API}/repos/{repo}/actions/workflows/{wf}/runs",
-            params={"status": "success", "created": f">={since}", "per_page": 100},
-            headers={"Authorization": f"Bearer {token}",
-                     "Accept": "application/vnd.github+json"},
-            timeout=15.0)
-        r.raise_for_status()
-        runs = r.json().get("workflow_runs") or []
-        return [datetime.strptime(x["created_at"], "%Y-%m-%dT%H:%M:%SZ")
-                .replace(tzinfo=timezone.utc).astimezone(tz) for x in runs]
-    except (httpx.HTTPError, KeyError, ValueError, TypeError):
-        return None
+    return (f":large_orange_circle: *MissingMCP — hard signal: "
+            f"{', '.join(v['reasons'])} (last {window_min}m)* <!here>\n{detail}")
 
 
 def probe(url: str) -> bool:
@@ -275,7 +239,7 @@ def _need(name: str) -> str:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Hourly gateway health digest → Slack.")
+    p = argparse.ArgumentParser(description="Hourly gateway hard-signal pager → Slack.")
     p.add_argument("--dry-run", action="store_true", help="print, don't post")
     p.add_argument("--window-min", type=int, default=60, help="log window in minutes")
     args = p.parse_args()
@@ -284,9 +248,6 @@ def main():
     service_id = _need("RAILWAY_SERVICE_ID")
     environment_id = _need("RAILWAY_ENVIRONMENT_ID")
     gateway_url = os.environ.get("GATEWAY_URL", "https://missingmcp.com")
-    anomaly_min = int(os.environ.get("ANOMALY_MIN", "3"))
-    heartbeat_hour = int(os.environ.get("HEARTBEAT_HOUR", "8"))
-    tz = ZoneInfo(os.environ.get("REPORT_TZ", "Europe/Prague"))
 
     now = datetime.now(timezone.utc)
     start_iso = (now - timedelta(minutes=args.window_min)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -296,22 +257,13 @@ def main():
     rows = fetch_logs(token, deployment_id, start_iso, end_iso)
     summary = summarize(rows)
     probe_ok = probe(gateway_url)
-    now_local = datetime.now(tz)
-    prior = github_prior_successes(tz)
-    is_heartbeat = heartbeat_due(now_local, heartbeat_hour, prior)
-    print("[heartbeat] due=%s, run visibility %s" % (
-        is_heartbeat,
-        "none — exact-hour fallback" if prior is None else f"ok ({len(prior)} recent)"))
-    if is_heartbeat and now_local.hour != heartbeat_hour:
-        print(f"[heartbeat] catch-up — no successful run landed in hour {heartbeat_hour} today")
-    v = verdict(summary, probe_ok, is_heartbeat, anomaly_min)
-    text = render(summary, probe_ok, v, args.window_min, gateway_url)
-
-    print(text)
+    v = verdict(summary, probe_ok)
     print(f"[verdict] {v}")
     if not v["should_post"]:
-        print("[silent] healthy hour, not the heartbeat — nothing posted.")
+        print("[silent] no hard signal — nothing posted (the daily triage covers the rest).")
         return
+    text = render(summary, probe_ok, v, args.window_min, gateway_url)
+    print(text)
     if args.dry_run:
         print("[dry-run] not posting.")
         return

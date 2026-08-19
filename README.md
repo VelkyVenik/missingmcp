@@ -241,12 +241,27 @@ morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
 `SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
 demand for testing.
 
-**Hourly health digest** — a GitHub Actions workflow
+**Daily triage** — a GitHub Actions workflow
+(`.github/workflows/daily-triage.yml`) runs `scripts/daily_triage.py` every
+morning (~07:45 Prague): it pulls the last 24 h from PostHog (logs + `$mcp`
+events), classifies the known error signatures deterministically, and — only
+when something actionable remains — has the Claude API write the operator's
+triage (what happened → what it means → proposed action, per class) and posts
+it to Slack. Healthy days post a one-line "all quiet" (the daily heartbeat);
+if the Claude call fails, the deterministic aggregate table posts instead —
+never silence. Requires repo secrets `POSTHOG_QUERY_KEY` (a personal API key
+with query-read scope), `ANTHROPIC_API_KEY`, and `SLACK_WEBHOOK_URL`. Run by
+hand with `python scripts/daily_triage.py --dry-run` (needs
+`POSTHOG_QUERY_KEY`; the Claude step is skipped without `ANTHROPIC_API_KEY`).
+
+**Hourly hard-signal pager** — a GitHub Actions workflow
 (`.github/workflows/hourly-digest.yml`) runs `scripts/hourly_digest.py` every
-hour: it reads the last 60 min of the gateway's Railway logs via the Railway API,
-does a liveness probe, and posts to Slack **only** on an anomaly (≥3 5xx/error, any
-`critical`, or a failed probe → `<!here>`) or once a day as a healthy heartbeat —
-silent otherwise. Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
+hour: it reads the last 60 min of the gateway's Railway logs via the Railway
+API, does a liveness probe, and pages (`<!here>`) **only** on a hard signal —
+a failed probe (site down), `worker-start-failed` across ≥2 distinct accounts
+in the hour (the broken-image signature), any 5xx, or any `critical`. It is
+otherwise fully silent — plain error volume belongs to the daily triage.
+Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
 (service/environment ids are set as workflow env). `RAILWAY_API_TOKEN` may be a
 Railway **project** token (narrowest scope — reaches only this project; sent via
 the `Project-Access-Token` header) or an account/workspace token (sent as

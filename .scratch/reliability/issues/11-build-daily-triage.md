@@ -1,7 +1,7 @@
 # 11 — Build the daily triage and retire the hourly pings
 
 Type: task
-Status: open
+Status: claimed
 Blocked by: 08
 
 Execution ticket — the design is locked in
