@@ -195,6 +195,8 @@ def test_analyze_prefers_subscription_backend(monkeypatch):
     monkeypatch.setattr(dt.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
     assert dt.analyze({"x": 1}) == "SUBSCRIPTION ANALYSIS"
     assert calls["cmd"][0] == "claude" and "-p" in calls["cmd"]
+    tools = calls["cmd"][calls["cmd"].index("--allowedTools") + 1]
+    assert "Bash" not in tools and "Write" not in tools    # read-only grounding
 
 
 def test_analyze_subscription_failure_degrades_to_none(monkeypatch):

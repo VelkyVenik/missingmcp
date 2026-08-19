@@ -228,23 +228,27 @@ def actionable_classes(classes: dict) -> list:
 
 # --- Claude analysis ---------------------------------------------------------
 
-TRIAGE_PROMPT = """Jsi denní produkční triage analytik pro missingmcp.com — OAuth \
-gateway hostující MCP konektory (Garmin přes per-user worker podprocesy, WHOOP \
-in-process). Dostaneš JSON: agregované chybové třídy za posledních 24 h (s max \
-3 maskovanými vzorky na třídu) a počty stream-teardownů.
+TRIAGE_PROMPT = """Jsi ranní provozní hlásič pro missingmcp.com. Tvůj čtenář je \
+provozovatel služby — čte to u kávy a chce vědět jediné: děje se něco, co bolí \
+uživatele nebo službu, a mám dnes něco udělat? Není to vývojář ponořený v kódu; \
+výpis výjimek ho nezajímá.
 
-Napiš operátorovi zprávu do Slacku ČESKY. Tvrdá pravidla:
-- MAXIMÁLNĚ 8 řádků celkem. Žádný úvod, žádná hlavička, žádné převyprávění \
-vstupu, žádné závěrečné shrnutí.
-- Jen třídy vyžadující akci, max 3, nejdůležitější první. Každá přesně 2 řádky:
-  • třída: co se děje, s čísly (jedna věta)
-    → jedna konkrétní akce (příkaz, ticket, co sledovat — nikdy jen "prozkoumat")
-- Rutinní třídy (credential-expiry, auth-flow-noise, garmin-upstream pod \
-prahem) NEZMIŇUJ vůbec.
-- Známý kontext: forward-error (ConnectError na worker forwardech) = ticket 12 \
-— odkaž na něj, nezakládej nový; nárůst POST-side teardownů = user-facing.
-- Čísla nevymýšlej, vstup je jediný zdroj. E-maily jsou předem maskované.
-- Když nic akci nevyžaduje, napiš jen jednu řádku, že je klid."""
+Než cokoli napíšeš, zorientuj se (běžíš v checkoutu repa, máš read-only \
+přístup): přečti si .scratch/reliability/map.md (hlavně "Decisions so far") a \
+projdi otevřené tickety v .scratch/reliability/issues/ — co už je vyřešené, \
+známé nebo se sleduje. Vstupní JSON v tomto promptu jsou agregované chyby za \
+posledních 24 h.
+
+Pravidla zprávy (ČESKY, maximálně 8 řádků, žádný úvod ani závěr):
+- Mluv o DOPADU, ne o technologii: "cca 100 pokusům o připojení Garminu dnes \
+selhal první pokus (klient to zopakuje a projde)" je dobře; "ConnectError \
+traceback z httpx" je špatně. Technický název třídy dej jen jednou do závorky.
+- Co už je známé a má ticket: JEDNA řádka — "známé, sleduje ticket X, dnes N \
+výskytů, trend". Žádná nová akce, žádné vysvětlování.
+- Novou akci navrhuj jen u věcí bez ticketu — formuluj ji jako jednu větu, \
+kterou provozovatel může říct svému agentovi ("řekni Claudovi, ať…").
+- Rutinní samoopravné třídy vůbec nezmiňuj. Když není co řešit: jedna řádka.
+- Čísla ber jen ze vstupu, nic nedomýšlej. E-maily jsou maskované."""
 
 
 def claude_analyze(api_key: str, model: str, aggregates: dict) -> "str | None":
@@ -292,6 +296,9 @@ def claude_analyze_subscription(aggregates: dict) -> "str | None":
     try:
         proc = subprocess.run(
             ["claude", "-p", "--output-format", "text",
+             # Read-only repo access: the analyst grounds itself in the live
+             # tracker (.scratch/reliability) before writing — no Bash/Write.
+             "--allowedTools", "Read,Grep,Glob",
              "--append-system-prompt", TRIAGE_PROMPT,
              json.dumps(aggregates, sort_keys=True)],
             capture_output=True, text=True, timeout=600)
