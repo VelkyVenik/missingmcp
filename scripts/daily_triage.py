@@ -77,6 +77,35 @@ _LOGS_QUERY = (
     "deploymentLogs(deploymentId:$did,startDate:$s,endDate:$e,limit:$lim,filter:$f){ "
     "timestamp severity message attributes{key value} } }")
 
+# Railway logs are PER DEPLOYMENT — a 24 h window against only the latest
+# deployment silently loses everything before the day's last deploy (pushes to
+# main deploy automatically, so that's most days). Cover the window by querying
+# every deployment that overlapped it; REMOVED deployments' logs stay
+# retrievable, verified live 2026-08-19.
+_DEPLOYMENTS_QUERY = (
+    "query($in:DeploymentListInput!,$n:Int){ deployments(input:$in, first:$n)"
+    "{ edges { node { id createdAt } } } }")
+
+
+def list_deployments(token: str, service_id: str, environment_id: str,
+                     n: int = 15) -> list:
+    data = hd.railway_graphql(token, _DEPLOYMENTS_QUERY, {
+        "in": {"serviceId": service_id, "environmentId": environment_id}, "n": n})
+    return [e["node"] for e in (data.get("deployments") or {}).get("edges") or []]
+
+
+def pick_deployments(deployments: list, start_iso: str) -> list:
+    """Deployment ids overlapping [start, now]: every deployment created inside
+    the window, plus the newest one created before it (live at window start).
+    Timestamps compare lexicographically after truncation to seconds."""
+    def _key(d):
+        return d["createdAt"][:19]
+    inside, before = [], []
+    for d in sorted(deployments, key=_key, reverse=True):
+        (inside if _key(d) >= start_iso[:19] else before).append(d)
+    picked = inside + before[:1]
+    return [d["id"] for d in picked]
+
 
 def row_dict(entry: dict) -> dict:
     """A Railway log entry → our structured-log dict (all fields, JSON-decoded
@@ -114,11 +143,15 @@ def collect(token: str, service_id: str, environment_id: str,
     now = datetime.now(timezone.utc)
     start = (now - timedelta(hours=window_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    deployment_id = hd.resolve_deployment_id(token, service_id, environment_id)
-    error_rows = [row_dict(e) for e in _fetch(token, deployment_id, start, end,
-                                              "@level:error")]
-    warn_rows = [row_dict(e) for e in _fetch(token, deployment_id, start, end,
-                                             "@level:warn")]
+    deployment_ids = pick_deployments(
+        list_deployments(token, service_id, environment_id), start)
+    print(f"[collect] {len(deployment_ids)} deployment(s) overlap the window")
+    error_rows, warn_rows = [], []
+    for did in deployment_ids:
+        error_rows += [row_dict(e) for e in _fetch(token, did, start, end,
+                                                   "@level:error")]
+        warn_rows += [row_dict(e) for e in _fetch(token, did, start, end,
+                                                  "@level:warn")]
     teardowns = [r for r in warn_rows if r.get("event") == "mcp-stream-interrupted"]
     post_side = sum(1 for r in teardowns if r.get("tool") is not None)
     return {"error_rows": error_rows,
