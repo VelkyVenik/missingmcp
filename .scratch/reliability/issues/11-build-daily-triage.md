@@ -1,7 +1,7 @@
 # 11 — Build the daily triage and retire the hourly pings
 
 Type: task
-Status: open
+Status: claimed
 Blocked by: 08
 
 Execution ticket — the design is locked in
@@ -43,3 +43,12 @@ Design constraint added 2026-08-19: keep ALL posting behind one small
 `notify()` seam — the operator wants to move off Slack
 ([13](13-operator-channel.md)); the channel must be a config swap, not a
 rewrite.
+
+## Comments
+
+- 2026-08-19: implemented on `feat/daily-triage`, **PR #19 open**
+  (https://github.com/VelkyVenik/missingmcp/pull/19). Suite 384 passed.
+  Resolves on merge + a successful dry-run of the workflow against
+  production (needs new GH secrets POSTHOG_QUERY_KEY + ANTHROPIC_API_KEY —
+  checklist in the PR body). PostHog "Worker start failures >=3/hour"
+  alert kept as belt-and-braces.

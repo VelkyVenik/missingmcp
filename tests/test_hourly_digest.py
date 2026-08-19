@@ -178,102 +178,67 @@ def test_summarize_counts_and_excludes_self_heal():
 def test_verdict_healthy_is_silent():
     s = hd.summarize([_entry(event="mcp-request"),
                       _entry(event="mcp-response", status=200, account="a@x")])
-    v = hd.verdict(s, probe_ok=True, is_heartbeat=False, anomaly_min=3)
-    assert v == {"should_post": False, "loud": False, "minor": False, "heartbeat": False}
+    v = hd.verdict(s, probe_ok=True)
+    assert v == {"should_post": False, "loud": False, "reasons": []}
 
 
-def test_verdict_heartbeat_posts_quiet():
-    s = hd.summarize([_entry(event="mcp-response", status=200, account="a@x")])
-    v = hd.verdict(s, probe_ok=True, is_heartbeat=True, anomaly_min=3)
-    assert v["should_post"] and v["heartbeat"] and not v["loud"] and not v["minor"]
+def test_verdict_generic_errors_are_not_a_hard_signal():
+    # The big retune (reliability 08/11): plain error volume no longer pages —
+    # the daily triage analyzes it. Even many generic errors stay silent here.
+    rows = [_entry(level="error", event="local-forward-error", account=f"{i}@x")
+            for i in range(10)]
+    v = hd.verdict(hd.summarize(rows), probe_ok=True)
+    assert not v["should_post"]
 
 
-def test_verdict_minor_below_threshold():
-    s = hd.summarize(_mixed())                       # problems == 2
-    v = hd.verdict(s, probe_ok=True, is_heartbeat=False, anomaly_min=3)
-    assert v["minor"] and not v["loud"] and v["should_post"]
+def test_verdict_5xx_is_loud():
+    rows = [_entry(event="mcp-response", status=502, account="a@x")]
+    v = hd.verdict(hd.summarize(rows), probe_ok=True)
+    assert v["loud"] and any(r.startswith("5xx") for r in v["reasons"])
 
 
-def test_verdict_loud_at_threshold():
-    rows = _mixed() + [_entry(event="mcp-response", status=500, account="c@x")]  # problems == 3
-    v = hd.verdict(hd.summarize(rows), probe_ok=True, is_heartbeat=False, anomaly_min=3)
-    assert v["loud"] and v["should_post"]
+def test_verdict_critical_is_loud():
+    rows = [_entry(level="critical", event="anything", account="a@x")]
+    assert hd.verdict(hd.summarize(rows), probe_ok=True)["loud"]
 
 
 def test_verdict_probe_failure_is_loud_even_when_clean():
     s = hd.summarize([_entry(event="mcp-request")])
-    v = hd.verdict(s, probe_ok=False, is_heartbeat=False, anomaly_min=3)
-    assert v["loud"] and v["should_post"]
+    v = hd.verdict(s, probe_ok=False)
+    assert v["loud"] and "probe-failed" in v["reasons"]
 
 
-def test_verdict_self_heal_alone_is_not_an_anomaly():
+def test_verdict_self_heal_alone_is_not_a_signal():
     rows = [_entry(level="error", event="local-forward-auth-stale", account=f"{i}@x")
             for i in range(5)]
-    v = hd.verdict(hd.summarize(rows), probe_ok=True, is_heartbeat=False, anomaly_min=3)
-    assert not v["loud"] and not v["minor"] and not v["should_post"]
+    assert not hd.verdict(hd.summarize(rows), probe_ok=True)["should_post"]
 
 
-def test_stale_worker_credentials_are_self_heal_but_worker_faults_are_not():
-    # The whole point of splitting the worker event: a stale-credentials row is a
-    # re-auth signal that stays quiet, while `worker-start-failed` now means the
-    # worker itself broke and must escalate like any other error.
-    stale = [_entry(event="worker-forward-auth-stale", account=f"{i}@x") for i in range(5)]
-    s = hd.summarize(stale)
-    assert s["reauth"] == 5 and s["err_rows"] == 0 and s["problems"] == 0
-    assert not hd.verdict(s, probe_ok=True, is_heartbeat=False, anomaly_min=3)["should_post"]
+def test_worker_fault_burst_pages_but_a_single_account_does_not():
+    # The validated 2026-07-31 broken-image signature: worker-start-failed
+    # across MANY distinct accounts means our image/gateway broke. The same
+    # event repeated for ONE account is that account's problem — daily triage.
+    one = [_entry(level="error", event="worker-start-failed", account="a@x")
+           for _ in range(4)]
+    s = hd.summarize(one)
+    assert s["worker_fault_accounts"] == 1
+    assert not hd.verdict(s, probe_ok=True)["should_post"]
 
-    faults = [_entry(level="error", event="worker-start-failed", account=f"{i}@x")
-              for i in range(3)]
-    s = hd.summarize(faults)
-    assert s["reauth"] == 0 and s["err_rows"] == 3
-    assert hd.verdict(s, probe_ok=True, is_heartbeat=False, anomaly_min=3)["loud"]
-
-
-def _prague(day, hour, minute=0):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    return datetime(2026, 7, day, hour, minute, tzinfo=ZoneInfo("Europe/Prague"))
-
-
-def test_heartbeat_due_on_the_hour():
-    assert hd.heartbeat_due(_prague(19, 8, 17), 8, [_prague(19, 7, 17)])
-
-
-def test_heartbeat_not_due_before_the_hour():
-    assert not hd.heartbeat_due(_prague(19, 7, 45), 8, [])
-
-
-def test_heartbeat_catches_up_when_the_hour_was_skipped():
-    # GitHub dropped the 08:xx run — the 10:06 run posts instead.
-    assert hd.heartbeat_due(_prague(19, 10, 6), 8, [_prague(19, 7, 45), _prague(19, 4, 7)])
-
-
-def test_heartbeat_not_repeated_after_an_eligible_run():
-    # A successful run already landed at/after the heartbeat hour today.
-    assert not hd.heartbeat_due(_prague(19, 10, 6), 8, [_prague(19, 8, 17)])
-    assert not hd.heartbeat_due(_prague(19, 11, 52), 8, [_prague(19, 10, 6)])
-
-
-def test_heartbeat_yesterday_run_does_not_block_today():
-    assert hd.heartbeat_due(_prague(19, 8, 17), 8, [_prague(18, 8, 17), _prague(18, 23, 47)])
-
-
-def test_heartbeat_falls_back_to_exact_hour_without_run_visibility():
-    assert hd.heartbeat_due(_prague(19, 8, 30), 8, None)
-    assert not hd.heartbeat_due(_prague(19, 10, 6), 8, None)
+    burst = [_entry(level="error", event="worker-start-failed", account=f"{i}@x")
+             for i in range(2)]
+    s = hd.summarize(burst)
+    assert s["worker_fault_accounts"] == 2
+    v = hd.verdict(s, probe_ok=True)
+    assert v["loud"] and any(r.startswith("worker-faults") for r in v["reasons"])
 
 
 def test_render_down_and_loud_ping_here():
     s = hd.summarize([_entry(event="mcp-request")])
     down = hd.render(s, probe_ok=False,
-                     v={"loud": True, "minor": False, "heartbeat": False},
+                     v={"loud": True, "reasons": ["probe-failed"]},
                      window_min=60, gateway_url="https://missingmcp.com")
     assert "DOWN" in down and "<!here>" in down
     loud = hd.render(hd.summarize(_mixed()), probe_ok=True,
-                     v={"loud": True, "minor": False, "heartbeat": False},
+                     v={"loud": True, "reasons": ["5xx:1"]},
                      window_min=60, gateway_url="https://missingmcp.com")
-    assert "<!here>" in loud
-    healthy = hd.render(s, probe_ok=True,
-                        v={"loud": False, "minor": False, "heartbeat": True},
-                        window_min=60, gateway_url="https://missingmcp.com")
-    assert "healthy" in healthy and "<!here>" not in healthy
+    assert "<!here>" in loud and "5xx:1" in loud

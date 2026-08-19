@@ -1,4 +1,4 @@
-name: Hourly health digest
+name: Hourly hard-signal pager
 
 on:
   schedule:
@@ -9,13 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Print the digest but do not post to Slack"
+        description: "Print the verdict but do not post to Slack"
         type: boolean
         default: false
 
 permissions:
   contents: read
-  actions: read   # the script lists today's runs to catch up a skipped heartbeat
 
 concurrency:
   group: hourly-digest
@@ -28,19 +27,16 @@ jobs:
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      GITHUB_TOKEN: ${{ github.token }}   # heartbeat catch-up (list prior runs)
       RAILWAY_SERVICE_ID: 46a897db-2758-4cc0-855b-194a3a9a4164
       RAILWAY_ENVIRONMENT_ID: 622730fa-6d86-40d3-b0bd-6de19bd42728
       GATEWAY_URL: https://missingmcp.com
-      # HEARTBEAT_HOUR / REPORT_TZ / ANOMALY_MIN use the script defaults
-      # (08:00 Europe/Prague, >=3). Override here if needed.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install "httpx>=0.27"
-      - name: Run digest
+      - name: Run pager
         run: >
           python scripts/hourly_digest.py
           ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
