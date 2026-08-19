@@ -9,7 +9,7 @@ import daily_triage as dt  # noqa: E402
 
 
 def _row(**fields):
-    return json.dumps(fields)
+    return fields
 
 
 # --- classification ----------------------------------------------------------
@@ -56,8 +56,8 @@ def test_classify_masks_emails_in_samples():
     assert "jan***" in sample
 
 
-def test_classify_survives_unparseable_bodies():
-    c = dt.classify(["not json at all"])
+def test_classify_survives_non_dict_rows():
+    c = dt.classify(["not a dict at all"])
     assert c["unclassified"]["count"] == 1
 
 
@@ -152,13 +152,13 @@ def _agg(classes=None, actionable=None):
     return {"window_hours": 24, "classes": classes or {},
             "actionable": actionable or [],
             "teardown_total": 120, "teardown_post_side": 3,
-            "tool_calls": 15000, "active_accounts": 80}
+            "error_row_count": 42}
 
 
 def test_render_healthy_day_is_one_line():
     text = dt.render(_agg(), None)
     assert "all quiet" in text and "\n" not in text
-    assert "15000 tool calls" in text
+    assert "42 error rows" in text and "120" in text
 
 
 def test_render_analysis_day_carries_claude_text():
@@ -173,3 +173,43 @@ def test_render_degrades_to_deterministic_table_when_analysis_missing():
                           actionable=["worker-fault"]), None)
     assert "analysis unavailable" in text
     assert "worker-fault: 2" in text and "credential-expiry: 5" in text
+
+
+# --- backend dispatch ----------------------------------------------------------
+
+def test_analyze_prefers_subscription_backend(monkeypatch):
+    calls = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = "SUBSCRIPTION ANALYSIS\n"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        calls["cmd"] = cmd
+        return _Proc()
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "should-not-be-used")
+    monkeypatch.setattr(dt.subprocess, "run", fake_run)
+    monkeypatch.setattr(dt.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    assert dt.analyze({"x": 1}) == "SUBSCRIPTION ANALYSIS"
+    assert calls["cmd"][0] == "claude" and "-p" in calls["cmd"]
+
+
+def test_analyze_subscription_failure_degrades_to_none(monkeypatch):
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "boom"
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(dt.subprocess, "run", lambda *a, **k: _Proc())
+    assert dt.analyze({}) is None
+
+
+def test_analyze_without_any_backend_is_none(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert dt.analyze({}) is None

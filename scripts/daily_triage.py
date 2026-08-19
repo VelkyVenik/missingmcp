@@ -6,8 +6,10 @@ operator's main channel (design: .scratch/reliability/issues/08, operator-grille
 2026-08-19); the hourly workflow survives as a hard-signal pager only.
 
 Runs standalone in GitHub Actions (httpx + stdlib only — does NOT import the
-missingmcp package). Data comes from PostHog (logs + $mcp events) via the Query
-API (HogQL); classification of KNOWN signatures is deterministic in this script,
+missingmcp package; it does reuse scripts/hourly_digest.py's Railway client).
+Data comes from the gateway's Railway logs (the same stream PostHog receives —
+the PostHog Query API turned out to be plan-gated, so the free, proven Railway
+path won); classification of KNOWN signatures is deterministic in this script,
 and only the non-routine remainder goes to the Claude API for analysis and
 proposed actions. Egress rule: aggregates and masked samples only — account
 e-mails are masked to 3 chars before anything leaves this script, and MCP
@@ -21,12 +23,16 @@ Verdict:
                aggregate table posts instead (degraded, never silent).
 
 Env:
-  POSTHOG_QUERY_KEY    personal API key with query-read scope (phx_...)  [required]
-  POSTHOG_PROJECT_ID   PostHog project id             (default 227772)
-  POSTHOG_HOST         PostHog host                   (default https://eu.posthog.com)
-  ANTHROPIC_API_KEY    Claude API key                 [required unless --dry-run]
-  SLACK_WEBHOOK_URL    incoming webhook               [required unless --dry-run]
-  TRIAGE_MODEL         Claude model id                (default claude-opus-5)
+  RAILWAY_API_TOKEN       project or account token (as in hourly_digest)  [required]
+  RAILWAY_SERVICE_ID      gateway service uuid                            [required]
+  RAILWAY_ENVIRONMENT_ID  production environment uuid                     [required]
+  CLAUDE_CODE_OAUTH_TOKEN Claude Code subscription token (`claude setup-token`)
+                          — analysis runs via headless `claude -p` on the
+                          operator's subscription (preferred; no API credits)
+  ANTHROPIC_API_KEY       Claude API key — fallback backend when the
+                          subscription token is absent
+  SLACK_WEBHOOK_URL       incoming webhook               [required unless --dry-run]
+  TRIAGE_MODEL            Claude model id, API backend only (default claude-opus-5)
 
 Usage: python scripts/daily_triage.py [--dry-run] [--window-hours 24]
 """
@@ -35,6 +41,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -60,46 +67,62 @@ _AUTH_NOISE_EVENTS = {"authorize-csrf-invalid", "authorize-client-id-not-dcr",
                       "login-start-failed", "mfa-resume-failed"}
 
 
-# --- PostHog Query API (HogQL) ----------------------------------------------
+# --- Railway logs (via hourly_digest's client) --------------------------------
+# hourly_digest.py lives next to this script; python puts the script dir on
+# sys.path, so the import works both in CI and under pytest.
+import hourly_digest as hd  # noqa: E402
 
-def posthog_query(host: str, project_id: str, key: str, sql: str) -> list:
-    """One HogQL query via POST /api/environments/:id/query. Returns `results`
-    (list of rows, each a list of columns)."""
-    resp = httpx.post(
-        f"{host}/api/environments/{project_id}/query",
-        headers={"Authorization": f"Bearer {key}"},
-        json={"query": {"kind": "HogQLQuery", "query": sql}},
-        timeout=60.0,
-    )
-    resp.raise_for_status()
-    return resp.json().get("results") or []
+_LOGS_QUERY = (
+    "query($did:String!,$s:DateTime,$e:DateTime,$lim:Int,$f:String){ "
+    "deploymentLogs(deploymentId:$did,startDate:$s,endDate:$e,limit:$lim,filter:$f){ "
+    "timestamp severity message attributes{key value} } }")
 
 
-def collect(host: str, project_id: str, key: str, window_hours: int) -> dict:
-    """The day's raw material: error/fatal log rows, stream-teardown warn counts,
-    and traffic figures. Row bodies are our own structured-JSON log lines."""
-    w = int(window_hours)
-    error_rows = posthog_query(host, project_id, key, f"""
-        SELECT body, severity_text FROM logs
-        WHERE timestamp >= now() - INTERVAL {w} HOUR
-          AND severity_text IN ('error', 'fatal')
-        ORDER BY timestamp DESC LIMIT 2000""")
-    teardown = posthog_query(host, project_id, key, f"""
-        SELECT countIf(body NOT LIKE '%"tool": null%') AS post_side, count() AS total
-        FROM logs
-        WHERE timestamp >= now() - INTERVAL {w} HOUR
-          AND severity_text = 'warn'
-          AND body LIKE '%mcp-stream-interrupted%'""")
-    traffic = posthog_query(host, project_id, key, f"""
-        SELECT count() AS calls, count(DISTINCT distinct_id) AS accounts
-        FROM events
-        WHERE event = '$mcp_tool_call'
-          AND timestamp >= now() - INTERVAL {w} HOUR""")
-    post_side, teardown_total = (teardown[0] if teardown else (0, 0))
-    calls, accounts = (traffic[0] if traffic else (0, 0))
-    return {"error_rows": [r[0] for r in error_rows],
-            "teardown_total": int(teardown_total), "teardown_post_side": int(post_side),
-            "tool_calls": int(calls), "active_accounts": int(accounts)}
+def row_dict(entry: dict) -> dict:
+    """A Railway log entry → our structured-log dict (all fields, JSON-decoded
+    attribute values; message-JSON fallback like hourly_digest.parse_row)."""
+    def _dec(v):
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return v
+    row = {a["key"]: _dec(a["value"]) for a in (entry.get("attributes") or [])}
+    if "event" not in row:
+        try:
+            j = json.loads(entry.get("message") or "")
+            if isinstance(j, dict):
+                row = j
+        except (ValueError, TypeError):
+            row = {"event": "unparseable", "message": str(entry.get("message"))[:200]}
+    return row
+
+
+def _fetch(token: str, deployment_id: str, start_iso: str, end_iso: str,
+           severity_filter: str) -> list:
+    data = hd.railway_graphql(token, _LOGS_QUERY, {
+        "did": deployment_id, "s": start_iso, "e": end_iso,
+        "lim": 5000, "f": severity_filter})
+    return data.get("deploymentLogs") or []
+
+
+def collect(token: str, service_id: str, environment_id: str,
+            window_hours: int) -> dict:
+    """The day's raw material: error/fatal rows (classified downstream) and the
+    stream-teardown warn counts. Traffic/usage figures deliberately stay out —
+    the gateway's own 08:00 user-stats report covers those."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(hours=window_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    deployment_id = hd.resolve_deployment_id(token, service_id, environment_id)
+    error_rows = [row_dict(e) for e in _fetch(token, deployment_id, start, end,
+                                              "@level:error")]
+    warn_rows = [row_dict(e) for e in _fetch(token, deployment_id, start, end,
+                                             "@level:warn")]
+    teardowns = [r for r in warn_rows if r.get("event") == "mcp-stream-interrupted"]
+    post_side = sum(1 for r in teardowns if r.get("tool") is not None)
+    return {"error_rows": error_rows,
+            "teardown_total": len(teardowns), "teardown_post_side": post_side}
 
 
 # --- deterministic classification (unit-tested) -----------------------------
@@ -140,21 +163,19 @@ def _classify_one(row: dict) -> "str | None":
 
 
 def classify(error_rows: list) -> dict:
-    """Aggregate raw error bodies into {class: {count, samples}}. Samples are
+    """Aggregate parsed error rows into {class: {count, samples}}. Samples are
     masked and truncated; at most 3 per class."""
     classes: dict = {}
-    for body in error_rows:
-        try:
-            row = json.loads(body)
-        except (ValueError, TypeError):
-            row = {"event": "unparseable", "message": str(body)[:200]}
+    for row in error_rows:
+        if not isinstance(row, dict):
+            row = {"event": "unparseable", "message": str(row)[:200]}
         cls = _classify_one(row)
         if cls is None:
             continue
         bucket = classes.setdefault(cls, {"count": 0, "samples": []})
         bucket["count"] += 1
         if len(bucket["samples"]) < 3:
-            bucket["samples"].append(mask(str(body))[:300])
+            bucket["samples"].append(mask(json.dumps(row, sort_keys=True))[:300])
     return classes
 
 
@@ -178,7 +199,7 @@ TRIAGE_PROMPT = """You are the daily production-triage analyst for missingmcp.co
 a small OAuth gateway that hosts per-user MCP connectors (Garmin via per-user \
 worker subprocesses, WHOOP in-process). You receive one JSON object: the last \
 24 hours of pre-aggregated error classes (with up to 3 masked sample log lines \
-each), stream-teardown counts, and traffic figures.
+each), and stream-teardown counts.
 
 Write the operator's daily Slack message. Rules:
 - Per problem class, in order of how actionable it is: WHAT HAPPENED (one line, \
@@ -231,14 +252,47 @@ def claude_analyze(api_key: str, model: str, aggregates: dict) -> "str | None":
     return None
 
 
+def claude_analyze_subscription(aggregates: dict) -> "str | None":
+    """The subscription backend: headless Claude Code (`claude -p`) authenticated
+    by CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`) — the operator's Claude
+    subscription pays for the analysis instead of API credits. Same contract as
+    claude_analyze: text, or None to degrade."""
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", "--output-format", "text",
+             "--append-system-prompt", TRIAGE_PROMPT,
+             json.dumps(aggregates, sort_keys=True)],
+            capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"[claude-code] failed: {type(e).__name__}", file=sys.stderr)
+        return None
+    if proc.returncode != 0:
+        print(f"[claude-code] rc={proc.returncode}: {proc.stderr[:300]}", file=sys.stderr)
+        return None
+    return proc.stdout.strip() or None
+
+
+def analyze(aggregates: dict) -> "str | None":
+    """Backend dispatch: subscription token first (free under the operator's
+    plan), API key as fallback, None (degraded) when neither is configured."""
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return claude_analyze_subscription(aggregates)
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key:
+        return claude_analyze(api_key, os.environ.get("TRIAGE_MODEL", DEFAULT_MODEL),
+                              aggregates)
+    print("[analyze] no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY — degraded")
+    return None
+
+
 # --- rendering + the notify seam ---------------------------------------------
 
 def render(aggregates: dict, analysis: "str | None") -> str:
     """The Slack message. Healthy day → one line; analysis day → Claude's text
     (or the deterministic degraded table when analysis is None)."""
     a = aggregates
-    traffic = (f"{a['tool_calls']} tool calls · {a['active_accounts']} accounts · "
-               f"teardowns {a['teardown_total']} ({a['teardown_post_side']} POST-side)")
+    traffic = (f"{a['error_row_count']} error rows · teardowns {a['teardown_total']} "
+               f"({a['teardown_post_side']} POST-side) · last {a['window_hours']}h")
     if not a["actionable"]:
         return f":large_green_circle: Daily triage: all quiet — {traffic}. Nothing needs you today."
     if analysis:
@@ -274,12 +328,10 @@ def main():
     p.add_argument("--window-hours", type=int, default=24)
     args = p.parse_args()
 
-    host = os.environ.get("POSTHOG_HOST", "https://eu.posthog.com")
-    project_id = os.environ.get("POSTHOG_PROJECT_ID", "227772")
-    ph_key = _need("POSTHOG_QUERY_KEY")
-    model = os.environ.get("TRIAGE_MODEL", DEFAULT_MODEL)
-
-    raw = collect(host, project_id, ph_key, args.window_hours)
+    token = _need("RAILWAY_API_TOKEN")
+    service_id = _need("RAILWAY_SERVICE_ID")
+    environment_id = _need("RAILWAY_ENVIRONMENT_ID")
+    raw = collect(token, service_id, environment_id, args.window_hours)
     classes = classify(raw["error_rows"])
     aggregates = {
         "window_hours": args.window_hours,
@@ -287,8 +339,7 @@ def main():
         "actionable": actionable_classes(classes),
         "teardown_total": raw["teardown_total"],
         "teardown_post_side": raw["teardown_post_side"],
-        "tool_calls": raw["tool_calls"],
-        "active_accounts": raw["active_accounts"],
+        "error_row_count": len(raw["error_rows"]),
     }
     print(f"[aggregates] {json.dumps({k: v for k, v in aggregates.items() if k != 'classes'})}")
     for name, data in sorted(classes.items()):
@@ -296,11 +347,7 @@ def main():
 
     analysis = None
     if aggregates["actionable"]:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if api_key:
-            analysis = claude_analyze(api_key, model, aggregates)
-        elif not args.dry_run:
-            _need("ANTHROPIC_API_KEY")
+        analysis = analyze(aggregates)
 
     text = render(aggregates, analysis)
     print(text)

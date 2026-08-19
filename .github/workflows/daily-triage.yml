@@ -25,16 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      POSTHOG_QUERY_KEY: ${{ secrets.POSTHOG_QUERY_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      # Subscription-backed analysis (claude setup-token); ANTHROPIC_API_KEY is
+      # the optional fallback backend — set either, not both needed.
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      # POSTHOG_PROJECT_ID / POSTHOG_HOST / TRIAGE_MODEL use the script defaults.
+      RAILWAY_SERVICE_ID: 46a897db-2758-4cc0-855b-194a3a9a4164
+      RAILWAY_ENVIRONMENT_ID: 622730fa-6d86-40d3-b0bd-6de19bd42728
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install "httpx>=0.27"
+      - name: Install Claude Code (subscription analysis backend)
+        run: npm install -g @anthropic-ai/claude-code
       - name: Run daily triage
         run: >
           python scripts/daily_triage.py

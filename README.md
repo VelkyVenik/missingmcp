@@ -243,16 +243,19 @@ demand for testing.
 
 **Daily triage** — a GitHub Actions workflow
 (`.github/workflows/daily-triage.yml`) runs `scripts/daily_triage.py` every
-morning (~07:45 Prague): it pulls the last 24 h from PostHog (logs + `$mcp`
-events), classifies the known error signatures deterministically, and — only
-when something actionable remains — has the Claude API write the operator's
-triage (what happened → what it means → proposed action, per class) and posts
-it to Slack. Healthy days post a one-line "all quiet" (the daily heartbeat);
-if the Claude call fails, the deterministic aggregate table posts instead —
-never silence. Requires repo secrets `POSTHOG_QUERY_KEY` (a personal API key
-with query-read scope), `ANTHROPIC_API_KEY`, and `SLACK_WEBHOOK_URL`. Run by
-hand with `python scripts/daily_triage.py --dry-run` (needs
-`POSTHOG_QUERY_KEY`; the Claude step is skipped without `ANTHROPIC_API_KEY`).
+morning (~07:45 Prague): it pulls the last 24 h of error/warn rows from the
+gateway's Railway logs, classifies the known error signatures
+deterministically, and — only when something actionable remains — has Claude
+write the operator's triage (what happened → what it means → proposed action,
+per class) and posts it to Slack. Healthy days post a one-line "all quiet"
+(the daily heartbeat); if the analysis fails, the deterministic aggregate
+table posts instead — never silence. The analysis runs on the operator's
+Claude subscription via headless Claude Code (repo secret
+`CLAUDE_CODE_OAUTH_TOKEN`, minted with `claude setup-token`); an
+`ANTHROPIC_API_KEY` secret works as the fallback backend. Also needs
+`RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL` (already present for the hourly
+pager). Run by hand with `python scripts/daily_triage.py --dry-run` (needs the
+`RAILWAY_*` env; the analysis step degrades gracefully without a token).
 
 **Hourly hard-signal pager** — a GitHub Actions workflow
 (`.github/workflows/hourly-digest.yml`) runs `scripts/hourly_digest.py` every
