@@ -157,21 +157,21 @@ def _agg(classes=None, actionable=None):
 
 def test_render_healthy_day_is_one_line():
     text = dt.render(_agg(), None)
-    assert "all quiet" in text and "\n" not in text
-    assert "42 error rows" in text and "120" in text
+    assert "klid" in text and "\n" not in text
+    assert "42 error řádků" in text and "120" in text
 
 
 def test_render_analysis_day_carries_claude_text():
     text = dt.render(_agg(classes={"worker-fault": {"count": 2, "samples": []}},
                           actionable=["worker-fault"]), "THE ANALYSIS")
-    assert "THE ANALYSIS" in text and "action needed" in text
+    assert "THE ANALYSIS" in text and "je co řešit" in text
 
 
 def test_render_degrades_to_deterministic_table_when_analysis_missing():
     text = dt.render(_agg(classes={"worker-fault": {"count": 2, "samples": []},
                                    "credential-expiry": {"count": 5, "samples": []}},
                           actionable=["worker-fault"]), None)
-    assert "analysis unavailable" in text
+    assert "analýza nedostupná" in text
     assert "worker-fault: 2" in text and "credential-expiry: 5" in text
 
 
