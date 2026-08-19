@@ -38,3 +38,8 @@ signature classification, verdicts, prompt assembly — the Claude call
 mocked); dry-run against production data before enabling the workflow.
 Feature branch + PR; new secrets provisioned by the operator (checklist in
 the PR body).
+
+Design constraint added 2026-08-19: keep ALL posting behind one small
+`notify()` seam — the operator wants to move off Slack
+([13](13-operator-channel.md)); the channel must be a config swap, not a
+rewrite.
