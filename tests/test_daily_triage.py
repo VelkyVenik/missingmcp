@@ -213,3 +213,23 @@ def test_analyze_without_any_backend_is_none(monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert dt.analyze({}) is None
+
+
+# --- deployment window selection ------------------------------------------------
+
+def test_pick_deployments_covers_the_whole_window():
+    # Railway logs are per-deployment: the window must include every deployment
+    # created inside it PLUS the newest one from before (live at window start).
+    deps = [
+        {"id": "newest", "createdAt": "2026-08-19T20:28:06.998Z"},
+        {"id": "midday", "createdAt": "2026-08-19T10:00:00.000Z"},
+        {"id": "before", "createdAt": "2026-08-18T09:00:00.000Z"},
+        {"id": "ancient", "createdAt": "2026-08-10T09:00:00.000Z"},
+    ]
+    picked = dt.pick_deployments(deps, "2026-08-18T21:00:00Z")
+    assert picked == ["newest", "midday", "before"]     # ancient excluded
+
+
+def test_pick_deployments_no_deploy_inside_window():
+    deps = [{"id": "old", "createdAt": "2026-08-10T09:00:00.000Z"}]
+    assert dt.pick_deployments(deps, "2026-08-18T21:00:00Z") == ["old"]
