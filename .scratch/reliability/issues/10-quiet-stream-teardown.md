@@ -1,7 +1,7 @@
 # 10 — Quiet the routine stream-teardown noise (80 % of current error volume)
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by: 09
 
 Execution ticket (hybrid map — mechanism established by
@@ -44,3 +44,17 @@ stop feeding the pager by construction. Feature branch + PR.
   (https://github.com/VelkyVenik/missingmcp/pull/18), awaiting CodeRabbit +
   merge. Suite 375 passed. Resolves on merge + deploy; expected effect is a
   ~80 % drop in error volume — verify in the next digest hours after deploy.
+
+## Answer (2026-08-19)
+
+Merged and deployed: **PR #18**, merge commit `8876e82`. CodeRabbit skipped
+the automatic review (new policy: repos under 10 stars don't get auto
+reviews); the operator chose to merge on the strength of the TDD coverage
+(375 passed). `proxy.stream()` ends a torn-down stream and logs one warn
+`mcp-stream-interrupted` (adapter, account, tool, error type, bytes);
+`workers._pump_worker_output` keeps the worker's mirror line at info — the
+one deliberate exception to the loose `_WORKER_ERROR` filter. Expected
+effect: ~80 % drop in error rows (~290/day of teardown noise), i.e. mostly
+quiet digest hours — verify against the next day's digest posts; a
+POST-side surge of `mcp-stream-interrupted` (warn, user-facing risk) is
+signature material for the triage design (ticket 08).

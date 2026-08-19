@@ -89,6 +89,12 @@ Three things are true at the end of this map:
   rows/day, no demonstrable user impact. Fix graduated into
   [Quiet the stream-teardown noise](issues/10-quiet-stream-teardown.md).
 
+- [Quiet the routine stream-teardown noise](issues/10-quiet-stream-teardown.md)
+  — shipped (PR #18, merge `8876e82`): teardowns end the stream with one warn
+  `mcp-stream-interrupted` instead of two ERROR rows; the pager loses ~80 %
+  of its volume by construction. Warn stays visible — a POST-side surge is a
+  triage signature, not silence.
+
 ## Not yet specified
 
 - **Implementation of the autonomous triage mechanism** — once
