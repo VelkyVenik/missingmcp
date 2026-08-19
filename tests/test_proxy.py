@@ -200,3 +200,69 @@ def test_mcp_tool_parsing():
     assert proxy._mcp_tool(b"") is None
     assert proxy._mcp_tool(b"not json") is None
     assert proxy._mcp_tool(b'[{"method":"x"}]') is None  # batch: skipped
+
+
+def test_stream_teardown_is_a_warn_not_a_traceback(tmp_path, capsys):
+    # A routine MCP session teardown: the worker aborts its open SSE stream
+    # without the terminating chunk (httpx.RemoteProtocolError mid-stream).
+    # That must NOT escape into the ASGI stack as an ERROR traceback — it was
+    # ~80% of production error volume with zero demonstrated user impact
+    # (reliability tickets 09/10). One structured warn event keeps it visible.
+    import json as jsonlib
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class CutStream(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):  # silence
+            pass
+
+        def do_GET(self):  # /healthz
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("content-length", 0)))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            chunk = b"event: message\n"
+            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+            self.wfile.flush()
+            # hang up WITHOUT the terminating 0-length chunk — the teardown
+            # signature. shutdown(), not just close(): rfile/wfile hold dup'd
+            # FDs that would otherwise keep the TCP connection alive.
+            import socket as socketlib
+            self.connection.shutdown(socketlib.SHUT_RDWR)
+            self.connection.close()
+
+    httpd = HTTPServer(("127.0.0.1", 0), CutStream)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        conn = store.init_db(":memory:")
+        cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://x",
+                           "DATA_DIR": str(tmp_path),
+                           "WORKER_PORT_START": str(port), "WORKER_PORT_END": str(port)})
+        token = "tok-cut"
+        store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+        store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
+        mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+        c = _app(conn, mgr, cfg)
+        r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+                   headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        assert r.text == "event: message\n"       # the partial body still reaches the client
+        events = [jsonlib.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+        cut = next(e for e in events if e["event"] == "mcp-stream-interrupted")
+        assert cut["level"] == "warn"              # visible to triage, invisible to the pager
+        assert cut["error"] == "RemoteProtocolError"
+        assert cut["bytes"] == len(b"event: message\n")
+        resp = next(e for e in events if e["event"] == "mcp-response")
+        assert resp["status"] == 200               # the finally bookkeeping still runs
+    finally:
+        httpd.shutdown()

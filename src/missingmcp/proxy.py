@@ -6,7 +6,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import store, security, telemetry
 from .adapters.base import is_remote, is_local, SessionExpired
 from .workers import WorkerStartError, WorkerCredentialsRejected
-from .log import log, log_error, log_exc
+from .log import log, log_warn, log_error, log_exc
 
 # Upstream forward timeout for both strategies (parity with the TS proxy's 30s).
 FORWARD_TIMEOUT_S = 30.0
@@ -264,6 +264,16 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
             async for chunk in upstream.aiter_raw():
                 sent += len(chunk)
                 yield chunk
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout) as e:
+            # Routine stream teardown: the upstream aborts an in-flight
+            # chunked/SSE body — for MCP that's a session ending under an open
+            # listen stream, ~hundreds/day in production with no user impact
+            # (the client just re-opens; reliability ticket 09). End the
+            # response instead of letting the exception hit the ASGI stack as
+            # an ERROR traceback. Warn, not info: a surge on POST tool calls
+            # WOULD be user-facing, and triage must still see it.
+            log_warn("mcp-stream-interrupted", adapter=adapter.name, account=key,
+                     tool=tool, error=type(e).__name__, bytes=sent)
         finally:
             await upstream.aclose()
             await client.aclose()

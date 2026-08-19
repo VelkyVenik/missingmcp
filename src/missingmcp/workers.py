@@ -16,6 +16,11 @@ _SAFE = re.compile(r"[^A-Za-z0-9_.@-]")
 # surfaces them; everything else is info. Deliberately loose — false negatives
 # just stay info-level and remain searchable.
 _WORKER_ERROR = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b")
+# The one deliberate exception to that loose filter: the worker's uvicorn
+# prints this on every routine MCP session teardown (the client hung up its
+# open listen stream, the gateway stopped reading) — not a fault, and at
+# production volume it alone kept the pager loud (reliability ticket 10).
+_WORKER_ROUTINE = "ASGI callable returned without completing response"
 
 
 def _pump_worker_output(stream, account: str) -> None:
@@ -28,7 +33,8 @@ def _pump_worker_output(stream, account: str) -> None:
             line = raw.rstrip()
             if not line:
                 continue
-            emit = log_error if _WORKER_ERROR.search(line) else log
+            elevated = _WORKER_ERROR.search(line) and _WORKER_ROUTINE not in line
+            emit = log_error if elevated else log
             emit("worker-log", account=account, line=line)
     except Exception:  # noqa: BLE001 - a logging pump must never take anything down
         pass

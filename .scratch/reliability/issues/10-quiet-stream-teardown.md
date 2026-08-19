@@ -1,7 +1,7 @@
 # 10 — Quiet the routine stream-teardown noise (80 % of current error volume)
 
 Type: task
-Status: open
+Status: claimed
 Blocked by: 09
 
 Execution ticket (hybrid map — mechanism established by
