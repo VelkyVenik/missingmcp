@@ -203,6 +203,15 @@ clients retry forever (`docs` / `.scratch/oauth-client-lifecycle`).
 Every completed forward logs `mcp-response` (account, tool, status,
 `ttfb_ms` / `total_ms` / `bytes`) — the per-request latency record.
 
+A stream the upstream aborts mid-body (`httpx.RemoteProtocolError` /
+`ReadError` / `ReadTimeout` inside the proxied iterator — for MCP that's a
+routine session teardown under an open listen stream) ends the response and
+logs one **warn** `mcp-stream-interrupted` (adapter, account, tool, error
+type, bytes sent) instead of escaping into the ASGI stack as an ERROR
+traceback; the worker's mirror stdout line ("ASGI callable returned without
+completing response") is likewise kept at info by the pump filter. Warn, not
+silent: a surge of interrupted POST tool calls would be user-facing.
+
 ### `app.py`
 
 `build_app(config)` wires routes + security-headers middleware + shared

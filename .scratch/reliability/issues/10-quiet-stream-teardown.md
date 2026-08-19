@@ -1,7 +1,7 @@
 # 10 — Quiet the routine stream-teardown noise (80 % of current error volume)
 
 Type: task
-Status: open
+Status: claimed
 Blocked by: 09
 
 Execution ticket (hybrid map — mechanism established by
@@ -37,3 +37,10 @@ Implement:
 Log-schema note: new event name added (`mcp-stream-interrupted`), nothing
 renamed; the hourly digest counts error/critical rows only, so warn rows
 stop feeding the pager by construction. Feature branch + PR.
+
+## Comments
+
+- 2026-08-19: implemented on `fix/quiet-stream-teardown`, **PR #18 open**
+  (https://github.com/VelkyVenik/missingmcp/pull/18), awaiting CodeRabbit +
+  merge. Suite 375 passed. Resolves on merge + deploy; expected effect is a
+  ~80 % drop in error volume — verify in the next digest hours after deploy.

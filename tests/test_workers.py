@@ -522,3 +522,19 @@ async def test_manager_delegates_to_forward(tmp_path, fake_worker):
     assert ("materialize", '{"blob":1}', calls[0][2]) == calls[0]   # forward wrote the credentials
     assert calls[0][2].endswith("/tokens")                          # into the manager-owned workdir
     mgr.shutdown()
+
+
+def test_pump_demotes_routine_stream_teardown_line(capsys):
+    # The worker's uvicorn prints "ASGI callable returned without completing
+    # response" on every routine MCP session teardown (the client hung up its
+    # listen stream) — a real fault it is not, so it must stay info despite
+    # matching the deliberately-loose _WORKER_ERROR filter (reliability 10).
+    import json as jsonlib
+    workers._pump_worker_output(iter([
+        "ERROR:    ASGI callable returned without completing response.\n",
+        "ERROR: something actually broke\n",
+    ]), "me@x.cz")
+    events = [jsonlib.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    levels = {e["line"][:22]: e["level"] for e in events if e["event"] == "worker-log"}
+    assert levels["ERROR:    ASGI callabl"] == "info"
+    assert levels["ERROR: something actua"] == "error"
