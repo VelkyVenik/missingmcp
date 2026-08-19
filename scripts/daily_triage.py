@@ -228,24 +228,23 @@ def actionable_classes(classes: dict) -> list:
 
 # --- Claude analysis ---------------------------------------------------------
 
-TRIAGE_PROMPT = """You are the daily production-triage analyst for missingmcp.com, \
-a small OAuth gateway that hosts per-user MCP connectors (Garmin via per-user \
-worker subprocesses, WHOOP in-process). You receive one JSON object: the last \
-24 hours of pre-aggregated error classes (with up to 3 masked sample log lines \
-each), and stream-teardown counts.
+TRIAGE_PROMPT = """Jsi denní produkční triage analytik pro missingmcp.com — OAuth \
+gateway hostující MCP konektory (Garmin přes per-user worker podprocesy, WHOOP \
+in-process). Dostaneš JSON: agregované chybové třídy za posledních 24 h (s max \
+3 maskovanými vzorky na třídu) a počty stream-teardownů.
 
-Write the operator's daily Slack message. Rules:
-- Per problem class, in order of how actionable it is: WHAT HAPPENED (one line, \
-with numbers), WHAT IT MEANS (one line), PROPOSED ACTION (one concrete step — \
-a command, a ticket to open, a thing to watch; never "investigate further" alone).
-- Known context you may rely on: credential-expiry and auth-flow-noise are \
-routine self-heal classes; garmin-upstream is Garmin-side flakiness (actionable \
-only on sustained bursts); a surge of POST-side stream teardowns would be \
-user-facing; forward-error (ConnectError on worker forwards) is tracked as \
-reliability ticket 12.
-- Plain Slack text (no markdown headers, *bold* is fine), under 40 lines.
-- Never invent numbers; the input is the only source. E-mails are pre-masked.
-- If nothing truly needs the operator today, say so in one line and stop."""
+Napiš operátorovi zprávu do Slacku ČESKY. Tvrdá pravidla:
+- MAXIMÁLNĚ 8 řádků celkem. Žádný úvod, žádná hlavička, žádné převyprávění \
+vstupu, žádné závěrečné shrnutí.
+- Jen třídy vyžadující akci, max 3, nejdůležitější první. Každá přesně 2 řádky:
+  • třída: co se děje, s čísly (jedna věta)
+    → jedna konkrétní akce (příkaz, ticket, co sledovat — nikdy jen "prozkoumat")
+- Rutinní třídy (credential-expiry, auth-flow-noise, garmin-upstream pod \
+prahem) NEZMIŇUJ vůbec.
+- Známý kontext: forward-error (ConnectError na worker forwardech) = ticket 12 \
+— odkaž na něj, nezakládej nový; nárůst POST-side teardownů = user-facing.
+- Čísla nevymýšlej, vstup je jediný zdroj. E-maily jsou předem maskované.
+- Když nic akci nevyžaduje, napiš jen jednu řádku, že je klid."""
 
 
 def claude_analyze(api_key: str, model: str, aggregates: dict) -> "str | None":
@@ -324,13 +323,13 @@ def render(aggregates: dict, analysis: "str | None") -> str:
     """The Slack message. Healthy day → one line; analysis day → Claude's text
     (or the deterministic degraded table when analysis is None)."""
     a = aggregates
-    traffic = (f"{a['error_row_count']} error rows · teardowns {a['teardown_total']} "
-               f"({a['teardown_post_side']} POST-side) · last {a['window_hours']}h")
+    traffic = (f"{a['error_row_count']} error řádků · teardowny {a['teardown_total']} "
+               f"({a['teardown_post_side']} POST-side) · posledních {a['window_hours']} h")
     if not a["actionable"]:
-        return f":large_green_circle: Daily triage: all quiet — {traffic}. Nothing needs you today."
+        return f":large_green_circle: Denní triage: klid — {traffic}. Dnes není co řešit."
     if analysis:
-        return f":clipboard: *Daily triage — action needed*\n{analysis}\n_{traffic}_"
-    lines = [f":clipboard: *Daily triage — action needed* (analysis unavailable, raw aggregates)"]
+        return f":clipboard: *Denní triage — je co řešit*\n{analysis}\n_{traffic}_"
+    lines = [":clipboard: *Denní triage — je co řešit* (analýza nedostupná, surové agregáty)"]
     for name in sorted(a["classes"], key=lambda n: -a["classes"][n]["count"]):
         data = a["classes"][name]
         flag = " ←" if name in a["actionable"] else ""
