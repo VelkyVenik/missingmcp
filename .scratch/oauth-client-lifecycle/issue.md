@@ -1,6 +1,6 @@
 # OAuth client & upstream-token lifecycle — follow-ups
 
-Status: ready-for-agent
+Status: resolved (2026-08-19 — §2 done 2026-07-18, §1 shipped as reliability ticket 04, PR #17)
 
 Two related robustness gaps found while triaging the 2026-07-17 sign-in
 reports (see git: `6cd59ae` CSRF dead-end fix, `bcf7ae8` orphan-TTL fix).
