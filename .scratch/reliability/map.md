@@ -112,6 +112,15 @@ Three things are true at the end of this map:
   repo writes. Build graduated into
   [Build the daily triage](issues/11-build-daily-triage.md).
 
+- [Build the daily triage](issues/11-build-daily-triage.md)
+  — shipped (PR #19 + #20): daily GitHub Actions triage — Railway-log
+  aggregates, deterministic signatures, Claude analysis on the operator's
+  subscription (`claude -p`), Slack via one `notify()` seam — and the hourly
+  workflow retuned to hard signals only. Verified by a production dry-run
+  (414 rows classified; analysis correctly deferred to ticket 12). The
+  operator's original ask — "message me only when there's an action" — is
+  now the live behaviour.
+
 ## Not yet specified
 
 - **Mail infrastructure details** (provider, secrets, unsubscribe, copy) —

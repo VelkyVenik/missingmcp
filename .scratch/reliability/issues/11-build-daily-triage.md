@@ -1,7 +1,7 @@
 # 11 — Build the daily triage and retire the hourly pings
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by: 08
 
 Execution ticket — the design is locked in
@@ -52,3 +52,24 @@ rewrite.
   production (needs new GH secrets POSTHOG_QUERY_KEY + ANTHROPIC_API_KEY —
   checklist in the PR body). PostHog "Worker start failures >=3/hour"
   alert kept as belt-and-braces.
+
+## Answer (2026-08-19)
+
+Shipped and verified: **PR #19** (merge `33ff8ca`) + window fix **PR #20**
+(merge `168a6f9`). The daily triage runs in GitHub Actions (~07:45 Prague):
+Railway logs (all deployments overlapping the 24 h window — per-deployment
+scoping was the one live bug, caught by the first dry-run reading 0 rows),
+deterministic signature classification, and Claude analysis **on the
+operator's subscription** (headless `claude -p`, CLAUDE_CODE_OAUTH_TOKEN;
+ANTHROPIC_API_KEY fallback; degraded deterministic table when both fail).
+The hourly workflow is now a hard-signal pager only (probe fail /
+worker-fault burst >=2 accounts / 5xx / critical) — no minor posts, no
+heartbeat, no error counting.
+
+Production dry-run (2026-08-19): 9 deployments, 414 error rows, classes
+garmin-upstream 143 (routine, under threshold), gateway-fault 155,
+forward-error 107, teardowns 1. The subscription analysis correctly
+referenced ticket 12 for forward-error instead of proposing a duplicate,
+and hypothesized gateway-fault shares ticket 12's root cause. PostHog
+"Worker start failures >=3/hour" alert kept as belt-and-braces. First
+scheduled post: next morning.

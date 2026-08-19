@@ -32,3 +32,13 @@ Establish the mechanism and impact:
 Read `proxy.handle_mcp`'s ordering around `ensure_worker` →
 `request_started` → `client.send`, and correlate logs per masked account.
 Aggregates only — public repo.
+
+## Comments
+
+- 2026-08-19 (from the triage dry-run): 107 `mcp-forward-error` rows in the
+  last 24 h, dominated by `initialize` / `server/discover`. The 155-row
+  `gateway-fault` class (uvicorn "Exception in ASGI application" with httpx
+  ConnectError tracebacks) is plausibly the SAME root cause seen from the
+  gateway's own request path — the daily triage analysis proposed confirming
+  that correlation first. This is now the main remaining pager-feeder class;
+  research priority up.
