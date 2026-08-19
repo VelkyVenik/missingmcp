@@ -29,6 +29,16 @@ The implementation becomes a follow-up ticket once this decides the shape.
 
 ## Comments
 
+- 2026-08-19 (operator directive, narrows this design): **"Cancel the hourly
+  Slack messages — useless when they page every hour that something's broken.
+  Replace with something meaningful: a daily analysis with proposals, or
+  similar."** Locked-in consequences for the design: (1) the hourly digest's
+  `<!here>`/minor alerting role is to be RETIRED once the replacement exists
+  (the daily heartbeat's fate is part of this ticket); (2) cadence of the
+  triage output is daily (with an escalation path for true emergencies like
+  the 2026-07-31 outage — decide its shape here); (3) format stays "what
+  happened → what it means → proposed action".
+
 - 2026-07-31: live validation of one signature family — the mcp 2.0.0 worker
   outage (every spawn `worker-died` rc=1 on `ModuleNotFoundError`; see the
   `fix(docker): pin mcp<2` commit). The PostHog "Worker start failures

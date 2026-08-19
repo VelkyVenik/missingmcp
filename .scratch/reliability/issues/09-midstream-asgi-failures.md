@@ -1,7 +1,7 @@
 # 09 — Mid-stream failures on proxied worker responses (growing since 2026-08-03)
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 
@@ -35,3 +35,14 @@ failures ~77, this class ~200 and rising). Ticket
 [06](06-post-fix-verification.md)'s scheduled run (2026-08-07) will quantify
 it independently — read its asset before starting. Aggregates only — public
 repo.
+
+## Comments
+
+- 2026-08-19: the class **exploded** while unattended — 2026-08-06..19:
+  1,913 gateway "Exception in ASGI application" + 1,868 worker "ASGI callable
+  returned without completing response" = **~79 % of all 4,789 error rows**
+  (~290/day). Traffic grew ~3× in the same window (~15k mcp-requests/day), so
+  the class outgrew traffic. `mcp-timeout` = 0 and no 5xx — consistent with
+  streams cut after headers, not hard request failures. Note: ticket 06's
+  scheduled run never delivered (no branch/PR from the cloud routine), and
+  PostHog Logs retention (~2 weeks) has aged out the original window.
