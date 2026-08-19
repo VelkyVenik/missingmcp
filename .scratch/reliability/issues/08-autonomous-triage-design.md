@@ -1,7 +1,7 @@
 # 08 — Design the autonomous triage mechanism (ping = proposed action)
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 01
 
 ## Question
@@ -26,6 +26,45 @@ Decide, informed by [01](01-digest-error-breakdown.md)'s error breakdown:
   separate follow-up question (see the map's Not yet specified).
 
 The implementation becomes a follow-up ticket once this decides the shape.
+
+## Answer (2026-08-19) — the design, decided with the operator
+
+**Shape: a daily GitHub Actions triage + an hourly hard-signal pager.** All
+grilled 2026-08-19; the operator's 2026-08-19 directive (retire hourly "N
+errors" pings, replace with a daily analysis with proposals) is the frame.
+
+1. **Runtime — GitHub Actions cron + Claude API + Slack webhook**
+   (`scripts/daily_triage.py` + `.github/workflows/daily-triage.yml`,
+   mirroring the proven hourly-digest pattern). The script collects and
+   pre-aggregates the day's data, calls the Claude API for classification,
+   impact assessment and PROPOSED ACTIONS, and posts the result via
+   `SLACK_WEBHOOK_URL`. Versioned prompt in the repo; new secret
+   `ANTHROPIC_API_KEY`. A cloud routine (CCR) was rejected: it failed to
+   deliver ticket 06's run on 2026-08-07 and its prompt isn't versioned.
+2. **Escalation — the hourly workflow survives, hard signals only.** It goes
+   loud (`<!here>`) ONLY on: liveness probe failure (web down — the one
+   signal no log pipeline can see), a `worker-died` rc≠0 burst across
+   multiple distinct accounts (the validated 2026-07-31 image-fault
+   signature), or any 5xx. No error counting, no minor posts, no hourly
+   heartbeat — the daily post is the heartbeat/dead-man switch: a short
+   "all quiet" line on healthy days, the full analysis otherwise.
+3. **Data — PostHog only** (logs + `$mcp_*` events; the same surface both
+   incidents were diagnosed on). The script hands Claude aggregates + a few
+   sanitized samples, never raw dumps; known-signature classification happens
+   deterministically in the script (credential-expiry, upstream-Garmin
+   flakiness, auth-flow noise, `mcp-stream-interrupted` POST-side surge,
+   gateway faults), Claude reasons about the remainder and drafts proposals.
+4. **Autonomy — Slack-only proposals.** No ticket filing, no repo writes from
+   CI; the operator (or a Claude session on request) turns proposals into
+   tickets. Egress rule holds: aggregates + masked accounts only, never MCP
+   bodies or credentials.
+5. **Format** (locked by the directive): what happened → what it means →
+   proposed action, per class, most actionable first.
+
+Implementation graduated into
+[11 — Build the daily triage](11-build-daily-triage.md); the operator's
+directive amends the map's destination — the mechanism is to be BUILT, not
+just spec'd.
 
 ## Comments
 

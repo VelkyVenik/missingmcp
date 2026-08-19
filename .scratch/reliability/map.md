@@ -14,17 +14,18 @@ Three things are true at the end of this map:
 2. **The orphan-client sweep no longer deletes returning users** — the
    `last_seen`-based sweep (oauth-client-lifecycle §1) is deployed.
 3. **Hourly "there are N errors" Slack pings are replaced by autonomous
-   triage** — a designed (spec-ready) mechanism that analyzes problems and
-   messages the operator only with a diagnosis and a proposed action. The
-   mail-to-users decision is made on post-fix data (a "not needed" close is a
-   valid outcome).
+   triage** — designed AND built (destination amended by the operator's
+   2026-08-19 directive: "replace them with something meaningful — a daily
+   analysis with proposals"): a daily Claude-analyzed triage post plus a
+   hard-signal-only hourly pager. The mail-to-users decision is made on
+   post-fix data (a "not needed" close is a valid outcome).
 
 ## Notes
 
 - **Hybrid map** (Notes override of wayfinder's plan-only default): execution
-  is carried for the already-decided fixes — tickets 02, 03, 04 and the
-  backfill execution inside 05. Everything else (mail channel, triage
-  mechanism) resolves to a decision + spec and is handed off.
+  is carried for the already-decided fixes — tickets 02, 03, 04, the backfill
+  execution inside 05, and (amended 2026-08-19, operator directive) ticket 11,
+  the daily-triage build. Only the mail channel remains decision-only.
 - **Every code change goes via feature branch + PR** (CodeRabbit review),
   never straight to main; ask the operator before creating the branch/PR. See
   [[branch-pr-workflow]]. Outward-facing text shown first, see
@@ -95,19 +96,27 @@ Three things are true at the end of this map:
   of its volume by construction. Warn stays visible — a POST-side surge is a
   triage signature, not silence.
 
+- [Measure what remains after the fix](issues/06-post-fix-verification.md)
+  — measured 2026-08-12..19: stale-token failures **−97 %** (2 accounts/7d vs
+  58 baseline), both recovered in minutes (vs ~35 h median); read-back alive
+  (2,310 persists). Mail-channel verdict for ticket 07: **not justified**.
+  One NEW class flagged: `mcp-forward-error` (ConnectError on worker
+  forwards, 463/7d, growing) — needs its own ticket. Asset:
+  [assets/post-fix-verification-7d.md](assets/post-fix-verification-7d.md).
+
+- [Design the autonomous triage mechanism](issues/08-autonomous-triage-design.md)
+  — decided (grilled 2026-08-19): daily GitHub Actions triage — collector
+  script + Claude API analysis with proposed actions + Slack webhook — plus
+  the hourly workflow retuned to hard signals only (probe fail, worker-died
+  burst, 5xx); PostHog is the sole data source; Slack-only proposals, no CI
+  repo writes. Build graduated into
+  [Build the daily triage](issues/11-build-daily-triage.md).
+
 ## Not yet specified
 
-- **Implementation of the autonomous triage mechanism** — once
-  [08](issues/08-autonomous-triage-design.md) decides its shape (where it
-  runs, what it reads, when it may message).
-- **Known-signature → recommended-action catalogue (runbook)** feeding the
-  triage mechanism — depends on ticket 01's breakdown and post-fix reality.
 - **Mail infrastructure details** (provider, secrets, unsubscribe, copy) —
-  only if ticket 07 decides mail is needed.
-- **PostHog alerts/funnels realignment after the fix** (e.g. the
-  "Worker start failures ≥3/hour" alert) — depends on ticket 06's numbers.
-- **Whether the triage mechanism may autonomously file tickets into
-  `.scratch/`** — an autonomy-boundary question for after 08.
+  only if ticket 07 decides mail is needed (ticket 06's verdict: not
+  justified).
 
 ## Out of scope
 
