@@ -1,7 +1,7 @@
 # 09 — Mid-stream failures on proxied worker responses (growing since 2026-08-03)
 
 Type: research
-Status: claimed
+Status: resolved
 
 ## Question
 
@@ -46,3 +46,43 @@ repo.
   streams cut after headers, not hard request failures. Note: ticket 06's
   scheduled run never delivered (no branch/PR from the cloud routine), and
   PostHog Logs retention (~2 weeks) has aged out the original window.
+
+## Answer (2026-08-19)
+
+**Mechanism confirmed from full production tracebacks — it is NOT the 30 s
+read-timeout.** Every sampled gateway traceback terminates in
+`httpx.RemoteProtocolError: peer closed connection without sending complete
+message body (incomplete chunked read)`, raised inside
+`proxy.py::stream() → upstream.aiter_raw()` while Starlette is serving the
+StreamingResponse. The **worker (peer) closes an in-flight chunked/SSE stream
+without the terminating chunk** — the signature of the MCP streamable-http
+session tearing down (client hangs up / DELETEs the session; the worker's
+FastMCP server aborts its open GET listen stream). The worker's own uvicorn
+logs the mirror line "ASGI callable returned without completing response"
+(1,868×), and the gateway lets the exception propagate out of the generator,
+so its uvicorn prints a full ERROR traceback (1,913×). Two error rows per
+routine stream teardown.
+
+Answers to the ticket's questions:
+
+1. **What dies:** proxied streams after headers — dominated by GET listen
+   streams (7,146 garmin GET requests in the window, same order as the 1,913
+   exceptions; not every stream is torn down abruptly). Exact GET/POST
+   attribution isn't derivable from the logs (no request id joins the
+   traceback to an mcp-request row) — recorded as a known uncertainty.
+2. **Why it grew:** no gateway deploy maps to the growth; traffic tripled and
+   Claude clients hold/teardown listen streams per session — the class scales
+   with sessions. Growth ≈ adoption, not a regression.
+3. **User impact: none demonstrable.** `mcp-timeout` = 0, no 5xx, and the
+   `finally` in `stream()` still logs `mcp-response` (status 200) for these
+   requests. A torn-down listen stream is routine protocol behaviour the
+   client re-opens. The damage is operator-side only: ~290 ERROR rows/day
+   keeping the hourly digest loud.
+4. **Fix direction** (graduated into ticket
+   [10](10-quiet-stream-teardown.md)): catch the stream-teardown exception
+   family in `proxy.stream()` and log ONE structured `warn` event
+   (`mcp-stream-interrupted`: adapter, account, error type, bytes sent)
+   instead of propagating; and demote the worker's mirror line in the
+   `workers._WORKER_ERROR` pump filter. Keep it visible as `warn` — never
+   swallowed silently — so a POST-side surge (which WOULD be user-facing)
+   still shows up in triage.

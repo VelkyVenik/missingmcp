@@ -82,6 +82,13 @@ Three things are true at the end of this map:
   reads 0 drifted). Unblocks [post-fix verification](issues/06-post-fix-verification.md)
   (~a week of data).
 
+- [Mid-stream failures on proxied worker responses](issues/09-midstream-asgi-failures.md)
+  — diagnosed (2026-08-19): NOT a read-timeout — routine MCP session teardown;
+  the worker aborts its open SSE stream (`httpx.RemoteProtocolError`) and the
+  gateway logs a full ERROR traceback for it, twice per teardown, ~290
+  rows/day, no demonstrable user impact. Fix graduated into
+  [Quiet the stream-teardown noise](issues/10-quiet-stream-teardown.md).
+
 ## Not yet specified
 
 - **Implementation of the autonomous triage mechanism** — once
@@ -93,9 +100,6 @@ Three things are true at the end of this map:
   only if ticket 07 decides mail is needed.
 - **PostHog alerts/funnels realignment after the fix** (e.g. the
   "Worker start failures ≥3/hour" alert) — depends on ticket 06's numbers.
-- **Fix for the mid-stream failure class** — once
-  [09](issues/09-midstream-asgi-failures.md) establishes the mechanism
-  (read-timeout vs client hang-up) and the impact.
 - **Whether the triage mechanism may autonomously file tickets into
   `.scratch/`** — an autonomy-boundary question for after 08.
 
