@@ -266,3 +266,68 @@ def test_stream_teardown_is_a_warn_not_a_traceback(tmp_path, capsys):
         assert resp["status"] == 200               # the finally bookkeeping still runs
     finally:
         httpd.shutdown()
+
+
+def test_connect_error_is_retried_once_against_a_fresh_worker(tmp_path, fake_worker, capsys):
+    # Ticket 14 belt-and-braces: a worker validated moments ago can still be
+    # gone by the time the forward connects (stale-listener false-healthy).
+    # One retry re-running ensure_worker must repair it invisibly: the client
+    # gets 200, not 502.
+    import json as jsonlib
+    from conftest import _free_port
+
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-retry"
+    store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+
+    dead_port = _free_port()                       # nothing listening here
+    ports = iter([dead_port, fake_worker.port])
+    ensured = []
+
+    async def fake_ensure(key, blob):
+        p = next(ports)
+        ensured.append(p)
+        return p
+
+    mgr.ensure_worker = fake_ensure
+    c = _app(conn, mgr, cfg)
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert ensured == [dead_port, fake_worker.port]   # re-ensured exactly once
+    events = [jsonlib.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    assert any(e.get("event") == "mcp-forward-retry" for e in events)
+
+
+def test_connect_error_retry_gives_up_after_one_attempt(tmp_path, fake_worker, capsys):
+    import json as jsonlib
+    from conftest import _free_port
+
+    conn = store.init_db(":memory:")
+    cfg = _cfg(tmp_path, fake_worker)
+    token = "tok-giveup"
+    store.upsert_account(conn, "garmin", "me@x.cz", '{"t":1}', cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(token), "garmin", "me@x.cz", "c1")
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: FakeProc())
+
+    dead1, dead2 = _free_port(), _free_port()
+    ports = iter([dead1, dead2])
+    ensured = []
+
+    async def fake_ensure(key, blob):
+        p = next(ports)
+        ensured.append(p)
+        return p
+
+    mgr.ensure_worker = fake_ensure
+    c = _app(conn, mgr, cfg)
+    r = c.post("/mcp", json={"jsonrpc": "2.0", "method": "initialize"},
+               headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 502
+    assert r.json() == {"error": "bad_gateway"}
+    assert ensured == [dead1, dead2]               # exactly two attempts, no loop
+    events = [jsonlib.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    assert any(e.get("event") == "mcp-forward-error" for e in events)

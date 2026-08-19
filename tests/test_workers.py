@@ -538,3 +538,117 @@ def test_pump_demotes_routine_stream_teardown_line(capsys):
     levels = {e["line"][:22]: e["level"] for e in events if e["event"] == "worker-log"}
     assert levels["ERROR:    ASGI callabl"] == "info"
     assert levels["ERROR: something actua"] == "error"
+
+
+# --- port hygiene: never hand a freed port to the next spawn while its ------
+# --- previous owner may still be dying (reliability tickets 12/14) ----------
+
+class LingeringProc:
+    """SIGTERM was sent but the process is still shutting down — the state in
+    which a real worker's uvicorn keeps answering /healthz for a moment."""
+    def __init__(self):
+        self.terminated = False
+        self.killed = False
+        self.dead = False
+    def poll(self): return 0 if self.dead else None
+    def terminate(self): self.terminated = True
+    def kill(self): self.killed = True
+
+
+def test_alloc_port_round_robins(tmp_path):
+    # Lowest-free-first hands the next spawn exactly the port the eviction it
+    # just triggered freed up; a rotating cursor spaces reuses out instead.
+    cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9002)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
+    assert mgr._alloc_port() == 9000
+    assert mgr._alloc_port() == 9001               # advanced, though 9000 is free
+    assert mgr._alloc_port() == 9002
+    assert mgr._alloc_port() == 9000               # wraps
+
+
+def test_alloc_port_skips_port_of_dying_worker(tmp_path):
+    cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9002)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
+    proc = LingeringProc()
+    h = workers.WorkerHandle("a@x.cz", 9000, proc, 1.0)
+    mgr._workers["a@x.cz"] = h
+    mgr._terminate(h)                              # what evict/reap/replace do
+    mgr._workers.pop("a@x.cz")
+    assert mgr._alloc_port() == 9001               # 9000 cools until its owner dies
+
+
+def test_cooling_port_frees_when_process_dies(tmp_path):
+    cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9000)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: None)
+    proc = LingeringProc()
+    h = workers.WorkerHandle("a@x.cz", 9000, proc, 1.0)
+    mgr._workers["a@x.cz"] = h
+    mgr._terminate(h)
+    mgr._workers.pop("a@x.cz")
+    with pytest.raises(workers.WorkerStartError):
+        mgr._alloc_port()                          # sole port still cooling
+    proc.dead = True
+    assert mgr._alloc_port() == 9000               # owner observed dead -> usable
+
+
+def test_cooling_escalates_to_kill_then_expires(tmp_path):
+    # A worker that ignores SIGTERM must not shrink the port pool forever:
+    # escalate to SIGKILL after a grace period, and hard-expire the hold.
+    clock = [1000.0]
+    cfg = _config(tmp_path, worker_port_start=9000, worker_port_end=9000)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: None, clock=lambda: clock[0])
+    proc = LingeringProc()
+    h = workers.WorkerHandle("a@x.cz", 9000, proc, 1000.0)
+    mgr._workers["a@x.cz"] = h
+    mgr._terminate(h)
+    mgr._workers.pop("a@x.cz")
+    with pytest.raises(workers.WorkerStartError):
+        mgr._alloc_port()
+    assert proc.killed is False
+    clock[0] = 1000.0 + workers._COOLING_KILL_S + 1
+    with pytest.raises(workers.WorkerStartError):
+        mgr._alloc_port()                          # still held, but escalated
+    assert proc.killed is True
+    clock[0] = 1000.0 + workers._COOLING_MAX_S + 1
+    assert mgr._alloc_port() == 9000               # hard expiry frees the port
+
+
+async def test_spawn_not_validated_against_dying_predecessors_listener(tmp_path, fake_worker):
+    # THE ticket-12 regression: account A's evicted worker still answers
+    # /healthz on its port while dying. A spawn for account B must not be
+    # handed that port — the old code validated B's half-booted worker against
+    # A's dying listener ("worker-started ms=6") and the forward then hit a
+    # dead port (ConnectError -> 502).
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import threading
+
+    cfg = _config(tmp_path, worker_port_start=fake_worker.port,
+                  worker_port_end=fake_worker.port + 1, worker_startup_timeout=5)
+
+    class Healthz(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_GET(self):
+            self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+
+    servers = []
+
+    def spawn(key, port, token_dir):
+        httpd = HTTPServer(("127.0.0.1", port), Healthz)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        servers.append(httpd)
+        proc = LingeringProc()
+        return proc
+
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=spawn)
+    dying = LingeringProc()
+    h = workers.WorkerHandle("a@x.cz", fake_worker.port, dying, 1.0)
+    mgr._workers["a@x.cz"] = h
+    mgr._terminate(h)                              # evicted; fake_worker keeps listening
+    mgr._workers.pop("a@x.cz")
+    try:
+        port = await mgr.ensure_worker("b@x.cz", "{}")
+        assert port != fake_worker.port            # not the dying predecessor's port
+    finally:
+        for s in servers:
+            s.shutdown()

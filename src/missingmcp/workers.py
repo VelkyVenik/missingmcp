@@ -12,6 +12,12 @@ import httpx
 from .log import log, log_error, log_exc
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.@-]")
+
+# A freed port stays out of _alloc_port until its previous owner is observed
+# dead. Escalate to SIGKILL if SIGTERM is ignored, and hard-expire the hold so
+# an unpollable zombie can't shrink the pool forever.
+_COOLING_KILL_S = 5.0
+_COOLING_MAX_S = 10.0
 # Worker lines that indicate a real problem get error severity so Railway
 # surfaces them; everything else is info. Deliberately loose — false negatives
 # just stay info-level and remain searchable.
@@ -82,6 +88,12 @@ class WorkerManager:
         self._workers: dict[str, WorkerHandle] = {}
         self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._reserved: set[int] = set()   # ports being spawned but not yet registered
+        self._port_cursor = config.worker_port_start
+        # Ports of terminated workers, held until their process is observed
+        # dead: a SIGTERMed uvicorn still answers /healthz for a moment, and
+        # validating a fresh spawn against its predecessor's listener hands
+        # the forward a dead port (reliability ticket 12).
+        self._cooling: dict[int, tuple] = {}   # port -> (process, since)
         # Last blob known to be in the store, per account — the baseline a
         # worker-rewritten token file is compared against. Process-local: after
         # a restart the first materialize re-seeds it from the store's blob.
@@ -140,10 +152,9 @@ class WorkerManager:
                 outcome = await self._wait_healthy(port, proc)
                 if outcome != "healthy":
                     rc = proc.poll()
-                    try:
-                        proc.terminate()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    # Through _stop_process so a bound-but-unhealthy process
+                    # cools its port down like every other terminated worker.
+                    self._stop_process(proc, port)
                     # Two very different failures used to share one event (and one
                     # error-level alert): a worker that quit by itself because the
                     # account's credentials are stale — routine, the user fixes it
@@ -338,11 +349,35 @@ class WorkerManager:
         return content
 
     def _alloc_port(self) -> int:
-        used = {h.port for h in self._workers.values()} | self._reserved
-        for p in range(self._cfg.worker_port_start, self._cfg.worker_port_end + 1):
+        # Round-robin, not lowest-free-first: the lowest free port is usually
+        # the one this very spawn's _enforce_cap just freed, whose owner is
+        # still dying. Cooling ports stay out of the pool entirely.
+        self._purge_cooling()
+        used = ({h.port for h in self._workers.values()} | self._reserved
+                | set(self._cooling))
+        start, end = self._cfg.worker_port_start, self._cfg.worker_port_end
+        span = end - start + 1
+        for i in range(span):
+            p = start + (self._port_cursor - start + i) % span
             if p not in used:
+                self._port_cursor = start + (p - start + 1) % span
                 return p
         raise WorkerStartError("no free worker port")
+
+    def _purge_cooling(self) -> None:
+        now = self._clock()
+        for port, (proc, since) in list(self._cooling.items()):
+            try:
+                dead = proc.poll() is not None
+            except Exception:  # noqa: BLE001 - an unpollable proc must not wedge the pool
+                dead = True
+            if dead or now - since > _COOLING_MAX_S:
+                self._cooling.pop(port, None)
+            elif now - since > _COOLING_KILL_S:
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _default_spawn(self, key: str, port: int, workdir: str):
         env = dict(os.environ)
@@ -355,9 +390,13 @@ class WorkerManager:
         return proc
 
     def _terminate(self, h: WorkerHandle) -> None:
+        self._stop_process(h.process, h.port)
+
+    def _stop_process(self, proc, port: int) -> None:
         try:
-            if h.process.poll() is None:
-                h.process.terminate()
+            if proc.poll() is None:
+                proc.terminate()
+                self._cooling[port] = (proc, self._clock())
         except Exception:  # noqa: BLE001
             pass
 

@@ -217,28 +217,59 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     upstream_headers.update(extra_headers)
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(FORWARD_TIMEOUT_S))
-    if not remote:
-        # Mark the worker busy so reap_idle / _enforce_cap won't kill it mid-stream.
-        # Paired with finish() on every exit path below.
-        manager.request_started(key)
     finish = (lambda: None) if remote else (lambda: manager.request_finished(key))
-    try:
-        req = client.build_request(method, url, headers=upstream_headers,
-                                   content=body if method != "GET" else None)
-        upstream = await client.send(req, stream=True)
-    except httpx.TimeoutException:
-        await client.aclose()
-        finish()
-        log_error("mcp-timeout", adapter=adapter.name, account=key, tool=tool,
-                  ms=int((time.monotonic() - t0) * 1000))
-        return JSONResponse({"error": "gateway_timeout"}, status_code=504)
-    except httpx.HTTPError as e:
-        await client.aclose()
-        finish()
-        log_error("mcp-forward-error", error=type(e).__name__,
-                  adapter=adapter.name, account=key, tool=tool,
-                  ms=int((time.monotonic() - t0) * 1000))
-        return JSONResponse({"error": "bad_gateway"}, status_code=502)
+    retried = False
+    while True:
+        if not remote:
+            # Mark the worker busy so reap_idle / _enforce_cap won't kill it
+            # mid-stream. Paired with finish() on every exit path below.
+            manager.request_started(key)
+        try:
+            req = client.build_request(method, url, headers=upstream_headers,
+                                       content=body if method != "GET" else None)
+            upstream = await client.send(req, stream=True)
+            break
+        except httpx.ConnectError as e:
+            finish()
+            # A worker validated moments ago can be gone by the time the
+            # forward connects (ticket 12: the startup health check can hit a
+            # dying predecessor on a recycled port). Re-running ensure_worker
+            # once replaces the bogus handle; a second refusal is a real
+            # fault. Remote upstreams have no handle to repair.
+            if remote or retried:
+                await client.aclose()
+                log_error("mcp-forward-error", error=type(e).__name__,
+                          adapter=adapter.name, account=key, tool=tool,
+                          ms=int((time.monotonic() - t0) * 1000))
+                return JSONResponse({"error": "bad_gateway"}, status_code=502)
+            retried = True
+            log_warn("mcp-forward-retry", adapter=adapter.name, account=key,
+                     tool=tool, error=type(e).__name__)
+            try:
+                port = await manager.ensure_worker(key, tokens)
+            except WorkerCredentialsRejected as e2:
+                await client.aclose()
+                log("worker-forward-auth-stale", adapter=adapter.name,
+                    account=key, error=str(e2))
+                return _reauth_required(config, adapter)
+            except WorkerStartError as e2:
+                await client.aclose()
+                log_exc("worker-start-failed", e2, error=str(e2), account=key)
+                return _reauth_required(config, adapter)
+            url = f"http://127.0.0.1:{port}/mcp"
+        except httpx.TimeoutException:
+            await client.aclose()
+            finish()
+            log_error("mcp-timeout", adapter=adapter.name, account=key, tool=tool,
+                      ms=int((time.monotonic() - t0) * 1000))
+            return JSONResponse({"error": "gateway_timeout"}, status_code=504)
+        except httpx.HTTPError as e:
+            await client.aclose()
+            finish()
+            log_error("mcp-forward-error", error=type(e).__name__,
+                      adapter=adapter.name, account=key, tool=tool,
+                      ms=int((time.monotonic() - t0) * 1000))
+            return JSONResponse({"error": "bad_gateway"}, status_code=502)
     ttfb_ms = int((time.monotonic() - t0) * 1000)   # request in → upstream headers out
 
     if remote and upstream.status_code in (401, 403):
