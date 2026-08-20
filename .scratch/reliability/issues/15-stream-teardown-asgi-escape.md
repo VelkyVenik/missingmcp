@@ -1,8 +1,17 @@
 # 15 — Stream-teardown RemoteProtocolError still escapes as an ASGI error
 
 Type: task
-Status: open
-Blocked by: (operator approval to start — code change, branch + PR)
+Status: open — likely MOOT, verify ~2026-08-22 and close if still clean
+
+2026-08-20 post-deploy data (12.3 h since ticket 14's port-cooldown fix):
+**0** ASGI escapes AND **0** `mcp-stream-interrupted` warns (baselines: ~143
+escapes + ~1 warn per day). The whole "routine teardown" class appears to have
+been ticket 12's bug seen from the other side: a request that connected to
+the dying predecessor fast enough got ACCEPTED and was then cut mid-body when
+the process exited — RemoteProtocolError "incomplete chunked read". With
+ports no longer recycled under dying listeners, the class vanished. If a
+couple more days stay at zero, close this without any code change (ticket
+09/10's residual diagnosis gets corrected by this note).
 
 Split from [12](12-forward-connecterror.md)'s resolution. Ticket 10 (PR #18)
 demoted routine MCP session teardowns to one `mcp-stream-interrupted` warn by

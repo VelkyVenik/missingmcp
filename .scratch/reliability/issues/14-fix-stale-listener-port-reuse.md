@@ -17,6 +17,24 @@ with `ms < 250` disappears; `mcp-forward-error ConnectError` drops to ~0
 (residuals surface as the `mcp-forward-retry` warn instead of a user-facing
 502).
 
+## Verified (2026-08-20, 12.3 h post-deploy)
+
+- `mcp-forward-error`: **0** (window baseline ~55). `mcp-forward-retry`: 0 —
+  the root-cause fix alone did it; the belt-and-braces never fired.
+- `worker-started`: 953; the only sub-250 ms start (7 ms, 07:05:21) was the
+  OLD container still serving during the build. Since the new code took over:
+  min ~790 ms, all legit.
+- Error-level rows overall: 20 in 12.3 h vs ~200 in the same window before —
+  all known routine classes (garmin-upstream login blocks, one bad password,
+  CSRF noise, worker tool-call tracebacks).
+- Side effect: the gateway-fault/teardown class ALSO went to zero — see
+  [15](15-stream-teardown-asgi-escape.md), likely moot.
+- `MAX_WORKERS` 10→20 barely moved evictions (774/12.3 h vs 849 in the same
+  window yesterday, −9 %): daytime concurrency exceeds 20, the pool stays
+  pinned. RAM avg went 0.63→1.22 GB. Evictions are harmless now, so the cap
+  is purely a cold-start-latency vs RAM-cost dial — operator's call whether
+  20 stays.
+
 Graduated from [12](12-forward-connecterror.md), which established the
 mechanism behind ~100 user-facing 502s/day: `_alloc_port` immediately reuses
 the port of a just-terminated worker, the dying occupant's uvicorn still
