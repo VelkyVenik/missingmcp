@@ -1,15 +1,21 @@
 # 14 — Fix the stale-listener false-healthy on worker port reuse
 
 Type: task
-Status: implemented — PR open, awaiting the operator's morning review/merge
-(2026-08-19 overnight session). Items 1+2 are in the PR (branch
-`fix/worker-port-cooldown`): round-robin `_alloc_port` + cooldown of
-terminated workers' ports until their process is observed dead (SIGKILL
-escalation 5 s, hard expiry 10 s), and one proxy-side `ConnectError` retry
-re-running `ensure_worker`. 7 new tests incl. the dying-listener regression;
-full suite 396 passed. Item 3 (`MAX_WORKERS` raise) is a Railway config
-decision for the morning — proposal: 30 (RAM: max 1.22 GB at cap 10, each
-worker ≈ 80–100 MB ⇒ ~3.5 GB at 30).
+Status: shipped (PR #23, merge `ba4cfca`, deployed 2026-08-20 morning)
+
+Items 1+2 shipped: round-robin `_alloc_port` + cooldown of terminated
+workers' ports until their process is observed dead (SIGKILL escalation 5 s,
+hard expiry 10 s), and one proxy-side `ConnectError` retry re-running
+`ensure_worker` (warn event `mcp-forward-retry`). 7 new tests incl. the
+dying-listener regression; full suite 396 passed. Item 3: operator set
+`MAX_WORKERS=20` (2026-08-20) — not 30, since Railway bills by RAM used and
+the cap directly scales the resident worker count; 20 halves the eviction
+churn for ~+0.8 GB instead of ~+2 GB.
+
+Success criterion to watch (daily triage will show it): `worker-started`
+with `ms < 250` disappears; `mcp-forward-error ConnectError` drops to ~0
+(residuals surface as the `mcp-forward-retry` warn instead of a user-facing
+502).
 
 Graduated from [12](12-forward-connecterror.md), which established the
 mechanism behind ~100 user-facing 502s/day: `_alloc_port` immediately reuses

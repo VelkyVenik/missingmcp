@@ -124,6 +124,14 @@ Three things are true at the end of this map:
   Fix graduated to [14](issues/14-fix-stale-listener-port-reuse.md), the
   teardown escape to [15](issues/15-stream-teardown-asgi-escape.md).
 
+- [Fix the stale-listener false-healthy on port reuse](issues/14-fix-stale-listener-port-reuse.md)
+  — shipped (PR #23, merge `ba4cfca`, 2026-08-20): `_alloc_port` round-robins
+  and freed ports cool down until the old process is observed dead, so a
+  spawn is never validated against its dying predecessor's listener; the
+  proxy retries a `ConnectError`ed forward once (`mcp-forward-retry` warn).
+  Operator raised `MAX_WORKERS` 10→20 (RAM-cost-aware choice) to halve the
+  eviction churn. Expected effect: the ~100 handshake 502s/day go to ~0.
+
 - [Build the daily triage](issues/11-build-daily-triage.md)
   — shipped (PR #19 + #20): daily GitHub Actions triage — Railway-log
   aggregates, deterministic signatures, Claude analysis on the operator's
