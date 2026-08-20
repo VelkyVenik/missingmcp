@@ -153,6 +153,16 @@ manager-owned, credential files come from `forward.materialize` (`0600`).
 into the structured log (`event=worker-log`, `account` attr, ERROR/Traceback
 lines elevated) — no per-user `worker.log` files on the volume.
 
+**Port hygiene** (reliability ticket 12): `_alloc_port` round-robins through
+the range (never lowest-free-first — that hands the next spawn exactly the
+port its own `_enforce_cap` eviction just freed), and a terminated worker's
+port *cools down* until its process is observed dead, because a SIGTERMed
+uvicorn keeps answering `/healthz` for a moment and a fresh spawn must never
+be validated against its dying predecessor's listener. SIGKILL escalation
+after `_COOLING_KILL_S`, hard expiry after `_COOLING_MAX_S`, so a zombie
+can't shrink the pool. The proxy adds one `ConnectError` retry per forward
+(re-running `ensure_worker`) as belt-and-braces.
+
 **Token read-back** (the persist-before-use rule, worker edition): the worker
 rewrites its credential file when the upstream rotates tokens (garth does, on
 Garmin's refresh-token rotation), so the manager persists that file back to the

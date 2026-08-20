@@ -112,6 +112,18 @@ Three things are true at the end of this map:
   repo writes. Build graduated into
   [Build the daily triage](issues/11-build-daily-triage.md).
 
+- [mcp-forward-error ConnectError on worker forwards](issues/12-forward-connecterror.md)
+  — mechanism established (2026-08-19): **stale-listener false-healthy on
+  immediate port reuse** — `_alloc_port` recycles a just-freed port, the
+  dying previous worker still answers `/healthz 200` (~6 ms "starts" that are
+  physically impossible), the forward then hits a dead port → 502; the
+  client's retry self-heals in ~2 s but kills the innocent booting process.
+  Bimodal evidence: 11 of the latest 200 `worker-started` under 50 ms, zero
+  between 50–1000 ms. NOT the same root cause as gateway-fault (that is ~143
+  teardown `RemoteProtocolError` escapes/day — ticket 10's catch fires ~1×/day).
+  Fix graduated to [14](issues/14-fix-stale-listener-port-reuse.md), the
+  teardown escape to [15](issues/15-stream-teardown-asgi-escape.md).
+
 - [Build the daily triage](issues/11-build-daily-triage.md)
   — shipped (PR #19 + #20): daily GitHub Actions triage — Railway-log
   aggregates, deterministic signatures, Claude analysis on the operator's
