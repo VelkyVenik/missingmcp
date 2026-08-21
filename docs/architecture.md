@@ -130,6 +130,19 @@ anomaly/probe-fail or the daily heartbeat). It's standalone (httpx + stdlib, doe
 NOT import this package) because the app can't read its own stdout logs; see
 README → Monitoring.
 
+### `usage.py`
+
+The public usage meter: `UsageMeter.snippet(adapter)` renders the
+"N people used this in the last 30 days" line the landing pages show as social
+proof. Aggregate only (one count per adapter, never per-user activity), counted
+by `store.active_accounts_between` over a 30-day rolling window (protocol
+traffic excluded, same rule as the daily report), and empty below `MIN_COUNT`
+(10) so an immature connector shows nothing rather than an embarrassing count.
+Counts live in a process-local TTL cache (`CACHE_TTL` 600 s); `app.py` fills
+the `{USAGE_METER_<ADAPTER>}` placeholders per request, matching them by
+pattern so a card for a not-configured adapter still gets its placeholder
+cleared.
+
 ### `telemetry.py`
 
 PostHog telemetry (design:

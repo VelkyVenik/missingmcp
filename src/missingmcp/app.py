@@ -3,13 +3,14 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import urllib.parse
 from pathlib import Path
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import backup, report, store, oauth, pages, proxy, security, telemetry
+from . import backup, report, store, oauth, pages, proxy, security, telemetry, usage
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
@@ -72,6 +73,16 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     bk = backup.Backup(config)
     dr = report.DailyReport(config)
+    meter = usage.UsageMeter(conn)
+
+    # {USAGE_METER_<ADAPTER>} placeholders survive the startup render and are
+    # filled per request (the count moves; the pages don't). Matched by pattern
+    # rather than the adapter registry, so a card for a not-configured adapter
+    # still gets its placeholder cleared instead of leaking it into the HTML.
+    _meter_re = re.compile(r"\{USAGE_METER_([A-Z0-9_]+)\}")
+
+    def _fill_meters(page: str) -> str:
+        return _meter_re.sub(lambda m: meter.snippet(m.group(1).lower()), page)
 
     def _render(name: str, title: str, desc: str | None = None,
                 path: str = "/", extra_head: str = "",
@@ -107,7 +118,7 @@ def build_app(config: Config) -> Starlette:
                              "url": config.public_url}))
 
     async def home(request):
-        return HTMLResponse(home_page)
+        return HTMLResponse(_fill_meters(home_page))
 
     privacy_page = _render(
         "privacy.html", "Privacy — MissingMCP",
@@ -163,7 +174,7 @@ def build_app(config: Config) -> Starlette:
         # Catch-all for unknown GET paths: humans get the MissingMCP home
         # (with links to every connector) but with a 404 status so
         # API/discovery clients still read it as "not here".
-        return HTMLResponse(home_page, status_code=404)
+        return HTMLResponse(_fill_meters(home_page), status_code=404)
 
     # Brand assets (the MissingMCP logo mark). Read once at startup and served
     # from memory — same-origin, so CSP `default-src 'self'` covers them
@@ -277,7 +288,7 @@ def build_app(config: Config) -> Starlette:
             }))
 
         async def landing(request):
-            return HTMLResponse(landing_page)
+            return HTMLResponse(_fill_meters(landing_page))
 
         async def meta(request):
             return JSONResponse(oauth.metadata(config, adapter))
