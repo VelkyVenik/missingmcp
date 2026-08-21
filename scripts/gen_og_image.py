@@ -44,8 +44,8 @@ LIVE    = "#34d399"
 EYEBROW  = "MissingMCP"
 ASK      = ["How did I sleep", "this week?"]        # pre-wrapped: the break is a
                                                     # design decision, not luck
-ANSWER   = [("Claude answers from ", False), ("your own", True),
-            (" Garmin and WHOOP data.", False)]     # (text, emphasized)
+ANSWER   = [("Claude & ChatGPT answer from ", False), ("your own", True),
+            (" Garmin data.", False)]               # (text, emphasized)
 ENDPOINTS = [("missingmcp.com/", "garmin", "/mcp"),
              ("missingmcp.com/", "whoop", "/mcp")]
 

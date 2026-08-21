@@ -22,9 +22,9 @@ _OG_IMAGE_VER = hashlib.sha256(
     (Path(__file__).parent / "static" / _OG_IMAGE).read_bytes()
 ).hexdigest()[:8]
 _OG_IMAGE_W, _OG_IMAGE_H = 1200, 630     # keep in sync with scripts/gen_og_image.py
-_OG_IMAGE_ALT = ("MissingMCP — Claude answers from your own Garmin and WHOOP "
+_OG_IMAGE_ALT = ("MissingMCP — Claude & ChatGPT answer from your own Garmin "
                  "data.")
-_DEFAULT_DESC = ("The connectors Claude is missing — sign in once, add a URL, "
+_DEFAULT_DESC = ("The connectors your AI is missing — sign in once, add a URL, "
                  "start asking.")
 # Social previews cut around 125 characters, while a meta description can usefully
 # run to ~155 for search. They are therefore not the same string.

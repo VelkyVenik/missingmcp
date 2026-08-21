@@ -106,19 +106,59 @@ def build_app(config: Config) -> Starlette:
                 + "</script>")
 
     home_page = _render(
-        "home.html", "MissingMCP — Your data, in Claude · Garmin MCP Server",
-        "Give Claude your Garmin and health data, then just ask — did I eat "
-        "enough for today's ride, how did I sleep this week? A hosted Garmin "
-        "MCP server: connect in two minutes. Free and open source.",
+        "home.html", "MissingMCP — Your data, in Claude & ChatGPT · Garmin MCP Server",
+        "Give Claude, ChatGPT, or any MCP-capable AI your Garmin and health "
+        "data, then just ask — did I eat enough for today's ride, how did I "
+        "sleep this week? A hosted Garmin MCP server: connect in two minutes. "
+        "Free and open source.",
         # The search description keeps both example questions; the preview line
         # gets one, because previews cut at ~125 characters.
-        social_desc="Give Claude your Garmin and WHOOP data, then just ask — "
-                    "how did I sleep this week?",
+        social_desc="Give Claude & ChatGPT your Garmin and WHOOP data, then "
+                    "just ask — how did I sleep this week?",
         extra_head=_json_ld({"@type": "WebSite", "name": "MissingMCP",
                              "url": config.public_url}))
 
     async def home(request):
         return HTMLResponse(_fill_meters(home_page))
+
+    # Client-specific connect guide: same /garmin/mcp endpoint the Claude
+    # landing documents, but ChatGPT's own menu path (developer mode) — and its
+    # own search-query family ("connect garmin to chatgpt"). Static like
+    # /privacy; garmin is the one unconditional adapter, so the route is safe
+    # to register unconditionally too.
+    garmin_chatgpt_desc = (
+        "Step-by-step: bring your Garmin data into ChatGPT with a hosted "
+        "Garmin MCP server — training, sleep, recovery, workouts. Add one URL "
+        "in developer mode, sign in, start asking. Free and open source.")
+    garmin_chatgpt_page = _render(
+        "garmin_chatgpt.html",
+        "Connect Garmin to ChatGPT — Garmin MCP Server | MissingMCP",
+        garmin_chatgpt_desc, path="/garmin/chatgpt",
+        social_desc="Your Garmin data in ChatGPT: add one URL, sign in, "
+                    "start asking.",
+        extra_head=_json_ld({
+            "@type": "HowTo",
+            "name": "Connect Garmin to ChatGPT",
+            "description": garmin_chatgpt_desc,
+            "step": [
+                {"@type": "HowToStep", "name": "Turn on developer mode",
+                 "text": "In ChatGPT on the web: Settings → Apps → Advanced "
+                         "settings → enable Developer mode."},
+                {"@type": "HowToStep", "name": "Add the connector",
+                 "text": "Create a custom connector and paste the server URL "
+                         f"{config.public_url}/garmin/mcp with OAuth "
+                         "authentication."},
+                {"@type": "HowToStep", "name": "Sign in once",
+                 "text": "Sign in with your Garmin Connect email and password; "
+                         "the password is used once and never stored."},
+                {"@type": "HowToStep", "name": "Start asking",
+                 "text": "Enable the app in a conversation and ask about your "
+                         "training, sleep, or recovery."},
+            ],
+        }))
+
+    async def garmin_chatgpt(request):
+        return HTMLResponse(_fill_meters(garmin_chatgpt_page))
 
     privacy_page = _render(
         "privacy.html", "Privacy — MissingMCP",
@@ -203,7 +243,8 @@ def build_app(config: Config) -> Starlette:
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + "".join(f"  <url><loc>{base}{path}</loc></url>\n"
-                  for path in ["/"] + [f"/{a.name}" for a in adapters.values()])
+                  for path in ["/"] + [f"/{a.name}" for a in adapters.values()]
+                  + ["/garmin/chatgpt"])
         + "</urlset>\n")
     llms_txt = (
         "# MissingMCP\n\n"
@@ -219,7 +260,10 @@ def build_app(config: Config) -> Starlette:
             for a in adapters.values())
         + "\n## How to connect\n"
         "- In Claude: Settings → Connectors → Add custom connector → paste the "
-        "MCP endpoint URL above.\n\n"
+        "MCP endpoint URL above.\n"
+        "- In ChatGPT (web): Settings → Apps → Advanced settings → enable "
+        "Developer mode → create a custom connector with the MCP endpoint URL "
+        f"above. Guide: {base}/garmin/chatgpt\n\n"
         "## Source\n"
         "- Gateway: https://github.com/VelkyVenik/missingmcp\n"
         "- Garmin worker: https://github.com/Taxuspt/garmin_mcp\n")
@@ -397,6 +441,7 @@ def build_app(config: Config) -> Starlette:
 
     routes = [
         Route("/", home, methods=["GET"]),
+        Route("/garmin/chatgpt", garmin_chatgpt, methods=["GET"]),
         Route("/privacy", privacy, methods=["GET"]),
         Route("/subscribe", subscribe, methods=["POST"]),
         Route("/suggest", suggest, methods=["POST"]),
