@@ -67,7 +67,27 @@ def test_home_page(tmp_path):
     assert "No longer missing" in r.text
     assert "https://mcp.rohlik.cz/mcp" in r.text
     assert "never stored" in r.text               # security section
+    # Multi-client copy: the home page sells Claude AND ChatGPT, and links
+    # the ChatGPT guide.
+    assert "ChatGPT" in r.text
+    assert 'href="/garmin/chatgpt"' in r.text
     assert r.headers["x-frame-options"] == "DENY"
+
+
+def test_garmin_chatgpt_guide_page(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/garmin/chatgpt")
+    assert r.status_code == 200
+    assert "Connect Garmin to ChatGPT" in r.text            # title + H2
+    assert "Developer mode" in r.text                       # the ChatGPT-specific step
+    assert "https://gw.example.com/garmin/mcp" in r.text    # same endpoint as /garmin
+    assert ('<link rel="canonical" '
+            'href="https://gw.example.com/garmin/chatgpt">') in r.text
+    assert "{USAGE_METER" not in r.text                     # meter placeholder filled
+    assert 'href="/garmin"' in r.text                       # cross-links the Claude landing
+    # ... and the crawler surface knows about the page too.
+    assert "<loc>https://gw.example.com/garmin/chatgpt</loc>" in c.get("/sitemap.xml").text
+    assert "https://gw.example.com/garmin/chatgpt" in c.get("/llms.txt").text
 
 
 def test_unknown_path_serves_home_as_404(tmp_path):
