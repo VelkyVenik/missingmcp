@@ -59,18 +59,21 @@ def test_home_page(tmp_path):
     c = _client(tmp_path)
     r = c.get("/")
     assert r.status_code == 200
-    assert "Your data," in r.text                 # hero H1
-    assert 'href="/garmin"' in r.text             # Garmin card links to the subpage
-    # Rohlík graduated: official MCP exists, so the card moved to the
-    # "No longer missing" section and points at Rohlík directly, not /rohlik.
+    assert "Your Garmin data," in r.text          # hero H1 (Garmin-focused wayfinder)
+    # The wayfinder routes to both client guides as equal CTAs.
+    assert 'href="/garmin"' in r.text
+    assert 'href="/garmin/chatgpt"' in r.text
+    # Rohlík graduated: official MCP exists, so the "No longer missing" line
+    # points at Rohlík directly, not /rohlik.
     assert 'href="/rohlik"' not in r.text
     assert "No longer missing" in r.text
     assert "https://mcp.rohlik.cz/mcp" in r.text
     assert "never stored" in r.text               # security section
-    # Multi-client copy: the home page sells Claude AND ChatGPT, and links
-    # the ChatGPT guide.
-    assert "ChatGPT" in r.text
-    assert 'href="/garmin/chatgpt"' in r.text
+    # Parked connectors make no promises: wishlist copy, no "Soon" pills.
+    assert "wishlist" in r.text
+    assert 'class="pill soon"' not in r.text
+    # The header nav must not point at anchors this page no longer has.
+    assert 'href="/#graduated"' not in r.text
     assert r.headers["x-frame-options"] == "DENY"
 
 
@@ -284,11 +287,13 @@ def test_og_desc_falls_back_to_first_sentence():
 
 
 def test_home_features_garmin_first(tmp_path):
+    # The wayfinder redesign: Garmin owns the hero (no featured card anymore),
+    # both client CTAs sit in the hero, everything else is a quiet strip below.
     r = _client(tmp_path).get("/").text
-    assert 'class="card featured"' in r
-    assert "Your watch has the answers." in r              # featured tagline
-    # (the "Soon" roadmap card for Whoop graduated to the live WHOOP card —
-    # covered by test_home_shows_whoop_card)
+    assert "Your Garmin data," in r                        # hero H1
+    assert 'href="/garmin">Connect in Claude' in r
+    assert 'href="/garmin/chatgpt">Connect in ChatGPT' in r
+    assert "More connectors" in r                          # the demoted strip
 
 
 def test_operator_link_comes_from_config(tmp_path):
@@ -353,13 +358,16 @@ def test_whoop_is_beta_with_limit_note():
 
 
 def test_home_lists_upcoming_connectors(tmp_path):
+    # Parked connectors are a wishlist line, not roadmap cards: named but
+    # explicitly not in active development, with the suggest/subscribe modals
+    # as the only calls to action. No "Soon" pills anywhere.
     r = _client(tmp_path).get("/").text
-    assert "<h3>Oura</h3>" in r                     # card heading, not the suggest-modal placeholder
-    assert "<h3>Apple Health</h3>" in r
-    assert "Beta" in r                              # WHOOP card downgraded from Live
-    # the coming-soon cards reuse the existing subscribe modal (hero + "Missing
-    # something?" card were the only two before; +2 new = at least 4)
-    assert r.count('data-modal="subscribe"') >= 4
+    assert "Oura and Apple Health are on the wishlist" in r
+    assert "not in active development" in r
+    assert "Beta" in r                              # WHOOP card stays, honestly capped
+    assert 'class="pill soon"' not in r
+    assert 'data-modal="suggest"' in r
+    assert 'data-modal="subscribe"' in r
 
 
 def test_hero_leads_with_outcome(tmp_path):
@@ -367,10 +375,9 @@ def test_hero_leads_with_outcome(tmp_path):
     # no badge — the H1 leads (avoid over-niching the umbrella)
     assert 'class="badge"' not in home
     # subhead leads with the outcome, not "connectors" / "MCP server"
-    assert "except the numbers your apps keep locked away" in home
     assert "an answer that actually knows" in home
     # <title> leads with the promise AND keeps the SEO keyword tail
-    assert "Your data, in Claude" in home          # from <title>/og:title
+    assert "Your Garmin data, in Claude" in home   # from <title>/og:title
     assert "Garmin MCP Server" in home             # SEO keyword retained
     # the old jargon-first subhead phrasing is gone
     assert "hosts the connectors your favorite services are missing" not in home
