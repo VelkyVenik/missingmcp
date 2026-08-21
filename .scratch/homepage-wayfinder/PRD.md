@@ -1,7 +1,9 @@
 # Homepage redesign — Garmin-focused wayfinder
 
-Status: ready-for-agent
-Date: 2026-08-21 (grilled & locked with Vaclav, 2 rounds, all recommendations accepted)
+Status: shipped
+Date: 2026-08-21 (grilled & locked with Vaclav, 2 rounds, all recommendations
+accepted; prototype approved after 3 render iterations; shipped same day via
+PR #26, deploy verified live)
 
 ## Goal
 
