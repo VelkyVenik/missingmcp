@@ -57,9 +57,16 @@
                            background: rgba(245, 158, 11, .2); text-decoration: none; }
 
     h1 { letter-spacing: -.03em; line-height: 1.05; }
-    .hero { padding: 4rem 0 3rem; }
-    .hero h1 { font-size: clamp(2.6rem, 7vw, 4.5rem); line-height: 1.02; max-width: 14ch; }
-    .hero p { margin-top: 1.5rem; max-width: 52ch; font-size: 1.15rem; color: var(--muted); }
+    /* The home hero is centered (the wayfinder reads as a signpost, not an
+       article); subpage heroes (.page-hero) stay left-aligned. */
+    .hero { padding: 4rem 0 3rem; text-align: center; }
+    .hero h1 { font-size: clamp(2.6rem, 7vw, 4.5rem); line-height: 1.02; max-width: 14ch;
+               margin-inline: auto; }
+    .hero p { margin: 1.5rem auto 0; max-width: 52ch; font-size: 1.15rem; color: var(--muted); }
+    /* .hero p outweighs .quiet, so the trailing any-client line needs its own
+       size rule to actually read as quiet. */
+    .hero p.quiet { font-size: .95rem; }
+    .hero .cta-row { justify-content: center; }
     .page-hero { padding: 2.8rem 0 1.6rem; }
     .page-hero h1 { font-size: clamp(2.1rem, 6vw, 3.2rem); margin-top: .6rem; }
     .page-hero p { margin-top: 1rem; max-width: 56ch; font-size: 1.08rem; color: var(--muted); }
@@ -68,23 +75,15 @@
              padding: .3rem .75rem; border-radius: 999px; margin-bottom: 1.4rem; }
     .hl { color: var(--accent); }
     .cta-row { margin-top: 2.1rem; display: flex; flex-wrap: wrap; gap: 1.1rem; align-items: center; }
-    /* Shared button base so a filled <a class="btn"> and an outline
-       <button class="btn-outline"> render at the identical height. The two are
-       different elements on purpose — the primary navigates (a real link), the
-       secondary opens a modal (an action) — so their box model AND typography
-       (esp. line-height: <a> inherits 1.6, <button> defaults to normal) must be
-       pinned here, or they stair-step to different heights. */
-    .btn, .btn-outline {
-           display: inline-block; vertical-align: middle;
+    /* Button box model and typography pinned explicitly (esp. line-height:
+       <a> inherits 1.6, <button> defaults to normal), so a .btn renders the
+       same height whether it's a link or a real <button> (the modal forms). */
+    .btn { display: inline-block; vertical-align: middle;
            font-family: inherit; font-size: 1rem; font-weight: 600; line-height: 1.5;
            padding: .7rem 1.3rem; border-radius: 10px; border: 1px solid transparent;
-           cursor: pointer; text-decoration: none; }
-    .btn { background: var(--accent); color: #fff; }
+           cursor: pointer; text-decoration: none;
+           background: var(--accent); color: #fff; }
     .btn:hover { text-decoration: none; opacity: .92; }
-    /* secondary CTA: a real, visible button (catches the eye) but clearly below
-       the filled primary — accent outline, fills softly on hover */
-    .btn-outline { background: none; color: var(--accent); border-color: var(--accent); }
-    .btn-outline:hover { text-decoration: none; background: var(--accent-soft); }
     .quiet { color: var(--muted); font-size: .95rem; }
     .quiet:hover { color: var(--accent); text-decoration: none; }
 
@@ -97,20 +96,23 @@
     .card h3 { font-size: 1.05rem; letter-spacing: -.01em; margin: .35rem 0 .4rem; }
     .card p { font-size: .92rem; color: var(--muted); }
     .card .go { display: inline-block; margin-top: .8rem; font-weight: 600; font-size: .92rem; }
-    .card.featured { padding: 2.2rem 1.8rem; margin-bottom: .9rem; }
-    .card.featured h3 { font-size: clamp(1.9rem, 5vw, 2.8rem); letter-spacing: -.02em; margin: .5rem 0 .2rem; }
-    .card.featured .tagline { font-size: clamp(1.1rem, 3vw, 1.35rem); font-weight: 700;
-                              letter-spacing: -.01em; color: var(--accent); margin-bottom: .6rem; }
-    .card.featured p { font-size: 1rem; max-width: 62ch; }
-    .card.featured .btn { margin-top: 1.2rem; }
     .pill { display: inline-block; font-size: .66rem; font-weight: 700; letter-spacing: .08em;
             text-transform: uppercase; padding: .18rem .6rem; border-radius: 999px; }
     .pill.live { color: var(--live); background: var(--live-soft); }
-    .pill.soon { color: var(--dim); background: var(--border); }
-    .pill.done { color: var(--accent); background: var(--accent-soft); }
     .pill.beta { color: var(--warn); background: var(--warn-soft); }
     .usage-meter { margin-left: .7rem; font-size: .82rem; color: var(--muted);
                    vertical-align: middle; }
+    /* Hero-level variant of the same meter snippet: a quiet badge with a live
+       dot. The <p> collapses entirely when the meter is below threshold;
+       its spacing comes from the .hero p rule like the hero's other lines. */
+    .hero-meter:empty { display: none; }
+    .hero-meter .usage-meter { display: inline-flex; align-items: center; gap: .55rem;
+                               margin-left: 0; font-size: .95rem; color: var(--text);
+                               border: 1px solid var(--border); border-radius: 999px;
+                               padding: .45rem 1rem; background: var(--bg-card); }
+    .hero-meter .usage-meter::before { content: ""; width: .55rem; height: .55rem;
+                                       border-radius: 50%; background: var(--live);
+                                       flex: none; }
     code { background: var(--accent-soft); padding: .1rem .4rem; border-radius: 6px;
            font-size: .85em; overflow-wrap: anywhere; }
     .copy { display: inline-flex; align-items: center; justify-content: center;
@@ -125,6 +127,12 @@
     .step-n { font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; }
 
     .chat { display: flex; flex-direction: column; gap: .7rem; max-width: 60ch; }
+    /* Home is a centered signpost, so the chat demo centers with it: the
+       column, its caption, the lede, and the chips all sit on the page axis. */
+    #just-ask .lede { margin-inline: auto; text-align: center; }
+    #just-ask .chat { margin-inline: auto; }
+    #just-ask .chat-cap { margin-inline: auto; text-align: center; }
+    #just-ask .chips { justify-content: center; }
     .bubble { border: 1px solid var(--border); background: var(--bg-card);
               border-radius: 16px; border-bottom-left-radius: 4px;
               padding: .9rem 1.1rem; font-size: .95rem; }
@@ -214,6 +222,7 @@
                     padding: 3rem 1.5rem; text-align: center; }
     .final h2 { font-size: clamp(1.9rem, 5vw, 3rem); letter-spacing: -.02em; line-height: 1.05; }
     .final p { margin: 1rem auto 1.8rem; max-width: 44ch; color: var(--muted); }
+    .final .cta-row { justify-content: center; }
     /* Support callout: the one warm-amber element in an indigo UI — visible
        at the connect moment without shouting. The emoji lives in ::before. */
     .beer { display: flex; align-items: center; gap: .9rem; margin-top: 1.6rem;
@@ -225,7 +234,7 @@
     .beer a { white-space: nowrap; font-weight: 700; }
 
     /* Dedicated support section: same amber as .beer/.beer-btn, sized like the
-       .final CTA box so the page ends on two peers (support, then browse). */
+       .final CTA box so the page ends on two peers (support, then connect). */
     .support { padding: 2.4rem 0; }
     .support .inner { border: 1px solid rgba(217, 119, 6, .4);
                       background: rgba(245, 158, 11, .1); border-radius: 24px;
@@ -259,7 +268,6 @@
         <a href="/#connectors">Connectors</a>
         <a href="/#how">How it works</a>
         <a href="/#security">Security</a>
-        <a href="/#graduated">No longer missing</a>
         <a class="beer-btn" href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a>
       </nav>
     </div>

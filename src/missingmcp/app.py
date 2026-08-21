@@ -106,15 +106,15 @@ def build_app(config: Config) -> Starlette:
                 + "</script>")
 
     home_page = _render(
-        "home.html", "MissingMCP — Your data, in Claude & ChatGPT · Garmin MCP Server",
-        "Give Claude, ChatGPT, or any MCP-capable AI your Garmin and health "
-        "data, then just ask — did I eat enough for today's ride, how did I "
-        "sleep this week? A hosted Garmin MCP server: connect in two minutes. "
-        "Free and open source.",
+        "home.html", "MissingMCP — Your Garmin data, in Claude & ChatGPT · Garmin MCP Server",
+        "Give Claude or ChatGPT your Garmin data, then just ask — did I eat "
+        "enough for today's ride, how did I sleep this week? A hosted Garmin "
+        "MCP server: one URL, sign in once, connect in two minutes. Free and "
+        "open source.",
         # The search description keeps both example questions; the preview line
         # gets one, because previews cut at ~125 characters.
-        social_desc="Give Claude & ChatGPT your Garmin and WHOOP data, then "
-                    "just ask — how did I sleep this week?",
+        social_desc="Give Claude & ChatGPT your Garmin data, then just ask — "
+                    "how did I sleep this week?",
         extra_head=_json_ld({"@type": "WebSite", "name": "MissingMCP",
                              "url": config.public_url}))
 

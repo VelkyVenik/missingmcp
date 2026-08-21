@@ -1,11 +1,17 @@
+<!-- Homepage = wayfinder (PRD: .scratch/homepage-wayfinder/PRD.md): sell Garmin
+     once, show the active-user count, route to the right client guide
+     (/garmin for Claude, /garmin/chatgpt for ChatGPT). Detail lives on the
+     subpages — this page never duplicates their steps or tool lists. -->
   <div class="hero">
     <div class="wrap">
-      <h1>Your data, <span class="hl">in Claude &amp; ChatGPT</span>.</h1>
-      <p>Your AI can reason about almost anything &mdash; except the numbers your apps keep locked away. MissingMCP hands Claude, ChatGPT, or any MCP-capable AI your real data, starting with Garmin, so you can just ask: <em>&ldquo;Did I eat enough for today&rsquo;s ride?&rdquo;</em> &mdash; and get an answer that actually knows.</p>
+      <h1>Your Garmin data, <span class="hl">in Claude &amp; ChatGPT</span>.</h1>
+      <p class="hero-meter">{USAGE_METER_GARMIN}</p>
+      <p>Everything your watch knows &mdash; training, sleep, recovery, health &mdash; one URL away from a conversation. Sign in once, then just ask: <em>&ldquo;Did I eat enough for today&rsquo;s ride?&rdquo;</em> &mdash; and get an answer that actually knows.</p>
       <div class="cta-row">
-        <a class="btn" href="/garmin">Connect Garmin &rarr;</a>
-        <button class="btn-outline" type="button" data-modal="subscribe">Notify me</button>
+        <a class="btn" href="/garmin">Connect in Claude &rarr;</a>
+        <a class="btn" href="/garmin/chatgpt">Connect in ChatGPT &rarr;</a>
       </div>
+      <p class="quiet">One URL, open standard (MCP) &mdash; works in Codex, Gemini, and any other MCP-capable app too.</p>
     </div>
   </div>
 
@@ -26,71 +32,24 @@
     </div>
   </section>
 
-  <section id="connectors">
-    <div class="wrap">
-      <h2 class="sec-h">Connectors</h2>
-      <div class="card featured">
-        <span class="pill live">Live</span>{USAGE_METER_GARMIN}
-        <h3>Garmin</h3>
-        <p class="tagline">Your watch has the answers.</p>
-        <p>Training, sleep, recovery, health &mdash; everything Garmin Connect knows, in your AI. Ask how you slept, review yesterday&rsquo;s ride, or have Claude plan next week&rsquo;s workouts and send them to your watch. Works in Claude, ChatGPT, and any MCP-capable app.</p>
-        <a class="btn" href="/garmin">Connect Garmin &rarr;</a>
-        <a class="go" href="/garmin/chatgpt">Using ChatGPT? Step-by-step guide &rarr;</a>
-      </div>
-      <div class="cards">
-        <div class="card">
-          <span class="pill beta">Beta</span>{USAGE_METER_WHOOP}
-          <h3>WHOOP</h3>
-          <p>Recovery, sleep, and strain &mdash; ask why today&rsquo;s recovery dipped, what your HRV is doing, or how the week&rsquo;s load is trending.</p>
-          <a class="go" href="/whoop">Connect WHOOP &rarr;</a>
-        </div>
-        <div class="card">
-          <span class="pill soon">Soon</span>
-          <h3>Oura</h3>
-          <p>Sleep, readiness, and heart rate from your Oura ring &mdash; ask how last night set up your day, or how readiness tracks with your training. In the works.</p>
-          <button class="linklike" type="button" data-modal="subscribe">Notify me &rarr;</button>
-        </div>
-        <div class="card">
-          <span class="pill soon">Soon</span>
-          <h3>Apple Health</h3>
-          <p>Bringing your Apple Health data into Claude is on the radar &mdash; still exploring the right way to do it, no promises yet.</p>
-          <button class="linklike" type="button" data-modal="subscribe">Notify me &rarr;</button>
-        </div>
-        <div class="card">
-          <h3>Missing something?</h3>
-          <p>Every connector here started as &ldquo;I wish Claude could&hellip;&rdquo;. Tell me which app should be next &mdash; or just get a ping when a new one lands.</p>
-          <div class="card-actions">
-            <button class="linklike" type="button" data-modal="suggest">Suggest a connector &rarr;</button>
-            <button class="linklike" type="button" data-modal="subscribe">Notify me about new connectors &rarr;</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <section id="how">
     <div class="wrap">
       <h2 class="sec-h">How it works</h2>
       <div class="cards">
         <div class="card">
           <span class="step-n">Step 1</span>
-          <h3>Pick a connector</h3>
-          <p>Choose an app from the list and copy its server URL.</p>
+          <h3>Copy one URL</h3>
+          <p><code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> &mdash; the same address for every client. Add it where your AI keeps its connectors: <a href="/garmin">Claude</a> or <a href="/garmin/chatgpt">ChatGPT</a>.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 2</span>
-          <h3>Add it to your AI</h3>
-          <p><strong>Claude:</strong> Settings &rarr; Connectors &rarr; Add custom connector &mdash; paste the URL, leave the optional OAuth fields empty. Works on phone, desktop, and web. <strong>ChatGPT:</strong> add it as a custom connector in developer mode &mdash; <a href="/garmin/chatgpt">step-by-step guide</a>.</p>
+          <h3>Sign in once</h3>
+          <p>A sign-in page opens &mdash; log in with your Garmin Connect email and password (MFA works). The password is used once and never stored &mdash; details in <a href="#security">Security &amp; trust</a>.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 3</span>
-          <h3>Sign in once</h3>
-          <p>Claude opens a sign-in page &mdash; log in with your own account. Where the service has its own OAuth (WHOOP), you sign in there; elsewhere (Garmin) your password is used once and never stored.</p>
-        </div>
-        <div class="card">
-          <span class="step-n">Step 4</span>
           <h3>Start asking</h3>
-          <p>Your AI picks up the tools automatically. &ldquo;How did I sleep this week?&rdquo; just works.</p>
+          <p>Your AI picks up every Garmin tool automatically &mdash; and &ldquo;How did I sleep this week?&rdquo; just works.</p>
         </div>
       </div>
     </div>
@@ -111,7 +70,7 @@
         </div>
         <div>
           <h3>Your data passes through, nothing sticks</h3>
-          <p>Your health and fitness data flows from the service to Claude only when you ask, and only to you. The gateway stores none of it &mdash; details in the <a href="/privacy">privacy policy</a>.</p>
+          <p>Your health and fitness data flows from the service to your AI only when you ask, and only to you. The gateway stores none of it &mdash; details in the <a href="/privacy">privacy policy</a>.</p>
         </div>
         <div>
           <h3>Open source, run by a person</h3>
@@ -121,18 +80,26 @@
     </div>
   </section>
 
-  <section id="graduated">
+  <section id="connectors">
     <div class="wrap">
-      <h2 class="sec-h">No longer missing</h2>
-      <p class="lede">The best possible ending for a connector: the service ships an official one. These apps now speak MCP themselves &mdash; connect them directly, no gateway needed.</p>
+      <h2 class="sec-h">More connectors</h2>
       <div class="cards">
         <div class="card">
-          <span class="pill done">Official MCP &check;</span>
-          <h3>Rohl&iacute;k</h3>
-          <p>Rohl&iacute;k now runs its own MCP server with proper OAuth sign-in. Add <code>https://mcp.rohlik.cz/mcp</code> as a custom connector in Claude and log in with your Rohl&iacute;k account &mdash; no password stored anywhere.</p>
-          <a class="go" href="https://www.rohlik.cz/stranka/mcp-server" target="_blank" rel="noopener noreferrer">Rohl&iacute;k&rsquo;s official guide &rarr;</a>
+          <span class="pill beta">Beta</span>{USAGE_METER_WHOOP}
+          <h3>WHOOP</h3>
+          <p>Recovery, sleep, and strain in a conversation. WHOOP hasn&rsquo;t approved the integration yet, so access is capped at 10 users &mdash; it works fully, you just might hit the cap.</p>
+          <a class="go" href="/whoop">Connect WHOOP &rarr;</a>
+        </div>
+        <div class="card">
+          <h3>Missing something?</h3>
+          <p>Oura and Apple Health are on the wishlist &mdash; not in active development. Every connector here started as &ldquo;I wish my AI could&hellip;&rdquo; &mdash; tell me what you&rsquo;re missing.</p>
+          <div class="card-actions">
+            <button class="linklike" type="button" data-modal="suggest">Suggest a connector &rarr;</button>
+            <button class="linklike" type="button" data-modal="subscribe">Notify me about new connectors &rarr;</button>
+          </div>
         </div>
       </div>
+      <p class="quiet">No longer missing: <strong>Rohl&iacute;k</strong> now ships its own official MCP server &mdash; add <code>https://mcp.rohlik.cz/mcp</code> directly, no gateway needed (<a href="https://www.rohlik.cz/stranka/mcp-server" target="_blank" rel="noopener noreferrer">official guide</a>). The best possible ending for a connector.</p>
     </div>
   </section>
 
@@ -150,8 +117,11 @@
     <div class="wrap">
       <div class="inner">
         <h2>Give your AI the <span class="hl">missing</span> piece.</h2>
-        <p>Your first connector is two minutes away &mdash; free, open source, and no server of your own.</p>
-        <a class="btn" href="#connectors">Browse connectors</a>
+        <p>Your Garmin data is two minutes away &mdash; free, open source, and no server of your own.</p>
+        <div class="cta-row">
+          <a class="btn" href="/garmin">Connect in Claude &rarr;</a>
+          <a class="btn" href="/garmin/chatgpt">Connect in ChatGPT &rarr;</a>
+        </div>
       </div>
     </div>
   </div>
@@ -172,7 +142,7 @@
     <form class="modal-card" data-endpoint="/suggest">
       <button class="modal-x" type="button" data-close aria-label="Close">&times;</button>
       <h3>Suggest a connector</h3>
-      <p class="modal-sub">Which app should Claude speak to next? Tell me what you&rsquo;re missing.</p>
+      <p class="modal-sub">Which app should your AI speak to next? Tell me what you&rsquo;re missing.</p>
       <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
       <label>Email<input name="email" type="email" required placeholder="you@example.com"></label>
       <label>What&rsquo;s missing?<textarea name="description" rows="3" required placeholder="e.g. Strava, Oura, Fitbit&hellip;"></textarea></label>
