@@ -66,6 +66,17 @@ class WorkerForward(Protocol):
         can simply return None."""
         ...
 
+    def login_outcome(self, line: str) -> str | None:
+        """Optional (the manager probes with getattr): classify one worker log
+        line as the upstream sign-in outcome — "ok", "failed", or None (not a
+        sign-in line). For a worker that answers its health check before its
+        upstream sign-in has resolved, this is the manager's only startup signal
+        that the account's stored credentials still work: ensure_worker blocks
+        on the first classified line ("failed" → WorkerCredentialsRejected →
+        re-auth 401). A worker that only serves after a successful sign-in can
+        omit this entirely."""
+        ...
+
 
 class RemoteForward(Protocol):
     """Forward strategy A: shared remote MCP upstream, per-account credentials

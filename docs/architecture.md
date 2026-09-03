@@ -166,6 +166,18 @@ manager-owned, credential files come from `forward.materialize` (`0600`).
 into the structured log (`event=worker-log`, `account` attr, ERROR/Traceback
 lines elevated) — no per-user `worker.log` files on the volume.
 
+**Login gate** (garmin_mcp ≥ `e8554bc`): the worker signs in to Garmin on a
+background thread and answers `/healthz` *before* the sign-in resolves, so
+health alone no longer proves the account's tokens work — a stale token would
+otherwise surface as a per-call "run garmin-mcp-auth" tool error the user can't
+act on. `_default_spawn` therefore attaches a one-shot `LoginGate` to the
+process; the output pump fills it from the first sign-in log line the forward
+classifies (`forward.login_outcome`, optional — probed with `getattr` like
+`read_back`), and `ensure_worker` blocks on it after `/healthz`, inside the
+same `worker_startup_timeout` budget: "failed" → `worker-login-rejected` +
+`WorkerCredentialsRejected` (re-auth, self-heal), silence → `worker-login-timeout`
++ plain `WorkerStartError`. Injected test spawns carry no gate and skip the wait.
+
 **Port hygiene** (reliability ticket 12): `_alloc_port` round-robins through
 the range (never lowest-free-first — that hands the next spawn exactly the
 port its own `_enforce_cap` eviction just freed), and a terminated worker's
@@ -202,18 +214,21 @@ strategy dispatch via `is_remote` / `is_local`:
   `forward.handle(conn, account_key, blob, body)` in-process, mapping
   `SessionExpired` to a re-auth 401 (event `local-forward-auth-stale`)
 - **worker** — calls `ensure_worker`; every failure becomes a re-auth 401, but
-  they are logged apart, because only one of them is routine. A worker that exits
-  **cleanly (rc 0)** during startup has rejected the account's stored credentials
-  — for `garmin_mcp`, "OAuth tokens not found … Exiting." on stale tokens
-  (`WorkerCredentialsRejected` → events `worker-exited-early` +
-  `worker-forward-auth-stale`, info; the user re-signs-in and no operator is
-  needed). Everything else is a genuine fault that keeps `worker-start-failed` at
-  error level: a spawn failure, an exhausted port range, a worker that stayed
-  alive and never answered `/healthz` (`worker-unhealthy`), and — importantly — a
-  worker that died **non-zero or on a signal** (`worker-died`, e.g. rc 1 on a
-  traceback or 137 on an OOM kill), which must never be mistaken for stale
-  credentials or a crash-loop would go silent. The ops alert and
-  `hourly_digest.py`'s `SELF_HEAL_EVENTS` both key off that split
+  they are logged apart, because only some of them are routine. Stale stored
+  credentials (`WorkerCredentialsRejected` → `worker-forward-auth-stale`, info;
+  the user re-signs-in and no operator is needed) arrive on two signals matching
+  two generations of `garmin_mcp`: a worker that exits **cleanly (rc 0)** during
+  startup ("OAuth tokens not found … Exiting.", event `worker-exited-early`) and
+  — since the worker's login moved to a background thread — a healthy worker
+  whose sign-in log line reports failure (the login gate, event
+  `worker-login-rejected`). Everything else is a genuine fault that keeps
+  `worker-start-failed` at error level: a spawn failure, an exhausted port
+  range, a worker that stayed alive and never answered `/healthz`
+  (`worker-unhealthy`) or never resolved its sign-in (`worker-login-timeout`),
+  and — importantly — a worker that died **non-zero or on a signal**
+  (`worker-died`, e.g. rc 1 on a traceback or 137 on an OOM kill), which must
+  never be mistaken for stale credentials or a crash-loop would go silent. The
+  ops alert and `hourly_digest.py`'s `SELF_HEAL_EVENTS` both key off that split
 - **remote** — injects `forward.headers(blob)` and maps upstream 401/403 to the
   same re-auth 401 (event `remote-forward-auth-stale`)
 

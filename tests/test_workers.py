@@ -1,3 +1,4 @@
+import asyncio
 import os
 import stat
 import time
@@ -95,6 +96,109 @@ async def test_hanging_worker_is_a_plain_start_error(tmp_path):
     with pytest.raises(workers.WorkerStartError) as exc:
         await mgr.ensure_worker("me@x.cz", "{}")
     assert not isinstance(exc.value, workers.WorkerCredentialsRejected)
+
+
+class _GatedProc:
+    """Healthy-process stand-in carrying a login gate, as _default_spawn's procs
+    do since garmin_mcp's login moved to a background thread (#255): the worker
+    answers /healthz regardless of whether the Garmin sign-in succeeded, so the
+    gate is the only startup signal that the tokens still work."""
+    def __init__(self, outcome=None):
+        self.alive = True
+        self.login_gate = workers.LoginGate()
+        self.login_gate.outcome = outcome
+    def poll(self): return None if self.alive else 0
+    def terminate(self): self.alive = False
+
+
+async def test_login_failure_line_is_credentials_rejected(tmp_path, fake_worker):
+    # A healthy worker whose pump classified "Garmin Connect client failed to
+    # initialize" has rejected the account's stored tokens — same self-heal path
+    # as the old clean startup exit: re-auth, not an operator.
+    procs = []
+    def spawn(key, port, token_dir):
+        procs.append(_GatedProc(outcome="failed"))
+        return procs[-1]
+
+    cfg = _config(tmp_path, worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=spawn)
+    with pytest.raises(workers.WorkerCredentialsRejected):
+        await mgr.ensure_worker("me@x.cz", "{}")
+    assert procs[0].alive is False                # the useless worker was stopped
+    assert mgr.active_count() == 0                # and never registered
+
+
+async def test_login_ok_line_admits_worker(tmp_path, fake_worker):
+    cfg = _config(tmp_path, worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: _GatedProc(outcome="ok"))
+    port = await mgr.ensure_worker("me@x.cz", "{}")
+    assert port == fake_worker.port
+    mgr.shutdown()
+
+
+async def test_login_gate_silence_is_a_plain_start_error(tmp_path, fake_worker):
+    # Healthy but never reporting a sign-in outcome (login wedged, or the worker
+    # stopped printing the lines): genuinely wrong, must NOT be filed as stale
+    # credentials — mirrors test_hanging_worker one boot stage later.
+    cfg = _config(tmp_path, worker_startup_timeout=1,
+                  worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: _GatedProc(outcome=None))
+    t0 = time.monotonic()
+    with pytest.raises(workers.WorkerStartError) as exc:
+        await mgr.ensure_worker("me@x.cz", "{}")
+    assert not isinstance(exc.value, workers.WorkerCredentialsRejected)
+    assert time.monotonic() - t0 < 5              # bounded by the startup budget
+
+
+async def test_login_gate_outcome_arriving_late_is_honored(tmp_path, fake_worker):
+    # The outcome lands only after /healthz already answered — the gate must
+    # keep polling instead of reading the slot once.
+    proc = _GatedProc(outcome=None)
+    cfg = _config(tmp_path, worker_startup_timeout=10,
+                  worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: proc)
+
+    async def flip():
+        await asyncio.sleep(0.5)
+        proc.login_gate.outcome = "ok"
+    flip_task = asyncio.ensure_future(flip())
+    port = await mgr.ensure_worker("me@x.cz", "{}")
+    assert port == fake_worker.port
+    await flip_task
+    mgr.shutdown()
+
+
+def test_garmin_login_outcome_classifier(tmp_path):
+    fwd = GarminWorkerForward(_config(tmp_path))
+    assert fwd.login_outcome(
+        "Garmin Connect client initialized successfully.") == "ok"
+    assert fwd.login_outcome(
+        "Garmin Connect client failed to initialize (see errors above). "
+        "Tool calls will fail until this is fixed; run 'garmin-mcp-auth' "
+        "and restart the server.") == "failed"
+    # the pre-#255 wording (worker exits after printing it) stays covered
+    assert fwd.login_outcome("Failed to initialize Garmin Connect client. Exiting.") == "failed"
+    assert fwd.login_outcome("INFO: Uvicorn running on http://127.0.0.1:9000") is None
+    assert fwd.login_outcome("Trying to login to Garmin Connect using token data...") is None
+
+
+def test_pump_fills_login_gate_from_stream(tmp_path):
+    # The wiring _default_spawn sets up: merged worker output flows through the
+    # pump, and the first classified sign-in line lands in the gate exactly once.
+    import io
+    fwd = GarminWorkerForward(_config(tmp_path))
+    gate = workers.LoginGate()
+    stream = io.StringIO(
+        "INFO: Started server process\n"
+        "\n"
+        "Trying to login to Garmin Connect using token data from directory '/x'...\n"
+        "Garmin Connect client failed to initialize (see errors above).\n"
+        "Garmin Connect client initialized successfully.\n"   # later line must not overwrite
+    )
+    workers._pump_worker_output(stream, "me@x.cz", classify=fwd.login_outcome, gate=gate)
+    assert gate.outcome == "failed"
 
 
 async def test_reap_idle_terminates(tmp_path, fake_worker):
