@@ -1,7 +1,8 @@
 # garmin_mcp bump: 2974244b → e8554bcd
 
-Status: ready-for-human (PR open; merge = deploy; manual smoke test is the
-release gate)
+Status: shipped (PR #27 merged 2026-09-03, deploy ca59569 verified live —
+tool listing + discovery serving; the manual smoke test below is still the
+release gate before announcing to users)
 Date: 2026-09-03
 
 ## Why
