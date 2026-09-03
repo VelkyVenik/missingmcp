@@ -49,7 +49,18 @@ class SecondFactorNeeded:
 
 
 class WorkerForward(Protocol):
-    """Forward strategy B: per-account spawned HTTP worker."""
+    """Forward strategy B: per-account spawned HTTP worker.
+
+    Implementations may additionally provide the OPTIONAL hook
+    ``login_outcome(line: str) -> str | None``: classify one worker log line as
+    the upstream sign-in outcome — "ok", "failed", or None (not a sign-in
+    line). It is deliberately not part of the structural protocol: the manager
+    probes for it with getattr, and a worker that only serves after a
+    successful sign-in omits it entirely. It exists for workers that answer
+    their health check before the upstream sign-in has resolved (garmin_mcp's
+    background login): the first classified line is the manager's only startup
+    signal that the stored credentials still work, and ensure_worker blocks on
+    it ("failed" → WorkerCredentialsRejected → re-auth 401)."""
 
     def command(self) -> list[str]: ...
     def env(self, port: int, workdir: str) -> dict[str, str]: ...
@@ -64,17 +75,6 @@ class WorkerForward(Protocol):
         token rotations the worker wrote to its file (the WHOOP persist-before-use
         rule, worker-strategy edition); a worker whose upstream never rotates
         can simply return None."""
-        ...
-
-    def login_outcome(self, line: str) -> str | None:
-        """Optional (the manager probes with getattr): classify one worker log
-        line as the upstream sign-in outcome — "ok", "failed", or None (not a
-        sign-in line). For a worker that answers its health check before its
-        upstream sign-in has resolved, this is the manager's only startup signal
-        that the account's stored credentials still work: ensure_worker blocks
-        on the first classified line ("failed" → WorkerCredentialsRejected →
-        re-auth 401). A worker that only serves after a successful sign-in can
-        omit this entirely."""
         ...
 
 

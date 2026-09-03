@@ -170,6 +170,23 @@ async def test_login_gate_outcome_arriving_late_is_honored(tmp_path, fake_worker
     mgr.shutdown()
 
 
+async def test_cancelled_spawn_stops_the_orphan_worker(tmp_path, fake_worker):
+    # A client disconnect cancels the request task mid-boot. The spawned process
+    # is not yet registered and `finally` un-reserves its port — left running it
+    # would hold a port the allocator considers free (CodeRabbit, PR #27).
+    proc = _GatedProc(outcome=None)               # healthy, parks in the login wait
+    cfg = _config(tmp_path, worker_startup_timeout=30,
+                  worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg), spawn=lambda *a: proc)
+    task = asyncio.ensure_future(mgr.ensure_worker("me@x.cz", "{}"))
+    await asyncio.sleep(0.6)                      # past /healthz, into _wait_login
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert proc.alive is False                    # stopped, port cooling — not orphaned
+    assert mgr.active_count() == 0
+
+
 def test_garmin_login_outcome_classifier(tmp_path):
     fwd = GarminWorkerForward(_config(tmp_path))
     assert fwd.login_outcome(

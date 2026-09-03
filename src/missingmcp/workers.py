@@ -178,23 +178,32 @@ class WorkerManager:
                 # One budget for the whole boot — health AND sign-in outcome —
                 # so the bump to background login didn't widen the startup SLA.
                 deadline = self._clock() + self._cfg.worker_startup_timeout
-                outcome = await self._wait_healthy(port, proc, deadline)
-                gate = getattr(proc, "login_gate", None)
-                if outcome == "healthy" and gate is not None:
-                    login = await self._wait_login(gate, proc, deadline)
-                    if login == "failed":
-                        self._stop_process(proc, port)
-                        log("worker-login-rejected", port=port, account=key)
-                        raise WorkerCredentialsRejected(
-                            f"worker for {key[:3]}*** reported a failed sign-in during startup")
-                    if login == "timeout":
-                        self._stop_process(proc, port)
-                        log("worker-login-timeout", port=port,
-                            startup_timeout=self._cfg.worker_startup_timeout)
-                        raise WorkerStartError(
-                            f"worker for {key[:3]}*** did not resolve its sign-in in time")
-                    if login == "exited":
-                        outcome = "exited"   # shared exit handling below
+                try:
+                    outcome = await self._wait_healthy(port, proc, deadline)
+                    gate = getattr(proc, "login_gate", None)
+                    if outcome == "healthy" and gate is not None:
+                        login = await self._wait_login(gate, proc, deadline)
+                        if login == "failed":
+                            self._stop_process(proc, port)
+                            log("worker-login-rejected", port=port, account=key)
+                            raise WorkerCredentialsRejected(
+                                f"worker for {key[:3]}*** reported a failed sign-in during startup")
+                        if login == "timeout":
+                            self._stop_process(proc, port)
+                            log("worker-login-timeout", port=port,
+                                startup_timeout=self._cfg.worker_startup_timeout)
+                            raise WorkerStartError(
+                                f"worker for {key[:3]}*** did not resolve its sign-in in time")
+                        if login == "exited":
+                            outcome = "exited"   # shared exit handling below
+                except asyncio.CancelledError:
+                    # The caller's request vanished mid-boot (a client disconnect
+                    # cancels the handler task). The process is not yet registered,
+                    # and `finally` below un-reserves its port — left running it
+                    # would hold a port the allocator considers free. Stop it so
+                    # the port cools down like every other terminated worker's.
+                    self._stop_process(proc, port)
+                    raise
                 if outcome != "healthy":
                     rc = proc.poll()
                     # Through _stop_process so a bound-but-unhealthy process
