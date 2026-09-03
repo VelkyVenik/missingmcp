@@ -143,13 +143,16 @@ async def test_login_gate_silence_is_a_plain_start_error(tmp_path, fake_worker):
     # credentials — mirrors test_hanging_worker one boot stage later.
     cfg = _config(tmp_path, worker_startup_timeout=1,
                   worker_port_start=fake_worker.port, worker_port_end=fake_worker.port)
+    proc = _GatedProc(outcome=None)
     mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
-                                spawn=lambda *a: _GatedProc(outcome=None))
+                                spawn=lambda *a: proc)
     t0 = time.monotonic()
     with pytest.raises(workers.WorkerStartError) as exc:
         await mgr.ensure_worker("me@x.cz", "{}")
     assert not isinstance(exc.value, workers.WorkerCredentialsRejected)
     assert time.monotonic() - t0 < 5              # bounded by the startup budget
+    assert proc.alive is False                     # timed-out process was cleaned up
+    assert mgr.active_count() == 0
 
 
 async def test_login_gate_outcome_arriving_late_is_honored(tmp_path, fake_worker):
@@ -168,6 +171,89 @@ async def test_login_gate_outcome_arriving_late_is_honored(tmp_path, fake_worker
     assert port == fake_worker.port
     await flip_task
     mgr.shutdown()
+
+
+async def test_health_and_login_share_one_startup_deadline(tmp_path):
+    # Health must not consume one full timeout and then give sign-in another one:
+    # both stages are one boot and stay inside the existing startup SLA.
+    clock = [100.0]
+    proc = _GatedProc(outcome="ok")
+    cfg = _config(tmp_path, worker_startup_timeout=7,
+                  worker_port_start=59992, worker_port_end=59992)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: proc, clock=lambda: clock[0])
+    deadlines = []
+
+    async def wait_healthy(port, spawned, deadline):
+        deadlines.append(deadline)
+        clock[0] = 105.0                         # health used most of the budget
+        return "healthy"
+
+    async def wait_login(gate, spawned, deadline):
+        deadlines.append(deadline)
+        return "ok"
+
+    mgr._wait_healthy = wait_healthy
+    mgr._wait_login = wait_login
+    assert await mgr.ensure_worker("me@x.cz", "{}") == 59992
+    assert deadlines == [107.0, 107.0]            # no fresh deadline after health
+    mgr.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("rc", "expected"),
+    [(0, workers.WorkerCredentialsRejected),
+     (1, workers.WorkerStartError),
+     (-9, workers.WorkerStartError)],
+)
+async def test_exit_during_login_wait_keeps_startup_exit_semantics(
+        tmp_path, rc, expected):
+    # A process can disappear after /healthz succeeds but before its sign-in
+    # verdict arrives. Preserve the established clean-exit/stale-token split;
+    # crashes and signals must remain operator-visible failures.
+    class ExitedGatedProc:
+        def __init__(self):
+            self.login_gate = workers.LoginGate()
+
+        def poll(self):
+            return rc
+
+        def terminate(self):
+            raise AssertionError("an exited process must not be terminated again")
+
+    cfg = _config(tmp_path, worker_port_start=59991, worker_port_end=59991)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                spawn=lambda *a: ExitedGatedProc())
+
+    async def healthy(*args):
+        return "healthy"
+
+    async def exited(*args):
+        return "exited"
+
+    mgr._wait_healthy = healthy
+    mgr._wait_login = exited
+    with pytest.raises(expected) as exc:
+        await mgr.ensure_worker("me@x.cz", "{}")
+    if rc != 0:
+        assert not isinstance(exc.value, workers.WorkerCredentialsRejected)
+    assert mgr.active_count() == 0
+
+
+async def test_login_verdict_wins_over_a_simultaneous_process_exit(tmp_path):
+    # The pump may publish its final verdict just before the worker exits. The
+    # verdict is stronger evidence than poll(), so it must not be lost to the
+    # race between those two observations.
+    gate = workers.LoginGate()
+    gate.outcome = "failed"
+
+    class ExitedProc:
+        def poll(self):
+            return 1
+
+    cfg = _config(tmp_path)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg))
+    assert await mgr._wait_login(gate, ExitedProc(), mgr._clock() + 1) == "failed"
 
 
 async def test_cancelled_spawn_stops_the_orphan_worker(tmp_path, fake_worker):
@@ -216,6 +302,58 @@ def test_pump_fills_login_gate_from_stream(tmp_path):
     )
     workers._pump_worker_output(stream, "me@x.cz", classify=fwd.login_outcome, gate=gate)
     assert gate.outcome == "failed"
+
+
+def test_default_spawn_arms_gate_only_when_forward_can_classify_login(
+        tmp_path, monkeypatch):
+    # Pin the actual Popen -> pump wiring as well as backward compatibility for
+    # worker adapters that become healthy only after login and expose no hook.
+    spawned = []
+    threads = []
+
+    class Proc:
+        def __init__(self):
+            self.stdout = object()
+
+    class Thread:
+        def __init__(self, *, target, args, name, daemon):
+            threads.append((target, args, name, daemon))
+
+        def start(self):
+            pass
+
+    def popen(*args, **kwargs):
+        proc = Proc()
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(workers.subprocess, "Popen", popen)
+    monkeypatch.setattr(workers.threading, "Thread", Thread)
+    cfg = _config(tmp_path)
+
+    garmin = GarminWorkerForward(cfg)
+    garmin_proc = workers.WorkerManager(cfg, garmin)._default_spawn(
+        "garmin@example.com", 9000, str(tmp_path))
+    assert isinstance(garmin_proc.login_gate, workers.LoginGate)
+    target, args, name, daemon = threads[-1]
+    assert target is workers._pump_worker_output
+    assert args == (garmin_proc.stdout, "garmin@example.com",
+                    garmin.login_outcome, garmin_proc.login_gate)
+    assert name == "worker-log-garmin@e" and daemon is True
+
+    class ForwardWithoutLoginHook:
+        def command(self):
+            return ["legacy-worker"]
+
+        def env(self, port, workdir):
+            return {}
+
+    legacy_proc = workers.WorkerManager(
+        cfg, ForwardWithoutLoginHook())._default_spawn(
+            "legacy@example.com", 9001, str(tmp_path))
+    assert not hasattr(legacy_proc, "login_gate")
+    assert threads[-1][1] == (legacy_proc.stdout, "legacy@example.com", None, None)
+    assert spawned == [garmin_proc, legacy_proc]
 
 
 async def test_reap_idle_terminates(tmp_path, fake_worker):
