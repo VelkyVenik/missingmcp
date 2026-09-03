@@ -69,6 +69,14 @@ def test_routine_classes_alone_do_not_open_the_analysis():
     assert dt.actionable_classes(c) == []
 
 
+def test_worker_login_rejection_is_routine_credential_expiry():
+    # The login gate is the new worker generation's stale-token signal. It must
+    # follow the same self-healing triage path as the old clean startup exit.
+    c = dt.classify([_row(event="worker-login-rejected", account="a@x.cz")])
+    assert c["credential-expiry"]["count"] == 1
+    assert dt.actionable_classes(c) == []
+
+
 def test_garmin_upstream_is_routine_below_burst_threshold():
     rows = [_row(event="worker-log", account="a@x.cz",
                  line="ERROR    API call failed for path")] * 10

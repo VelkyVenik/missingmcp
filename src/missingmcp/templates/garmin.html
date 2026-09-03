@@ -128,7 +128,7 @@
     <div class="wrap">
       <h2 class="sec-h">All tools</h2>
 <!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_garmin_tools.py -->
-      <p class="lede">All <strong>134 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/2974244bfda1595b00836b3f942f579ec2d6f7d6"><code>2974244</code></a>). Click a group to expand.</p>
+      <p class="lede">All <strong>148 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/e8554bcd761a4494dc12a98461224bb3dcf1fbc5"><code>e8554bc</code></a>). Click a group to expand.</p>
       <div class="tools">
         <details>
           <summary>Activities <span class="count">&middot; 21 tools</span></summary>
@@ -145,7 +145,7 @@
             <dt><code>get_activity_splits</code></dt><dd>Get splits for an activity</dd>
             <dt><code>get_activity_typed_splits</code></dt><dd>Get typed splits for an activity</dd>
             <dt><code>get_activity_split_summaries</code></dt><dd>Get split summaries for an activity</dd>
-            <dt><code>get_activity_weather</code></dt><dd>Get weather data for an activity</dd>
+            <dt><code>get_activity_weather</code></dt><dd>Get weather data for an activity.</dd>
             <dt><code>get_activity_hr_in_timezones</code></dt><dd>Get heart rate data in different time zones for an activity</dd>
             <dt><code>get_activity_power_in_timezones</code></dt><dd>Get power distribution across training zones for an activity.</dd>
             <dt><code>get_activity_gear</code></dt><dd>Get gear data used for an activity</dd>
@@ -157,7 +157,7 @@
           </dl>
         </details>
         <details>
-          <summary>Health &amp; wellness <span class="count">&middot; 29 tools</span></summary>
+          <summary>Health &amp; wellness <span class="count">&middot; 30 tools</span></summary>
           <dl>
             <dt><code>get_stats</code></dt><dd>Get daily activity stats with curated essential metrics</dd>
             <dt><code>get_user_summary</code></dt><dd>Get user summary data (compatible with garminconnect-ha)</dd>
@@ -176,6 +176,7 @@
             <dt><code>get_hydration_data</code></dt><dd>Get hydration data</dd>
             <dt><code>get_sleep_data</code></dt><dd>Get full sleep data with all details</dd>
             <dt><code>get_sleep_summary</code></dt><dd>Get sleep summary with only essential metrics (lightweight version)</dd>
+            <dt><code>get_sleep_summary_range</code></dt><dd>Get lightweight sleep summaries for every night in a date range.</dd>
             <dt><code>get_stress_data</code></dt><dd>Get full stress time-series data</dd>
             <dt><code>get_stress_summary</code></dt><dd>Get stress summary with essential metrics (lightweight version)</dd>
             <dt><code>get_respiration_data</code></dt><dd>Get full respiration time-series data</dd>
@@ -191,12 +192,14 @@
           </dl>
         </details>
         <details>
-          <summary>Profile &amp; settings <span class="count">&middot; 4 tools</span></summary>
+          <summary>Profile &amp; settings <span class="count">&middot; 6 tools</span></summary>
           <dl>
             <dt><code>get_full_name</code></dt><dd>Get user&#x27;s full name from profile</dd>
             <dt><code>get_unit_system</code></dt><dd>Get user&#x27;s preferred unit system from profile</dd>
             <dt><code>get_user_profile</code></dt><dd>Get user profile information</dd>
             <dt><code>get_userprofile_settings</code></dt><dd>Get user profile settings</dd>
+            <dt><code>get_heart_rate_zones</code></dt><dd>Get the user&#x27;s saved heart-rate training-zone configuration.</dd>
+            <dt><code>set_heart_rate_zones</code></dt><dd>Set an account-level heart-rate training-zone configuration for one sport.</dd>
           </dl>
         </details>
         <details>
@@ -243,7 +246,7 @@
           </dl>
         </details>
         <details>
-          <summary>Training &amp; performance <span class="count">&middot; 14 tools</span></summary>
+          <summary>Training &amp; performance <span class="count">&middot; 18 tools</span></summary>
           <dl>
             <dt><code>get_progress_summary_between_dates</code></dt><dd>Get progress summary for a metric between dates</dd>
             <dt><code>get_hill_score</code></dt><dd>Get hill score data between dates</dd>
@@ -256,13 +259,17 @@
             <dt><code>get_lactate_threshold</code></dt><dd>Get lactate threshold data</dd>
             <dt><code>request_reload</code></dt><dd>Request reload of epoch data</dd>
             <dt><code>get_training_load_trend</code></dt><dd>Get the Performance Management Chart (CTL/ATL/TSB) over a date range.</dd>
+            <dt><code>get_training_load_balance</code></dt><dd>Get Garmin&#x27;s Load Focus — the distribution of the trailing-month training load across Aerobic Low, Aerobic High, and Anaerobic intensity bands, plus the system&#x27;s feedback phrase (e.g. AEROBIC_HIGH_SHORTAGE, BALANCED…</dd>
             <dt><code>get_hrv_trend</code></dt><dd>Get HRV (Heart Rate Variability) trend over a date range.</dd>
             <dt><code>get_vo2max_trend</code></dt><dd>Get VO2 max trend over a date range.</dd>
             <dt><code>get_respiration_trend</code></dt><dd>Get overnight respiration rate trend over a date range.</dd>
+            <dt><code>get_running_tolerance</code></dt><dd>Get Running Tolerance for a single day.</dd>
+            <dt><code>get_running_tolerance_trend</code></dt><dd>Get Running Tolerance trend over a date range.</dd>
+            <dt><code>get_acclimation</code></dt><dd>Get heat and altitude acclimation status for a given date.</dd>
           </dl>
         </details>
         <details>
-          <summary>Workouts <span class="count">&middot; 13 tools</span></summary>
+          <summary>Workouts <span class="count">&middot; 14 tools</span></summary>
           <dl>
             <dt><code>get_workouts</code></dt><dd>Get all workouts with curated summary list</dd>
             <dt><code>get_workout_by_id</code></dt><dd>Get detailed information for a specific workout</dd>
@@ -272,7 +279,8 @@
             <dt><code>delete_workout</code></dt><dd>Delete a workout from Garmin Connect</dd>
             <dt><code>delete_workouts</code></dt><dd>Delete multiple workouts from Garmin Connect in a single call</dd>
             <dt><code>get_scheduled_workouts</code></dt><dd>Get scheduled workouts between two dates with curated summary list</dd>
-            <dt><code>get_training_plan_workouts</code></dt><dd>Get training plan workouts for the week containing the given date</dd>
+            <dt><code>get_garmin_coach_workouts</code></dt><dd>Get Garmin Coach workouts around the given date</dd>
+            <dt><code>get_training_plan_workouts</code></dt><dd>Compatibility alias for get_garmin_coach_workouts</dd>
             <dt><code>schedule_workout</code></dt><dd>Schedule a workout to a specific calendar date</dd>
             <dt><code>schedule_workouts</code></dt><dd>Schedule multiple workouts to specific calendar dates</dd>
             <dt><code>unschedule_workout</code></dt><dd>Remove a scheduled workout from the Garmin Connect calendar</dd>
@@ -296,17 +304,19 @@
           </dl>
         </details>
         <details>
-          <summary>Nutrition <span class="count">&middot; 12 tools</span></summary>
+          <summary>Nutrition <span class="count">&middot; 14 tools</span></summary>
           <dl>
             <dt><code>get_nutrition_daily_food_log</code></dt><dd>Get daily food consumption records for a date</dd>
             <dt><code>get_nutrition_daily_meals</code></dt><dd>Get daily meal summaries for a date</dd>
             <dt><code>get_nutrition_daily_settings</code></dt><dd>Get nutrition plan/settings for a date</dd>
+            <dt><code>set_nutrition_daily_settings</code></dt><dd>Update daily nutrition goals (calorie target and macronutrient targets).</dd>
+            <dt><code>search_foods</code></dt><dd>Search Garmin&#x27;s general food catalog (FatSecret + Garmin custom foods)</dd>
             <dt><code>get_custom_foods</code></dt><dd>Search or list user&#x27;s custom foods</dd>
             <dt><code>get_custom_food_serving_units</code></dt><dd>Get available serving units for custom foods</dd>
             <dt><code>create_custom_food</code></dt><dd>Create a custom food in the user&#x27;s Garmin nutrition library</dd>
             <dt><code>update_custom_food</code></dt><dd>Update an existing custom food in the user&#x27;s Garmin nutrition library</dd>
             <dt><code>delete_custom_food</code></dt><dd>Delete a custom food from the user&#x27;s Garmin nutrition library</dd>
-            <dt><code>log_custom_food</code></dt><dd>Log a custom food item to a meal on a date</dd>
+            <dt><code>log_custom_food</code></dt><dd>Log a food item to a meal on a date</dd>
             <dt><code>log_food</code></dt><dd>Quick-add a food entry with macro values to the nutrition log</dd>
             <dt><code>delete_food_log</code></dt><dd>Delete a food log entry</dd>
             <dt><code>upsert_and_log</code></dt><dd>Find-or-create a custom food then log it in one step</dd>
@@ -323,20 +333,29 @@
           </dl>
         </details>
         <details>
-          <summary>Courses <span class="count">&middot; 3 tools</span></summary>
+          <summary>Courses <span class="count">&middot; 5 tools</span></summary>
           <dl>
             <dt><code>get_courses</code></dt><dd>List all courses saved on Garmin Connect.</dd>
+            <dt><code>get_course_details</code></dt><dd>Get full details of a Garmin Connect course by ID.</dd>
+            <dt><code>download_course_gpx</code></dt><dd>Download the exact official GPX file for a Garmin Connect course.</dd>
             <dt><code>upload_course</code></dt><dd>Upload a GPX file as a Garmin Connect Course.</dd>
             <dt><code>delete_course</code></dt><dd>Delete a course from Garmin Connect.</dd>
           </dl>
         </details>
         <details>
-          <summary>Activity analysis <span class="count">&middot; 4 tools</span></summary>
+          <summary>Activity analysis <span class="count">&middot; 5 tools</span></summary>
           <dl>
+            <dt><code>get_activity_fit_messages</code></dt><dd>Retrieve and generically parse an activity&#x27;s original FIT file.</dd>
             <dt><code>get_activity_fit_data</code></dt><dd>Download and parse FIT file for an activity to expose advanced cycling data.</dd>
             <dt><code>get_power_duration_curve</code></dt><dd>Get season-best Power Duration Curve across recent activities.</dd>
             <dt><code>download_activity_file</code></dt><dd>Download an activity and save it to disk as a file.</dd>
             <dt><code>set_fit_download_dir</code></dt><dd>Set and persist the default directory for downloaded activity files.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Calendar events <span class="count">&middot; 1 tools</span></summary>
+          <dl>
+            <dt><code>get_calendar_events</code></dt><dd>Get races and events on the Garmin Connect calendar between two dates</dd>
           </dl>
         </details>
       </div>

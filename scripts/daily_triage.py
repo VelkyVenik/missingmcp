@@ -62,7 +62,8 @@ ROUTINE_CLASSES = {"credential-expiry", "auth-flow-noise"}
 BURST_THRESHOLDS = {"garmin-upstream": 150}   # routine below this many rows/day
 
 _SELF_HEAL_EVENTS = {"worker-forward-auth-stale", "local-forward-auth-stale",
-                     "remote-forward-auth-stale", "worker-exited-early"}
+                     "remote-forward-auth-stale", "worker-exited-early",
+                     "worker-login-rejected"}
 _AUTH_NOISE_EVENTS = {"authorize-csrf-invalid", "authorize-client-id-not-dcr",
                       "login-start-failed", "mfa-resume-failed"}
 

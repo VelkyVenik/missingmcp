@@ -5,7 +5,11 @@ WORKDIR /app
 # Pin the unmodified garmin_mcp worker to a reviewed commit (override at build
 # time). Bumping this is a deliberate, reviewed action: the worker runs with each
 # user's decrypted Garmin tokens, so a floating ref would run unreviewed code.
-ARG GARMIN_MCP_REF=2974244bfda1595b00836b3f942f579ec2d6f7d6
+# e8554bc (2026-09-01): reviewed 2026-09-03 — no dependency additions, no new
+# network destinations; NOTE the worker now logs in on a background thread and
+# answers /healthz before the sign-in resolves, which is why WorkerManager gates
+# spawns on the sign-in log lines (forward.login_outcome).
+ARG GARMIN_MCP_REF=e8554bcd761a4494dc12a98461224bb3dcf1fbc5
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
 # git: uv installs the pinned garmin_mcp worker from a git ref.

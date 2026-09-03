@@ -7,12 +7,36 @@ from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
 from . import login
 
 
+# The worker's two possible sign-in verdicts, printed exactly once per worker
+# life by garmin_mcp's login path. Since the login moved to a background thread
+# (garmin_mcp #255, pinned from e8554bc) these lines are the ONLY startup signal
+# that the stored tokens still work — the worker answers /healthz either way.
+# Substring match, not equality: the worker appends detail after each.
+_LOGIN_OK_LINE = "Garmin Connect client initialized successfully"
+_LOGIN_FAILED_LINES = (
+    "Garmin Connect client failed to initialize",       # >= e8554bc (background login)
+    "Failed to initialize Garmin Connect client",       # older pins (exit-on-failure era)
+)
+
+
 class GarminWorkerForward:
     """WorkerForward strategy for the unmodified garmin-mcp worker: its documented
     CLI + env contract (GARMIN_MCP_* / GARMINTOKENS) and token-file materialization."""
 
     def __init__(self, config):
         self._cfg = config
+
+    def login_outcome(self, line: str) -> str | None:
+        """Classify one worker log line as the sign-in outcome — "ok", "failed",
+        or None (not a sign-in line). Fed by the worker output pump into the
+        spawn's LoginGate; ensure_worker blocks on it so stale tokens still
+        become a re-auth 401 instead of per-call "run garmin-mcp-auth" tool
+        errors that a missingmcp user can't act on."""
+        if _LOGIN_OK_LINE in line:
+            return "ok"
+        if any(marker in line for marker in _LOGIN_FAILED_LINES):
+            return "failed"
+        return None
 
     def command(self) -> list[str]:
         return self._cfg.garmin_mcp_cmd
