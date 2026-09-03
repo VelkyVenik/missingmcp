@@ -1,8 +1,7 @@
 # garmin_mcp bump: 2974244b → e8554bcd
 
-Status: shipped (PR #27 merged 2026-09-03, deploy ca59569 verified live —
-tool listing + discovery serving; the manual smoke test below is still the
-release gate before announcing to users)
+Status: shipped & smoke-tested (PR #27 merged 2026-09-03, deploy ca59569
+verified live; Václav confirmed live usage works the same day)
 Date: 2026-09-03
 
 ## Why
