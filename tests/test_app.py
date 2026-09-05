@@ -349,12 +349,14 @@ def test_home_shows_whoop_card(tmp_path):
     assert "WHOOP" in r.text
 
 
-def test_whoop_is_beta_with_limit_note():
+def test_whoop_states_its_user_cap():
+    # WHOOP raised the app's user limit to 100 (2026-09-05) and the Beta pill is
+    # retired — the page states the cap honestly, without approval-pending copy.
     g = _whoop_client().get("/whoop").text   # /whoop only exists when WHOOP creds are set
-    assert "pill beta" in g            # hero pill is Beta, not Live
-    assert "pill live" not in g        # no longer advertised as Live
-    assert "approval" in g.lower()     # explains it's pending WHOOP approval
-    assert "10 users" in g             # the current user cap
+    assert "pill beta" not in g        # Beta pill retired
+    assert "pill live" not in g        # and not advertised as Live either
+    assert "approval" not in g.lower() # the pending-approval era copy is gone
+    assert "100 connected users" in g  # the current user cap
 
 
 def test_home_lists_upcoming_connectors(tmp_path):
@@ -364,7 +366,8 @@ def test_home_lists_upcoming_connectors(tmp_path):
     r = _client(tmp_path).get("/").text
     assert "Oura and Apple Health are on the wishlist" in r
     assert "not in active development" in r
-    assert "Beta" in r                              # WHOOP card stays, honestly capped
+    assert "100 connected users" in r               # WHOOP card stays, honestly capped
+    assert "Beta" not in r                          # the Beta pill is retired
     assert 'class="pill soon"' not in r
     assert 'data-modal="suggest"' in r
     assert 'data-modal="subscribe"' in r
