@@ -70,13 +70,13 @@ jobs:
             docker stop garmin || true
             docker rm garmin || true
 
-            set -a && source /root/garmin/.env && set +a
+            set -a && source /root/garmin.env && set +a
             docker run -d \
               --name garmin \
               --restart unless-stopped \
               -p 127.0.0.1:${PORT}:${PORT} \
               -v garmin-data:/data \
-              --env-file /root/garmin/.env \
+              --env-file /root/garmin.env \
               --memory 256m \
               --memory-swap 256m \
               --log-driver json-file \
