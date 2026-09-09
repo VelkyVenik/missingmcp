@@ -1,6 +1,6 @@
 import time
 import pytest
-from missingmcp import store
+from garmin import store
 
 SECRET = "k" * 40
 

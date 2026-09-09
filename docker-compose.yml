@@ -1,0 +1,23 @@
+services:
+  gateway:
+    build:
+      context: .
+      # Pin the reviewed garmin_mcp commit at build time (see Dockerfile) — the
+      # worker runs with each user's decrypted Garmin tokens, so bumping this
+      # is a deliberate, reviewed action, not a default to float.
+      # args:
+      #   GARMIN_MCP_REF: e8554bcd761a4494dc12a98461224bb3dcf1fbc5
+    container_name: garmin
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Bind to localhost only — put a TLS-terminating reverse proxy (Caddy,
+    # nginx, Traefik) in front. /garmin/mcp streams SSE, so that proxy needs
+    # buffering disabled and a long read timeout (see README -> Deploy).
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - garmin-data:/data
+
+volumes:
+  garmin-data:

@@ -33,10 +33,10 @@ import sys
 import uuid as uuidlib
 from datetime import datetime, timezone
 
-# Make `missingmcp` importable from a checkout (src/ layout), not only installed.
+# Make `garmin` importable from a checkout (src/ layout), not only installed.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from missingmcp import store, telemetry          # noqa: E402
-from missingmcp.config import load_config        # noqa: E402
+from garmin import store, telemetry          # noqa: E402
+from garmin.config import load_config        # noqa: E402
 
 # Fixed namespace → the per-account event uuid is stable across runs (idempotent).
 _NS = uuidlib.UUID("a1b2c3d4-e5f6-4a7b-8c9d-000000000001")

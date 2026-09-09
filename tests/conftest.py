@@ -183,7 +183,7 @@ class StubRemoteAdapter:
 
     def start_login(self, form):
         import json
-        from missingmcp.adapters.base import LoginError, LoginOk, normalize_account_key
+        from garmin.adapters.base import LoginError, LoginOk, normalize_account_key
         user, password = form.get("acme_user", ""), form.get("acme_pass", "")
         if "@" not in user:
             raise LoginError("Please enter a valid email address.", reason="auth")
@@ -191,13 +191,13 @@ class StubRemoteAdapter:
                        blob=json.dumps({"user": user, "pass": password}))
 
     def resume_second_factor(self, state, form):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("Acme sign-in does not use a verification code")
 
     def verify(self, blob):
         import json
         import httpx
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         try:
             r = httpx.post(self.forward.upstream_url, headers=self.forward.headers(blob),
                            content=b"{}", timeout=5.0)
@@ -319,7 +319,7 @@ class StubUpstreamOAuthAdapter:
         return f"https://upstream.example/auth?state={state_id}"
 
     async def handle_callback(self, query):
-        from missingmcp.adapters.base import LoginError, LoginOk, normalize_account_key
+        from garmin.adapters.base import LoginError, LoginOk, normalize_account_key
         self.callbacks.append(dict(query))
         if self.fail_with:
             raise LoginError(self.fail_with)
@@ -330,11 +330,11 @@ class StubUpstreamOAuthAdapter:
         return ""
 
     def start_login(self, form):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("AcmeAuth signs in at the provider, not here.")
 
     def resume_second_factor(self, state, form):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("AcmeAuth signs in at the provider, not here.")
 
     def verify(self, blob):
@@ -359,7 +359,7 @@ class StubLocalAdapter:
 
         async def handle(self, conn, account_key, blob, body):
             import json
-            from missingmcp.adapters.base import SessionExpired
+            from garmin.adapters.base import SessionExpired
             if self.expire:
                 raise SessionExpired("stale")
             self.handled.append((account_key, blob, body))
@@ -374,11 +374,11 @@ class StubLocalAdapter:
         return ""
 
     def start_login(self, form):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("AcmeLocal signs in at the provider, not here.")
 
     def resume_second_factor(self, state, form):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("AcmeLocal signs in at the provider, not here.")
 
     def verify(self, blob):

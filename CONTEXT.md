@@ -1,4 +1,4 @@
-# MissingMCP Gateway
+# Garmin Gateway
 
 A multi-user, OAuth 2.1–protected remote MCP gateway. This glossary pins the
 domain language so the same word means the same thing in code, docs, and
@@ -20,7 +20,7 @@ the URL `/<adapter>/mcp`.
 _Avoid_: connector (that's the person's view), provider, integration
 
 **Upstream**:
-The third-party service an adapter connects to (Garmin, WHOOP) — the system that
+The third-party service an adapter connects to (currently Garmin) — the system that
 owns the data and authenticates the account. Never the gateway itself.
 _Avoid_: provider, backend, vendor
 

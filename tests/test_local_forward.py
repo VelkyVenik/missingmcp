@@ -6,8 +6,8 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from conftest import StubLocalAdapter
-from missingmcp import store, proxy, security
-from missingmcp.config import load_config
+from garmin import store, proxy, security
+from garmin.config import load_config
 
 TOKEN = "tok-local"
 BLOB = '{"access_token":"at-0"}'

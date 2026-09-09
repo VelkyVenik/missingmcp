@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Record a "buy me a beer" donation and emit the beer_purchased event.
 
-Interim manual writer for the beer-supporters funnel (design:
-docs/superpowers/specs/2026-07-24-beer-supporters.md). Beers are entered by
+Interim manual writer for the beer-supporters funnel. Beers are entered by
 hand until the Buy Me a Coffee automation lands; everything downstream (the
 event, best-effort attribution, the PostHog funnel + "beers this month" metric)
 is the same the automated writer will feed.
@@ -37,12 +36,12 @@ import os
 import sys
 from datetime import datetime, timezone
 
-# Make `missingmcp` importable when run from a checkout (src/ layout), not only
+# Make `garmin` importable when run from a checkout (src/ layout), not only
 # when installed (Docker/uv).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from missingmcp import store, telemetry          # noqa: E402
-from missingmcp.adapters import base             # noqa: E402
-from missingmcp.config import load_config        # noqa: E402
+from garmin import store, telemetry          # noqa: E402
+from garmin.adapters import base             # noqa: E402
+from garmin.config import load_config        # noqa: E402
 
 # One beer = 5 EUR. A manual constant for hand entry; the future BMC writer will
 # carry BMC's real per-donation amount instead.

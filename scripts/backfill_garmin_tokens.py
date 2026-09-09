@@ -34,10 +34,10 @@ import os
 import sys
 from datetime import datetime, timezone
 
-# Make `missingmcp` importable from a checkout (src/ layout), not only installed.
+# Make `garmin` importable from a checkout (src/ layout), not only installed.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from missingmcp import store                     # noqa: E402
-from missingmcp.workers import _SAFE             # noqa: E402 - the one owner of key->dirname
+from garmin import store                     # noqa: E402
+from garmin.workers import _SAFE             # noqa: E402 - the one owner of key->dirname
 
 
 def resolve_db() -> str:

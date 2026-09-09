@@ -27,7 +27,7 @@ COPY scripts ./scripts
 RUN uv pip install --system . && \
     uv pip install --system "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}" "mcp<2"
 ENTRYPOINT ["tini", "--"]
-CMD ["missingmcp"]
+CMD ["garmin"]
 EXPOSE 8080
 # No VOLUME directive: Railway's builder rejects it ("use Railway Volumes") and
 # provides /data via a platform-managed volume; self-hosters mount /data with

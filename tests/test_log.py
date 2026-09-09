@@ -5,8 +5,8 @@ import io
 import json
 import logging
 import sys
-from missingmcp import log as mlog
-from missingmcp.workers import _pump_worker_output
+from garmin import log as mlog
+from garmin.workers import _pump_worker_output
 
 
 def _capture(capsys):

@@ -4,8 +4,8 @@ import json
 import re
 import sqlite3
 import pytest
-from missingmcp import backup, store
-from missingmcp.config import load_config
+from garmin import backup, store
+from garmin.config import load_config
 
 SECRET = "s" * 40
 

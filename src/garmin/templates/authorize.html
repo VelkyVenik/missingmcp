@@ -1,0 +1,98 @@
+  <style>
+    /* Scoped to .sc-auth so this doesn't touch _layout.html's site-wide
+       tokens/classes — a shadcn-esque look for just the sign-in card. */
+    .sc-auth {
+      --sc-radius: 0.75rem;
+      --sc-bg: #ffffff;
+      --sc-fg: #09090b;
+      --sc-muted: #71717a;
+      --sc-border: #e4e4e7;
+      --sc-ring: rgba(24, 24, 27, .12);
+      --sc-primary: #18181b;
+      --sc-primary-fg: #fafafa;
+      --sc-destructive: #dc2626;
+      --sc-destructive-bg: #fef2f2;
+      --sc-destructive-border: #fecaca;
+      max-width: 24rem;
+      margin: 4.5rem auto 4rem;
+      padding: 0 1.25rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--sc-fg);
+    }
+    @media (prefers-color-scheme: dark) {
+      .sc-auth {
+        --sc-bg: #0a0a0b; --sc-fg: #fafafa; --sc-muted: #a1a1aa;
+        --sc-border: #27272a; --sc-ring: rgba(250, 250, 250, .15);
+        --sc-primary: #fafafa; --sc-primary-fg: #18181b;
+        --sc-destructive: #f87171; --sc-destructive-bg: rgba(248, 113, 113, .08);
+        --sc-destructive-border: rgba(248, 113, 113, .35);
+      }
+    }
+    .sc-card { border: 1px solid var(--sc-border); background: var(--sc-bg);
+               border-radius: var(--sc-radius); padding: 1.5rem;
+               box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+    .sc-card-header { text-align: center; margin-bottom: 1.25rem; }
+    .sc-mark { margin: 0 auto .9rem; font-weight: 900; font-size: 1.35rem;
+               letter-spacing: -.02em; color: var(--sc-fg); }
+    .sc-mark span { color: #007cc3; }
+    .sc-card h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em;
+                  margin-bottom: .3rem; }
+    .sc-card .sc-sub { font-size: .875rem; color: var(--sc-muted); line-height: 1.45; }
+    .sc-field { margin-top: 1rem; }
+    .sc-field label { display: block; font-size: .8125rem; font-weight: 500; margin-bottom: .4rem; }
+    .sc-field input:not([type=hidden]) {
+      display: block; width: 100%; height: 2.25rem; padding: 0 .7rem;
+      font-size: .875rem; font-family: inherit; color: var(--sc-fg);
+      background: var(--sc-bg); border: 1px solid var(--sc-border);
+      border-radius: .5rem; transition: box-shadow .15s, border-color .15s;
+    }
+    .sc-field input:focus { outline: none; border-color: var(--sc-fg);
+                            box-shadow: 0 0 0 3px var(--sc-ring); }
+    .sc-btn { display: block; width: 100%; margin-top: 1.35rem; height: 2.35rem;
+              border: 0; border-radius: .5rem; background: var(--sc-primary);
+              color: var(--sc-primary-fg); font-family: inherit; font-size: .875rem;
+              font-weight: 500; cursor: pointer; transition: opacity .15s; }
+    .sc-btn:hover { opacity: .9; }
+    .sc-notice { margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid var(--sc-border);
+                 font-size: .8rem; color: var(--sc-muted); line-height: 1.55; }
+    .sc-notice ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+    .sc-notice li + li { margin-top: .3rem; }
+    .sc-notice strong { color: var(--sc-fg); font-weight: 600; }
+    .sc-auth .err { margin-bottom: 1rem; padding: .65rem .8rem; font-size: .8125rem;
+                    color: var(--sc-destructive); background: var(--sc-destructive-bg);
+                    border: 1px solid var(--sc-destructive-border); border-radius: .5rem; }
+    .sc-foot { text-align: center; margin-top: 1.25rem; font-size: .8rem; color: var(--sc-muted); }
+    .sc-foot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  </style>
+  <div class="sc-auth">
+    <div class="sc-card">
+      <div class="sc-card-header">
+        <div class="sc-mark">GARMIN<span>.</span></div>
+        <h1>Connect Garmin</h1>
+        <p class="sc-sub">Sign in with your Garmin Connect account to connect it to Calorian-AI.</p>
+      </div>
+      {ERROR}
+      <form method="post" action="{AUTHORIZE_ACTION}">
+{OAUTH_FIELDS}
+        <div class="sc-field">
+          <label for="garmin_email">Email</label>
+          <input id="garmin_email" name="garmin_email" type="email" autocomplete="username" required>
+        </div>
+        <div class="sc-field">
+          <label for="garmin_password">Password</label>
+          <input id="garmin_password" name="garmin_password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="sc-btn" type="submit">Sign in</button>
+      </form>
+      <div class="sc-notice">
+        <strong>What happens to your data</strong>
+        <ul>
+          <li>Your password is used once to sign in to Garmin and is <strong>never stored</strong>.</li>
+          <li>Only the resulting Garmin session tokens are kept, <strong>encrypted</strong> (AES-256-GCM).</li>
+          <li>Your Garmin data is passed through on demand and is <strong>not stored</strong> by this gateway.</li>
+          <li>Nothing is ever shared with Claude, Anthropic, OpenAI, or any other AI provider.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="sc-foot">This gateway is operated by {OPERATOR}. You can disconnect anytime.</p>
+  </div>

@@ -37,7 +37,7 @@ def _rows(db, sql):
 
 
 def main():
-    p = argparse.ArgumentParser(description="MissingMCP subscribers & suggestions.")
+    p = argparse.ArgumentParser(description="Garmin subscribers & suggestions.")
     p.add_argument("--db", default=None,
                    help="SQLite DB path (default: $DB_PATH, $DATA_DIR/gateway.db, "
                         "/data/gateway.db, or ./.localdata/gateway.db)")
@@ -57,7 +57,7 @@ def main():
             print(s["email"])
         return
 
-    print(f"\nMissingMCP — subscribers & suggestions  ({db_path})\n")
+    print(f"\nGarmin — subscribers & suggestions  ({db_path})\n")
     print(f"Newsletter subscribers: {len(subs)}")
     for s in subs:
         print(f"  {s['email']:<40} since {s['created_at']}")

@@ -1,9 +1,9 @@
 import json
 import re
 from starlette.testclient import TestClient
-from missingmcp import store
-from missingmcp.app import build_app, _run_data_cleanup
-from missingmcp.config import load_config
+from garmin import store
+from garmin.app import build_app, _run_data_cleanup
+from garmin.config import load_config
 
 SECRET = "k" * 40
 
@@ -184,7 +184,7 @@ def test_home_shows_logo_lockup(tmp_path):
     c = _client(tmp_path)
     r = c.get("/").text
     assert 'src="/static/icon.png"' in r          # mark in the header
-    assert 'class="mcp"' in r and 'class="tld"' in r  # CSS wordmark parts
+    assert '<a class="logo" href="/">' in r       # logo wordmark link
     assert '/static/favicon-32.png' in r          # PNG favicon link
 
 
@@ -205,10 +205,9 @@ def test_seo_crawler_surface(tmp_path):
 def test_support_link_sits_at_the_connect_moment(tmp_path):
     # The old gateway converted supporters with the BMC link right under the
     # connect steps (3/28); buried below the full tool list it converts 0.
-    # Keep it inside the connect moment on every connector page.
-    for page in (_client(tmp_path).get("/garmin").text,
-                 _whoop_client().get("/whoop").text):
-        assert page.index("buymeacoffee.com") < page.index('id="tips"')
+    # Keep it inside the connect moment on the connector page.
+    page = _client(tmp_path).get("/garmin").text
+    assert page.index("buymeacoffee.com") < page.index('id="tips"')
     # home: inside "How it works" (i.e. before the security section)
     home = _client(tmp_path).get("/").text
     assert home.index("buymeacoffee.com") < home.index('id="security"')
@@ -225,7 +224,7 @@ def test_mcp_server_cards(tmp_path):
         r = c.get(path)
         assert r.status_code == 200 and "application/json" in r.headers["content-type"], path
         card = r.json()
-        assert card["serverInfo"]["name"] == "missingmcp-garmin", path
+        assert card["serverInfo"]["name"] == "garmin-garmin", path
         assert card["transport"] == {"type": "streamable-http", "endpoint": "/garmin/mcp"}, path
         assert card["authentication"] == {"required": True, "schemes": ["oauth2"]}, path
         assert card["tools"] == "dynamic", path
@@ -246,7 +245,7 @@ def test_seo_head_meta(tmp_path):
     assert "Garmin MCP Server" in home                     # title targets the query
     garmin = c.get("/garmin").text
     assert '<link rel="canonical" href="https://gw.example.com/garmin">' in garmin
-    assert "<title>Garmin MCP Server — Connect Garmin to Claude | MissingMCP" in garmin
+    assert "<title>Garmin MCP Server — Connect Garmin to Claude | Garmin" in garmin
     assert 'property="og:title"' in garmin
     assert '"@type": "SoftwareApplication"' in garmin      # JSON-LD data block
 
@@ -276,7 +275,7 @@ def test_preview_description_is_short_while_search_description_stays_long(tmp_pa
 
 
 def test_og_desc_falls_back_to_first_sentence():
-    from missingmcp import pages
+    from garmin import pages
     long = ("Hosted Garmin MCP server: connect your Garmin account to Claude in "
             "two minutes. Sign in once, add a URL, start asking. Free and open "
             "source.")
@@ -319,44 +318,10 @@ def test_subpages_share_site_chrome(tmp_path):
         assert 'src="/static/icon.png"' in r, path
         assert 'href="/#security"' in r, path         # shared nav
         assert "Your data, in Claude." in r, path               # shared footer (umbrella promise)
-        # author credit is fixed (who built MissingMCP); the operator — who runs
+        # author credit is fixed (who built Garmin); the operator — who runs
         # this instance — stays config-driven and appears separately
         assert 'Built by <a href="https://slajs.eu">Vaclav Slajs</a>' in r, path
         assert "This instance is run by" in r, path
-
-
-def _whoop_client():
-    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
-                       "DB_PATH": ":memory:", "DATA_DIR": "/tmp",
-                       "WHOOP_CLIENT_ID": "cid-1", "WHOOP_CLIENT_SECRET": "sec-1"})
-    return TestClient(build_app(cfg))
-
-
-def test_whoop_page_lists_generated_tools():
-    c = _whoop_client()
-    r = c.get("/whoop")
-    assert r.status_code == 200
-    from missingmcp.adapters.whoop.mcp import TOOLS
-    for name, _desc, _schema, _resolve in TOOLS:
-        assert f"<code>{name}</code>" in r.text
-    assert "gw.example.com/whoop/mcp" in r.text          # hero server URL filled
-
-
-def test_home_shows_whoop_card(tmp_path):
-    c = _client(tmp_path)
-    r = c.get("/")
-    assert 'href="/whoop"' in r.text
-    assert "WHOOP" in r.text
-
-
-def test_whoop_states_its_user_cap():
-    # WHOOP raised the app's user limit to 100 (2026-09-05) and the Beta pill is
-    # retired — the page states the cap honestly, without approval-pending copy.
-    g = _whoop_client().get("/whoop").text   # /whoop only exists when WHOOP creds are set
-    assert "pill beta" not in g        # Beta pill retired
-    assert "pill live" not in g        # and not advertised as Live either
-    assert "approval" not in g.lower() # the pending-approval era copy is gone
-    assert "100 connected users" in g  # the current user cap
 
 
 def test_home_lists_upcoming_connectors(tmp_path):
@@ -366,7 +331,6 @@ def test_home_lists_upcoming_connectors(tmp_path):
     r = _client(tmp_path).get("/").text
     assert "Oura and Apple Health are on the wishlist" in r
     assert "not in active development" in r
-    assert "100 connected users" in r               # WHOOP card stays, honestly capped
     assert "Beta" not in r                          # the Beta pill is retired
     assert 'class="pill soon"' not in r
     assert 'data-modal="suggest"' in r
@@ -437,21 +401,11 @@ def test_connector_pages_have_copy_buttons(tmp_path):
     r = _client(tmp_path).get("/garmin").text
     assert '/static/site.js' in r                       # layout loads the behavior
     assert r.count('data-copy="https://gw.example.com/garmin/mcp"') == 2  # hero + step 1
-    w = _whoop_client().get("/whoop").text
-    assert w.count('data-copy="https://gw.example.com/whoop/mcp"') == 2
 
 
-def test_whoop_page_carries_brand_attribution_and_disclaimer():
-    # WHOOP app-approval: data attributed to WHOOP + no implied affiliation.
-    r = _whoop_client().get("/whoop").text
-    assert "data by WHOOP" in r
-    assert "registered trademark of WHOOP, Inc." in r
-    assert "not affiliated with, endorsed by, or sponsored by WHOOP" in r
-
-
-def test_privacy_mentions_auto_delete_on_revocation(tmp_path):
+def test_privacy_mentions_upstream_revocation(tmp_path):
     r = _client(tmp_path).get("/privacy").text
-    assert "automatically deletes your stored tokens" in r
+    assert "manage sessions in Garmin Connect" in r
 
 
 import sqlite3
@@ -569,7 +523,7 @@ def test_site_js_has_modal_behavior(tmp_path):
 
 
 def test_site_js_is_cache_busted(tmp_path):
-    from missingmcp.pages import _SITE_JS_VER
+    from garmin.pages import _SITE_JS_VER
     r = _client(tmp_path).get("/").text
     assert f'/static/site.js?v={_SITE_JS_VER}"' in r    # versioned script src
     assert "{SITE_JS_VER}" not in r                     # placeholder fully replaced

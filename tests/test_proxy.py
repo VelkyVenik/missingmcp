@@ -1,9 +1,9 @@
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
-from missingmcp import store, proxy, workers, security
-from missingmcp.adapters.garmin import GarminAdapter, GarminWorkerForward
-from missingmcp.config import load_config
+from garmin import store, proxy, workers, security
+from garmin.adapters.garmin import GarminAdapter, GarminWorkerForward
+from garmin.config import load_config
 
 
 def _cfg(tmp_path, fw):

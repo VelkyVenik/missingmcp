@@ -1,0 +1,87 @@
+  <style>
+    /* Same scoped shadcn-esque tokens/classes as authorize.html — kept in
+       sync since these two pages are one visual flow (login -> MFA). */
+    .sc-auth {
+      --sc-radius: 0.75rem;
+      --sc-bg: #ffffff;
+      --sc-fg: #09090b;
+      --sc-muted: #71717a;
+      --sc-border: #e4e4e7;
+      --sc-ring: rgba(24, 24, 27, .12);
+      --sc-primary: #18181b;
+      --sc-primary-fg: #fafafa;
+      --sc-destructive: #dc2626;
+      --sc-destructive-bg: #fef2f2;
+      --sc-destructive-border: #fecaca;
+      max-width: 24rem;
+      margin: 4.5rem auto 4rem;
+      padding: 0 1.25rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--sc-fg);
+    }
+    @media (prefers-color-scheme: dark) {
+      .sc-auth {
+        --sc-bg: #0a0a0b; --sc-fg: #fafafa; --sc-muted: #a1a1aa;
+        --sc-border: #27272a; --sc-ring: rgba(250, 250, 250, .15);
+        --sc-primary: #fafafa; --sc-primary-fg: #18181b;
+        --sc-destructive: #f87171; --sc-destructive-bg: rgba(248, 113, 113, .08);
+        --sc-destructive-border: rgba(248, 113, 113, .35);
+      }
+    }
+    .sc-card { border: 1px solid var(--sc-border); background: var(--sc-bg);
+               border-radius: var(--sc-radius); padding: 1.5rem;
+               box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+    .sc-card-header { text-align: center; margin-bottom: 1.25rem; }
+    .sc-mark { margin: 0 auto .9rem; font-weight: 900; font-size: 1.35rem;
+               letter-spacing: -.02em; color: var(--sc-fg); }
+    .sc-mark span { color: #007cc3; }
+    .sc-card h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em;
+                  margin-bottom: .3rem; }
+    .sc-card .sc-sub { font-size: .875rem; color: var(--sc-muted); line-height: 1.45; }
+    .sc-field { margin-top: 1rem; }
+    .sc-field label { display: block; font-size: .8125rem; font-weight: 500; margin-bottom: .4rem; }
+    .sc-field input:not([type=hidden]) {
+      display: block; width: 100%; height: 2.25rem; padding: 0 .7rem;
+      font-size: .875rem; font-family: inherit; color: var(--sc-fg);
+      background: var(--sc-bg); border: 1px solid var(--sc-border);
+      border-radius: .5rem; transition: box-shadow .15s, border-color .15s;
+      text-align: center; letter-spacing: .3em;
+    }
+    .sc-field input:focus { outline: none; border-color: var(--sc-fg);
+                            box-shadow: 0 0 0 3px var(--sc-ring); }
+    .sc-btn { display: block; width: 100%; margin-top: 1.35rem; height: 2.35rem;
+              border: 0; border-radius: .5rem; background: var(--sc-primary);
+              color: var(--sc-primary-fg); font-family: inherit; font-size: .875rem;
+              font-weight: 500; cursor: pointer; transition: opacity .15s; }
+    .sc-btn:hover { opacity: .9; }
+    .sc-notice { margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid var(--sc-border);
+                 font-size: .8rem; color: var(--sc-muted); line-height: 1.55; }
+    .sc-auth .err { margin-bottom: 1rem; padding: .65rem .8rem; font-size: .8125rem;
+                    color: var(--sc-destructive); background: var(--sc-destructive-bg);
+                    border: 1px solid var(--sc-destructive-border); border-radius: .5rem; }
+    .sc-foot { text-align: center; margin-top: 1.25rem; font-size: .8rem; color: var(--sc-muted); }
+  </style>
+  <div class="sc-auth">
+    <div class="sc-card">
+      <div class="sc-card-header">
+        <div class="sc-mark">GARMIN<span>.</span></div>
+        <h1>Verification code</h1>
+        <p class="sc-sub">Garmin sent a code to your email or phone.</p>
+      </div>
+      {ERROR}
+      <form method="post" action="{AUTHORIZE_ACTION}">
+        <input type="hidden" name="csrf" value="{CSRF}">
+        <input type="hidden" name="login_id" value="{LOGIN_ID}">
+        <div class="sc-field">
+          <label for="mfa_code">Code</label>
+          <input id="mfa_code" name="mfa_code" inputmode="numeric" autocomplete="one-time-code" required>
+        </div>
+        <button class="sc-btn" type="submit">Verify</button>
+      </form>
+      <div class="sc-notice">
+        The code is used once to finish signing in to Garmin and is not stored.
+        Only the resulting encrypted session tokens are kept. This gateway is
+        operated by {OPERATOR}.
+      </div>
+    </div>
+  </div>

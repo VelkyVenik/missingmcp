@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from missingmcp import store, telemetry
+from garmin import store, telemetry
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 

@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
-from missingmcp import store, oauth, security
-from missingmcp.adapters.garmin import GarminAdapter, login as garmin_login
-from missingmcp.config import load_config
+from garmin import store, oauth, security
+from garmin.adapters.garmin import GarminAdapter, login as garmin_login
+from garmin.config import load_config
 
 CONFIG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.example.com"})
 ADAPTER = GarminAdapter(CONFIG)
@@ -384,7 +384,7 @@ def test_mfa_verify_failure_restarts(conn):
 def test_mfa_resume_login_error_restarts_login(conn):
     # base.py contract: resume_second_factor may raise LoginError = "start over";
     # the core must re-render the credential form, not 500
-    from missingmcp.adapters.base import LoginError
+    from garmin.adapters.base import LoginError
     client, state = _authz_app(conn)
     cid = _register(conn)
     params = {"client_id": cid, "redirect_uri": "https://claude.ai/cb", "state": "s",
@@ -446,7 +446,7 @@ def test_remote_authorize_get_renders_form(conn, fake_remote):
     assert 'action="/acme/oauth/authorize"' in r.text
     assert "{OPERATOR}" not in r.text and "{OAUTH_FIELDS}" not in r.text  # placeholders filled
     assert 'name="csrf"' in r.text                       # hidden OAuth fields injected
-    assert 'class="logo" href="/"' in r.text             # sign-in wears the shared site chrome
+    assert "<header>" not in r.text and "<footer>" not in r.text  # bare: no marketing nav/footer
     assert '<meta name="robots" content="noindex">' in r.text   # never in search results
 
 
@@ -660,7 +660,7 @@ def test_upstream_callback_verify_failure_blocks_persistence(conn):
     adapter = StubUpstreamOAuthAdapter()
 
     def bad_verify(blob):
-        from missingmcp.adapters.base import LoginError
+        from garmin.adapters.base import LoginError
         raise LoginError("could not verify")
     adapter.verify = bad_verify
     c = _upstream_app(conn, adapter)

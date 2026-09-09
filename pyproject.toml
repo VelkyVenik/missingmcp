@@ -1,11 +1,11 @@
 [project]
-name = "missingmcp"
+name = "garmin"
 version = "0.1.0"
-description = "MissingMCP — multi-user OAuth 2.1 gateway serving the connectors Claude is missing (Garmin via the unmodified garmin_mcp worker)"
+description = "Multi-user OAuth 2.1 gateway connecting Garmin Connect to Claude (via the unmodified garmin_mcp worker)"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Vaclav Slajs", email = "vaclav@slajs.eu" }]
-keywords = ["mcp", "missingmcp", "garmin", "oauth", "claude", "garmin-connect"]
+keywords = ["mcp", "garmin", "oauth", "claude", "garmin-connect"]
 requires-python = ">=3.12"
 dependencies = [
     "starlette>=0.40",
@@ -28,7 +28,7 @@ Repository = "https://github.com/VelkyVenik/missingmcp"
 Issues = "https://github.com/VelkyVenik/missingmcp/issues"
 
 [project.scripts]
-missingmcp = "missingmcp.app:main"
+garmin = "garmin.app:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
@@ -38,7 +38,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/missingmcp"]
+packages = ["src/garmin"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

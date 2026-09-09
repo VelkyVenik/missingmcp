@@ -10,7 +10,7 @@ import pathlib
 import sys
 import time
 
-from missingmcp import store
+from garmin import store
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 SECRET = "s" * 32

@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = ROOT / "src" / "missingmcp" / "templates" / "garmin.html"
+TEMPLATE = ROOT / "src" / "garmin" / "templates" / "garmin.html"
 REPO_URL = "https://github.com/Taxuspt/garmin_mcp"
 BEGIN = "<!-- GENERATED:TOOLS:BEGIN"
 END = "<!-- GENERATED:TOOLS:END -->"

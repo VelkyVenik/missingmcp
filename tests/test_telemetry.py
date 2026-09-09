@@ -11,10 +11,10 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from missingmcp import log as mlog
-from missingmcp import oauth, proxy, security, store, telemetry
-from missingmcp.adapters.garmin import GarminAdapter, login as garmin_login
-from missingmcp.config import load_config
+from garmin import log as mlog
+from garmin import oauth, proxy, security, store, telemetry
+from garmin.adapters.garmin import GarminAdapter, login as garmin_login
+from garmin.config import load_config
 
 CONFIG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.example.com"})
 PH_CONFIG = load_config({
@@ -194,7 +194,7 @@ def test_mcp_event_tools_call():
     name, props = proxy._mcp_event(body, "garmin")
     assert name == "$mcp_tool_call"
     assert props["$mcp_tool_name"] == "get_sleep_data"
-    assert props["$mcp_server_name"] == "missingmcp-garmin"
+    assert props["$mcp_server_name"] == "garmin-garmin"
     assert "arguments" not in json.dumps(props)      # content never leaves
 
 

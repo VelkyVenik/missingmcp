@@ -94,7 +94,7 @@ def main():
         return
 
     # default: per-account summary + top tools
-    print(f"\nMissingMCP gateway — usage  ({db_path})\n")
+    print(f"\nGarmin gateway — usage  ({db_path})\n")
     print("Per account")
     for r in db.execute(
         "SELECT adapter, account_key AS key, SUM(calls) AS calls, "

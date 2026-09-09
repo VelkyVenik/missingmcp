@@ -3,8 +3,8 @@ scheduler. Everything is deterministic: `now` is injected, so no wall-clock read
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from missingmcp import report, store
-from missingmcp.config import load_config
+from garmin import report, store
+from garmin.config import load_config
 
 PRAGUE = ZoneInfo("Europe/Prague")
 # 2026-07-18 09:00 Prague (CEST, UTC+2) → "yesterday" = the 2026-07-17 Prague day

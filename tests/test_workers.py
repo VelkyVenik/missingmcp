@@ -3,9 +3,9 @@ import os
 import stat
 import time
 import pytest
-from missingmcp import workers
-from missingmcp.adapters.garmin import GarminWorkerForward
-from missingmcp.config import load_config
+from garmin import workers
+from garmin.adapters.garmin import GarminWorkerForward
+from garmin.config import load_config
 
 
 def _config(tmp_path, **over):

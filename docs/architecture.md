@@ -12,7 +12,7 @@ The end-to-end request flow lives in
 
 ## Modules
 
-`src/missingmcp/`, in dependency order — each has one responsibility and
+`src/garmin/`, in dependency order — each has one responsibility and
 composes through small explicit contracts.
 
 ### `config.py`
@@ -84,16 +84,6 @@ Registry: `adapters.build_adapters(config)`. `adapters.RETIRED_ADAPTERS` is the
 explicit frozenset of retired adapters the cleanup loop purges — see
 [ADR-0001](adr/0001-retired-adapter-cleanup.md) for why retirement is never
 inferred from registry-absence.
-
-### `adapters/whoop/`
-
-`api.py` is the WHOOP v2 HTTP client: upstream-OAuth code exchange plus
-gateway-owned rotating token refresh, serialized per account and persisted
-before use. `mcp.py` is the hand-rolled, stateless JSON-RPC MCP server (`TOOLS`
-table + dispatch) that *is* `/whoop/mcp`, running in-process. `__init__.py`'s
-`WhoopAdapter` owns the upstream-OAuth login shape (`authorize_redirect_url` /
-`handle_callback`) and wraps `WhoopLocalForward`. Registered only when both
-`WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` are set (`adapters.build_adapters`).
 
 ### `oauth.py`
 
@@ -265,5 +255,5 @@ hygiene — cleans expired codes/tokens, sweeps abandoned OAuth clients (0 token
 unused — `last_seen`, stamped by `get_client` on every authorize/token use —
 for longer than `config.orphan_client_ttl`), and fully purges any
 `adapters.RETIRED_ADAPTERS` data (`_run_data_cleanup`; see
-[ADR-0001](adr/0001-retired-adapter-cleanup.md)). `main()` is the `missingmcp`
+[ADR-0001](adr/0001-retired-adapter-cleanup.md)). `main()` is the `garmin`
 console entrypoint.

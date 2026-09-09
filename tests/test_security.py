@@ -1,5 +1,5 @@
 import base64, hashlib
-from missingmcp import security
+from garmin import security
 
 
 def _challenge(verifier: str) -> str:

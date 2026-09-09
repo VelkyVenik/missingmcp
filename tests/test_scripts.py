@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from missingmcp import store
+from garmin import store
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 SECRET = "s" * 32
@@ -69,7 +69,7 @@ def test_status_default_is_summary_counts_only(seeded_db, capsys, monkeypatch):
 
 def test_status_overview_is_adapter_aware(seeded_db, capsys, monkeypatch):
     out = run_script("status", ["--db", seeded_db, "--detail"], capsys, monkeypatch)
-    assert "MissingMCP" in out
+    assert "Garmin" in out
     assert "Garmin MCP Gateway" not in out
     assert "garmin:alice@example.com" in out
     assert "rohlik:alice@example.com" in out
@@ -162,7 +162,7 @@ def test_usage_summary_groups_by_adapter(seeded_db, capsys, monkeypatch):
     out = run_script("usage", ["--db", seeded_db], capsys, monkeypatch)
     assert "garmin:alice@example.com" in out       # two lines, not one merged line
     assert "rohlik:alice@example.com" in out
-    assert "MissingMCP" in out
+    assert "Garmin" in out
 
 
 def test_usage_account_filter_is_adapter_aware(seeded_db, capsys, monkeypatch):

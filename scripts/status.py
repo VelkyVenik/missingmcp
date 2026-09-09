@@ -58,7 +58,7 @@ def main():
     clients = one("SELECT COUNT(*) FROM oauth_clients")
     pending = one("SELECT COUNT(*) FROM oauth_codes")
 
-    print(f"\nMissingMCP gateway — status  ({db_path})\n")
+    print(f"\nGarmin gateway — status  ({db_path})\n")
     print("Summary")
     print(f"  People with a token : {people}")
     print(f"  Access tokens       : {tokens}   (devices/clients connected)")

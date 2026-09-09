@@ -3,9 +3,9 @@ the landing pages — threshold, window, protocol-traffic exclusion, caching,
 and the per-request placeholder fill in the app."""
 from starlette.testclient import TestClient
 
-from missingmcp import store, usage
-from missingmcp.app import build_app
-from missingmcp.config import load_config
+from garmin import store, usage
+from garmin.app import build_app
+from garmin.config import load_config
 
 SECRET = "s" * 40
 
@@ -58,8 +58,7 @@ def _client(tmp_path, active_garmin):
     _seed_active(conn, "garmin", active_garmin)
     conn.close()
     cfg = load_config({"GATEWAY_SECRET": SECRET, "PUBLIC_URL": "https://gw.example.com",
-                       "DATA_DIR": str(tmp_path), "DB_PATH": str(db),
-                       "WHOOP_CLIENT_ID": "cid", "WHOOP_CLIENT_SECRET": "cs"})
+                       "DATA_DIR": str(tmp_path), "DB_PATH": str(db)})
     return TestClient(build_app(cfg))
 
 
@@ -69,10 +68,6 @@ def test_pages_show_meter_and_never_leak_placeholders(tmp_path):
         r = c.get(path)
         assert f"{usage.MIN_COUNT} people used this in the last 30 days" in r.text
         assert "{USAGE_METER" not in r.text
-    # whoop is below threshold: placeholder cleared, nothing rendered
-    r = c.get("/whoop")
-    assert 'class="usage-meter"' not in r.text
-    assert "{USAGE_METER" not in r.text
     # the 404 catch-all serves home — placeholders must be filled there too
     r = c.get("/definitely-not-a-page")
     assert r.status_code == 404
@@ -81,7 +76,7 @@ def test_pages_show_meter_and_never_leak_placeholders(tmp_path):
 
 def test_pages_render_plain_when_below_threshold(tmp_path):
     c = _client(tmp_path, active_garmin=usage.MIN_COUNT - 1)
-    for path in ("/", "/garmin", "/whoop"):
+    for path in ("/", "/garmin"):
         r = c.get(path)
         assert 'class="usage-meter"' not in r.text
         assert "{USAGE_METER" not in r.text
