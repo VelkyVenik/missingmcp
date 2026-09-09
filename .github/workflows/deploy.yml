@@ -23,6 +23,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    environment: conf
     steps:
       - name: SSH into droplet and redeploy
         uses: appleboy/ssh-action@v1.2.0
