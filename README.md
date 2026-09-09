@@ -1,20 +1,16 @@
-# MissingMCP
+# Garmin
 
 *The MCP servers exist. Connecting them shouldn't be complicated.*
 
 [![smithery badge](https://smithery.ai/badge/vaclav/garmin)](https://smithery.ai/servers/vaclav/garmin)
 
-A multi-user, OAuth 2.1–protected gateway that hosts the connectors Claude is
-missing, so a small trusted circle can connect their own accounts from any
-Claude client (iOS, Android, Web, Desktop). The flagship connector is
-[Garmin Connect](https://connect.garmin.com): the gateway wraps the
-**unmodified** [`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and
-adds OAuth, per-user token isolation, and a reverse proxy. [WHOOP](https://www.whoop.com)
-is served the same way but in-process, on WHOOP's own official OAuth v2 API.
-The core is adapter-based and supports three forward strategies — **worker**
-(garmin), **local** (whoop, in-process, no subprocess), and **remote** (MCP +
-header injection, for services with a hosted MCP that lacks its own OAuth) —
-see [Connectors](#connectors). The reference deployment runs at
+A multi-user, OAuth 2.1–protected gateway that lets a small trusted circle
+connect their Garmin accounts from any Claude client (iOS, Android, Web,
+Desktop). For [Garmin Connect](https://connect.garmin.com), the gateway wraps
+the **unmodified** [`garmin_mcp`](https://github.com/Taxuspt/garmin_mcp) worker and
+adds OAuth, per-user token isolation, and a reverse proxy. The core remains
+adapter-based, but this fork ships only the Garmin worker adapter. The
+reference deployment runs at
 [missingmcp.com](https://missingmcp.com).
 
 ```
@@ -60,9 +56,18 @@ then wire its credentials as the `BACKUP_S3_*` variables).
 
 ```bash
 cp .env.example .env          # set GATEWAY_SECRET, PUBLIC_URL, pin GARMIN_MCP_REF
-docker build -t missingmcp .
-docker run -d --name missingmcp --restart unless-stopped --env-file .env \
-  -p 127.0.0.1:8080:8080 -v missingmcp-data:/data missingmcp
+docker build -t garmin .
+docker run -d --name garmin --restart unless-stopped --env-file .env \
+  -p 127.0.0.1:8080:8080 -v garmin-data:/data garmin
+```
+
+Or with the included `docker-compose.yml` (same image, same volume, does the
+build for you — handy for a plain droplet running Docker Compose):
+
+```bash
+cp .env.example .env          # set GATEWAY_SECRET, PUBLIC_URL, pin GARMIN_MCP_REF
+docker compose up -d --build
+docker compose logs -f        # live structured-JSON events
 ```
 
 Put any TLS-terminating proxy in front (Caddy, nginx, Traefik). One non-obvious
@@ -81,7 +86,7 @@ uv run --extra dev pytest -q                 # run the test suite
 GATEWAY_SECRET="$(openssl rand -base64 48)" \
 PUBLIC_URL=http://localhost:8088 PORT=8088 DATA_DIR=./.localdata \
 GARMIN_MCP_CMD="uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp" \
-  uv run missingmcp
+  uv run garmin
 ```
 
 A `.env` file in the working directory is loaded automatically (real environment
@@ -101,15 +106,6 @@ session tokens are stored (AES-256-GCM encrypted). Each account gets its own
 `garmin_mcp` worker process, bound to `127.0.0.1`, started on demand and reaped
 when idle.
 
-### WHOOP — `/whoop/mcp`
-
-Sign in on WHOOP's own OAuth page — the gateway never sees your WHOOP password,
-only the resulting (encrypted, read-only) tokens. Covers recovery, sleep,
-strain & daily cycles, workouts, and body measurements. Served in-process on
-WHOOP's official v2 API (no worker subprocess, no shared upstream). Requires
-the operator to register a WHOOP developer app — see [WHOOP connector
-setup](#whoop-connector-setup) in Configuration.
-
 ### Rohlík — no longer missing
 
 The gateway briefly served a Rohlík connector (remote strategy: credential
@@ -123,11 +119,9 @@ The remote-forward strategy remains a first-class, tested part of the core
 ## Connecting from Claude
 
 1. In any Claude client: **Settings → Connectors → Add custom connector**, or in
-   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`
-   (whoop: `claude mcp add --transport http whoop https://<your-domain>/whoop/mcp`).
-2. Claude opens the gateway's sign-in page — enter the service's email +
-   password (Garmin also prompts for an MFA code when needed), or for WHOOP,
-   sign in on WHOOP's own OAuth page.
+   the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`.
+2. Claude opens the gateway's sign-in page — enter your Garmin email +
+   password (and an MFA code when needed).
 3. Done — the service's tools are now available in Claude.
 
 ## Configuration
@@ -150,8 +144,6 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
 | `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |
-| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | no | — | Credentials of your WHOOP developer app (see WHOOP connector setup); both unset ⇒ the whoop connector is disabled. |
-| `WHOOP_API_BASE` | no | `https://api.prod.whoop.com` | WHOOP API origin; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
@@ -162,35 +154,6 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `POSTHOG_UI_HOST` | no | `https://eu.posthog.com` | PostHog app host; posthog-js needs it when `POSTHOG_WEB_HOST` is a proxy. |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
-
-### WHOOP connector setup
-
-1. Create an app at <https://developer-dashboard.whoop.com> (instant self-service).
-2. Redirect URI: `https://<your-domain>/whoop/oauth/callback` — exact match required.
-3. Scopes: `read:recovery read:cycles read:workout read:sleep read:profile read:body_measurement offline`
-   (`offline` is required — without it WHOOP issues no refresh token and sessions die after an hour).
-4. Put the app's Client ID/Secret into `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET`.
-
-Note: an unapproved WHOOP app is limited to **10 WHOOP members**. To lift the
-limit, submit the app for approval: <https://developer.whoop.com/docs/developing/app-approval/>
-(requirements: [API Terms of Use](https://developer.whoop.com/api-terms-of-use/)
-compliance, tested with ≥1 member, accurate app name / contact email / privacy-policy
-URL in the dashboard, [brand-guidelines](https://developer.whoop.com/docs/developing/design-guidelines)
-compliance, and their Typeform submission).
-
-Operating obligations under the WHOOP API Terms of Use (the gateway's design
-already covers the technical ones — no WHOOP data stored, encrypted tokens,
-auto-purge of revoked accounts):
-
-- Report any security incident involving WHOOP member data to
-  <apisupport@whoop.com> without undue delay, and to affected users.
-- No press release or public announcement that references WHOOP without
-  WHOOP's prior written approval.
-- Keep the app's Client ID/Secret out of the repo (env vars only) and never
-  reuse them for another application.
-- When a member revokes the app at WHOOP, the gateway detects it on the next
-  refresh (`invalid_grant`), deletes the stored tokens, and revokes the
-  member's gateway access tokens (log event `whoop-account-revoked`).
 
 ## Backups
 
@@ -230,79 +193,47 @@ python scripts/usage.py                               # per-account tool usage +
 python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
 python scripts/subscribers.py                         # newsletter signups + suggestions
 python scripts/subscribers.py --emails                # subscriber emails, one per line
-python scripts/daily_report.py                        # yesterday's new/active/total users (print)
-python scripts/daily_report.py --post                 # + POST it to Slack ($SLACK_WEBHOOK_URL)
 python scripts/add_beer.py --email <supporter>        # record a "buy me a beer" donation (1 beer, 5 EUR)
 python scripts/add_beer.py --email <supporter> --beers 3 --at 2026-07-20  # 3 beers, backdated
 ```
 
-The gateway also posts this daily user-stats report to Slack on its own each
+The gateway also posts a daily user-stats report to Slack on its own each
 morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
-`SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
-demand for testing.
+`SLACK_WEBHOOK_URL` is set (`src/garmin/report.py`).
 
-**Daily triage** — a GitHub Actions workflow
-(`.github/workflows/daily-triage.yml`) runs `scripts/daily_triage.py` every
-morning (~07:45 Prague): it pulls the last 24 h of error/warn rows from the
-gateway's Railway logs, classifies the known error signatures
-deterministically, and — only when something actionable remains — has Claude
-write the operator's triage (what happened → what it means → proposed action,
-per class) and posts it to Slack. Healthy days post a one-line "all quiet"
-(the daily heartbeat); if the analysis fails, the deterministic aggregate
-table posts instead — never silence. The analysis runs on the operator's
-Claude subscription via headless Claude Code (repo secret
-`CLAUDE_CODE_OAUTH_TOKEN`, minted with `claude setup-token`); an
-`ANTHROPIC_API_KEY` secret works as the fallback backend. Also needs
-`RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL` (already present for the hourly
-pager). Run by hand with `python scripts/daily_triage.py --dry-run` (needs the
-`RAILWAY_*` env; the analysis step degrades gracefully without a token).
-
-**Hourly hard-signal pager** — a GitHub Actions workflow
-(`.github/workflows/hourly-digest.yml`) runs `scripts/hourly_digest.py` every
-hour: it reads the last 60 min of the gateway's Railway logs via the Railway
-API, does a liveness probe, and pages (`<!here>`) **only** on a hard signal —
-a failed probe (site down), `worker-start-failed` across ≥2 distinct accounts
-in the hour (the broken-image signature), any 5xx, or any `critical`. It is
-otherwise fully silent — plain error volume belongs to the daily triage.
-Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
-(service/environment ids are set as workflow env). `RAILWAY_API_TOKEN` may be a
-Railway **project** token (narrowest scope — reaches only this project; sent via
-the `Project-Access-Token` header) or an account/workspace token (sent as
-`Authorization: Bearer`); the script tries both. Run it by hand with
-`python scripts/hourly_digest.py --dry-run` (needs `RAILWAY_API_TOKEN`,
-`RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID` in the environment).
+> This fork drops the upstream project's `scripts/hourly_digest.py` /
+> `scripts/daily_triage.py` (and their GitHub Actions workflows) — both read
+> logs through the Railway GraphQL API, so they only work when deployed on
+> Railway. A self-hoster on their own box needs a different log pipeline for
+> that kind of alerting; `docker logs` / your platform's own log shipping is
+> the starting point (see the structured-JSON logging note below).
 
 **PostHog telemetry** — with `POSTHOG_API_KEY` set (see the env table), the
-gateway also ships analytics to PostHog (EU cloud; design:
-`docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md`):
+gateway also ships analytics to PostHog (EU cloud):
 per-request `$mcp_*` events (PostHog's built-in MCP analytics), a lean
 connect-funnel/conversion event set, an OTLP tee of the structured log stream
 (PostHog Logs, beta — Railway stays the durable archive), and posthog-js on the
 site (UTM campaign attribution; autocapture disabled on OAuth pages). Egress
 rule: identity + metadata only — never MCP bodies, credentials, or form
 contents; the account email travels only as `distinct_id`. Everything is
-fire-and-forget: a PostHog outage never blocks a request. The Slack reports
-above keep running unchanged — PostHog complements them. When off-boarding a
-user (`revoke.py --purge`), also delete the person in PostHog (People → delete)
-to complete the GDPR path.
+fire-and-forget: a PostHog outage never blocks a request. The daily Slack
+report above keeps running unchanged — PostHog complements it. When
+off-boarding a user (`revoke.py --purge`), also delete the person in PostHog
+(People → delete) to complete the GDPR path.
 
 **Beer supporters** — `scripts/add_beer.py` records a "buy me a beer" donation
 (`buymeacoffee.com/venik`) into a local `beers` audit table and emits a
 `beer_purchased` PostHog event, best-effort attributed to the supporter's
-gateway account (`matched` when the email is a known login). The event is meant to
-feed the operator's connect→paying funnel and "beers this month" metric on the
-Growth dashboard — those PostHog insights are **set up manually** and don't exist
-until built. Ingestion is manual for now (BMC automation deferred; design:
-`docs/superpowers/specs/2026-07-24-beer-supporters.md`). Same egress rule as
-above — the email travels only as `distinct_id`, never the supporter name or
-note.
+gateway account (`matched` when the email is a known login). Ingestion is
+manual (run the script by hand per donation). Same egress rule as above — the
+email travels only as `distinct_id`, never the supporter name or note.
 
 **With Docker** the scripts are baked into the image at `/app/scripts`; run them
 inside the container. `status.py` finds the DB under `/data` automatically:
 
 ```bash
-docker exec missingmcp python /app/scripts/status.py
-docker logs -f missingmcp                   # live structured-JSON events
+docker exec garmin python /app/scripts/status.py
+docker logs -f garmin                   # live structured-JSON events
 ```
 
 **On Railway** run them over `railway ssh`; logs live in the Railway dashboard
@@ -361,20 +292,10 @@ not an env var, by design.
 Adapters using the remote strategy replace steps 2 and 4 with a probe-verify
 against the upstream MCP and a direct header-injected forward — no worker.
 
-Adapters using an upstream-OAuth login (whoop) replace step 2 with a redirect
-to the provider's own OAuth page; the provider calls back with tokens, which
-the gateway verifies and persists the same way (verify-then-persist is
-unchanged). Adapters using the local strategy (whoop) replace step 4: the
-request is handled in-process — no worker, no shared upstream — and the
-gateway refreshes the account's rotating WHOOP tokens itself as needed.
-
 ## Security
 
-- Garmin password is never persisted; WHOOP passwords are never even seen
-  (sign-in happens on WHOOP's own OAuth page, read-only scopes).
+- Garmin passwords are never persisted.
 - Tokens encrypted at rest (AES-256-GCM); the DB is useless without `GATEWAY_SECRET`.
-- A member revoking the app at WHOOP is detected on the next refresh and their
-  stored tokens are purged automatically.
 - Bearer tokens stored only as SHA-256 hashes.
 - OAuth 2.1 PKCE (S256), one-time 10-min codes, CSRF on forms, per-IP/-token rate limits.
 - Workers bind `127.0.0.1` only; `garmin_mcp` is pinned to a reviewed commit.
