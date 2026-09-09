@@ -35,7 +35,7 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.DROPLET_DEPLOY_PATH }}
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin develop
+            git reset --hard origin/develop
             docker compose up -d --build
             docker image prune -f
