@@ -29,7 +29,10 @@ jobs:
 
       - id: meta
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          repo="${GITHUB_REPOSITORY,,}"
+          # Docker image name components can't start/end with '_' or '.' or '-'
+          repo="$(echo "$repo" | sed -E 's/[._-]+$//; s/^[._-]+//')"
+          image="ghcr.io/${repo}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "tag=$image:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
