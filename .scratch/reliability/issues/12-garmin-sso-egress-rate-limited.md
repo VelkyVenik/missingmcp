@@ -47,7 +47,10 @@ own error-level log (traceback ending
 4. **Circuit-breaker on the sign-in path** (complements any of the above)
    — while the portal is blocked, fail fast with the "blocked" message
    instead of burning 30 s of strategies per attempt; fewer of our own
-   requests hammer the rate limiter.
+   requests hammer the rate limiter. **Implemented 2026-09-17**
+   (`SsoBreaker`, 5-min cooldown, events `login-breaker-open`/`-reject`);
+   options 1–3 remain the operator's call — watch a week of triage
+   reports, and if waves keep recurring, go for the Pro static IP (2).
 
 ## Related
 
