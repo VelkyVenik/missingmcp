@@ -135,7 +135,11 @@ class GarminAdapter:
         return form.get("garmin_email", "")
 
     def start_login(self, form: Mapping[str, str]) -> LoginOk | SecondFactorNeeded:
-        remaining = self.breaker.remaining()
+        # One breaker reference for the whole call: an abandoned (timed-out)
+        # thread must trip the breaker that was active when its attempt began,
+        # never a replacement installed later (tests swap breakers per test).
+        breaker = self.breaker
+        remaining = breaker.remaining()
         if remaining > 0:
             # Fail fast while the SSO portal is rate-limiting us: same message
             # and reason as a live "blocked" failure, so the form copy and the
@@ -150,8 +154,8 @@ class GarminAdapter:
         except login.GarminLoginError as e:
             reason = getattr(e, "reason", "unknown")
             if reason == "blocked":
-                self.breaker.trip()
-                log("login-breaker-open", cooldown_s=int(self.breaker.cooldown))
+                breaker.trip()
+                log("login-breaker-open", cooldown_s=int(breaker.cooldown))
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
