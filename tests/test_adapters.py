@@ -102,6 +102,65 @@ def test_start_login_auth_error_maps_message():
     assert ei.value.reason == "auth" and "check your Garmin email" in str(ei.value)
 
 
+_FORM = {"garmin_email": "me@x.cz", "garmin_password": "pw"}
+
+
+def test_blocked_login_trips_the_sso_breaker_and_fails_fast():
+    # Ticket 12: while Garmin's Cloudflare rate-limits our egress IP, one
+    # "blocked" outcome must open the breaker so follow-up sign-ins fail fast
+    # (same message/reason, zero SSO traffic) until the cooldown expires.
+    from missingmcp.adapters.garmin import SsoBreaker
+    a = _adapter()
+    clock = [1000.0]
+    a.breaker = SsoBreaker(cooldown=300, clock=lambda: clock[0])
+    calls = []
+
+    def blocked(email, pw):
+        calls.append(1)
+        raise login.GarminLoginError("429", reason="blocked")
+
+    with patch.object(login, "start_login", side_effect=blocked):
+        with pytest.raises(base.LoginError):
+            a.start_login(_FORM)
+        with pytest.raises(base.LoginError) as ei:     # breaker open: fast, no upstream call
+            a.start_login(_FORM)
+    assert len(calls) == 1
+    assert ei.value.reason == "blocked" and "rate-limiting" in str(ei.value)
+
+    clock[0] += 301                                    # cooldown over: attempts flow again
+    with patch.object(login, "start_login",
+                      return_value=login.LoginResult(status="ok", tokens_json='{"t":1}')):
+        r = a.start_login(_FORM)
+    assert r == base.LoginOk(account_key="me@x.cz", blob='{"t":1}')
+
+
+def test_auth_failures_do_not_trip_the_breaker():
+    # Wrong password is the user's problem, not the portal's — every attempt
+    # must keep reaching Garmin.
+    a = _adapter()
+    calls = []
+
+    def bad(email, pw):
+        calls.append(1)
+        raise login.GarminLoginError("bad", reason="auth")
+
+    with patch.object(login, "start_login", side_effect=bad):
+        for _ in range(2):
+            with pytest.raises(base.LoginError):
+                a.start_login(_FORM)
+    assert len(calls) == 2
+
+
+def test_mfa_resume_bypasses_the_breaker():
+    # A pending MFA session already passed the portal's first stage; an open
+    # breaker must not strand the user holding a valid code.
+    a = _adapter()
+    a.breaker.trip()
+    with patch.object(login, "resume_login", return_value='{"t":9}'):
+        r = a.resume_second_factor((("P", "S"), "Me@X.cz"), {"mfa_code": "123456"})
+    assert r == base.LoginOk(account_key="me@x.cz", blob='{"t":9}')
+
+
 def test_resume_ok_returns_login_ok():
     with patch.object(login, "resume_login", return_value='{"t":9}'):
         r = _adapter().resume_second_factor((("P", "S"), "Me@X.cz"), {"mfa_code": "123456"})

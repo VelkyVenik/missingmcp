@@ -15,6 +15,17 @@ CONFIG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://gw.exam
 ADAPTER = GarminAdapter(CONFIG)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_sso_breaker():
+    # ADAPTER is shared across this module's tests, and one "blocked" sign-in
+    # legitimately opens its SSO breaker for every later attempt — exactly the
+    # cross-request behavior production wants, and exactly the cross-TEST state
+    # leak a suite must not have.
+    from missingmcp.adapters.garmin import SsoBreaker
+    ADAPTER.breaker = SsoBreaker()
+    yield
+
+
 @pytest.fixture
 def conn():
     c = store.init_db(":memory:")
@@ -305,6 +316,30 @@ def test_login_blocked_shows_retry_message(conn):
     assert "rate-limiting" in r.text                         # Garmin-side limit, not "wrong password"
     assert "not your password" in r.text
     assert "garmin_email" in r.text                          # form re-rendered to retry
+
+
+def test_blocked_login_opens_breaker_for_the_next_form_post(conn):
+    # Ticket 12 end-to-end: after one blocked sign-in, the next authorize POST
+    # fails fast with the same "rate-limiting" copy — no second Garmin call.
+    client, state = _authz_app(conn)
+    cid = _register(conn)
+    calls = []
+
+    def blocked(email, pw):
+        calls.append(1)
+        raise garmin_login.GarminLoginError("429 rate limited", reason="blocked")
+
+    with patch.object(garmin_login, "start_login", side_effect=blocked):
+        for _ in range(2):
+            r = client.post("/oauth/authorize", data={
+                "csrf": state.csrf.issue(), "client_id": cid,
+                "redirect_uri": "https://claude.ai/cb", "state": "xyz",
+                "code_challenge": "abc", "code_challenge_method": "S256",
+                "garmin_email": "me@x.cz", "garmin_password": "pw",
+            })
+            assert r.status_code == 200
+            assert "rate-limiting" in r.text
+    assert len(calls) == 1                                   # second POST never reached Garmin
 
 
 def test_login_timeout_shows_retry_message(conn):
