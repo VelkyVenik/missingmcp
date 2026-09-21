@@ -20,6 +20,7 @@ class Config:
     access_token_ttl: int         # seconds; 0 disables expiry
     orphan_client_ttl: int        # seconds; a 0-token OAuth client older than this is swept
     login_timeout: int            # seconds; wall-clock cap on a synchronous adapter sign-in
+    sso_probe_interval: int       # seconds between Garmin SSO reachability probes; 0 = off
     operator_name: str
     operator_email: str
     operator_url: str             # optional homepage the operator name links to
@@ -84,6 +85,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         # retry, short enough that a rate-limited Garmin can't hang the request for
         # minutes (observed: a 125s authorize POST before the client gave up).
         login_timeout=30,
+        # Diagnostic for ticket 12 (egress-IP blocking): attempt-independent
+        # timeline of Garmin SSO reachability. Off unless explicitly enabled.
+        sso_probe_interval=int(env.get("SSO_PROBE_INTERVAL", "0")),
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
         operator_url=env.get("OPERATOR_URL", "").strip(),
