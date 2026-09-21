@@ -5,7 +5,7 @@ from missingmcp.config import load_config
 
 
 def _rows(capsys):
-    return [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
 
 
 def test_probe_is_off_by_default():
