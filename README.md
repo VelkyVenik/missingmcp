@@ -147,6 +147,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `WORKER_IDLE_TTL` | no | `900` | Seconds before an idle worker is reaped. |
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
+| `SSO_PROBE_INTERVAL` | no | `0` (off) | Seconds between browser-impersonated GET probes of Garmin's SSO sign-in page (event `sso-probe`, floor 60 s) — an attempt-independent block timeline for diagnosing egress-IP rate-limiting (reliability ticket 12). |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
 | `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |

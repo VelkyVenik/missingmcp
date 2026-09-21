@@ -14,6 +14,7 @@ from . import backup, report, store, oauth, pages, proxy, security, telemetry, u
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
+from .adapters.garmin.probe import SsoProbe
 from .adapters.base import is_remote, is_local, is_upstream_oauth
 from .log import log
 
@@ -73,6 +74,10 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     bk = backup.Backup(config)
     dr = report.DailyReport(config)
+    # Garmin SSO reachability probe (ticket 12) — diagnostic, env-gated, and
+    # meaningless without the garmin adapter, so it stays off when garmin isn't
+    # registered regardless of the env var.
+    sso_probe = SsoProbe(config.sso_probe_interval if "garmin" in adapters else 0)
     meter = usage.UsageMeter(conn)
 
     # {USAGE_METER_<ADAPTER>} placeholders survive the startup render and are
@@ -406,6 +411,9 @@ def build_app(config: Config) -> Starlette:
                 if dr.enabled and dr.due():
                     # dr.run never raises; opens its own read-only DB connection
                     await asyncio.to_thread(dr.run)
+                if sso_probe.enabled and sso_probe.due():
+                    # sso_probe.run never raises; one impersonated GET per interval
+                    await asyncio.to_thread(sso_probe.run)
                 with contextlib.suppress(Exception):
                     for manager in managers.values():
                         await manager.reap_idle()
