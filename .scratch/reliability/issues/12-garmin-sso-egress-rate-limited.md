@@ -1,7 +1,31 @@
 # 12 — Garmin SSO rate-limits our Railway egress IP: fresh sign-ins ~25–75 % failing
 
 Type: incident (upstream/infra)
-Status: ready-for-human (mitigation decision = spend)
+Status: resolved (2026-09-28 — mitigated by the breaker + probe; static IP
+declined, see Resolution)
+
+## Resolution (2026-09-28, decision by Václav)
+
+The wave decayed on its own: `sso-probe` block rate fell from 28 % (09-23)
+to 6–17 %/day over the following five days, and the probe's correlation
+data never produced clear evidence that a dedicated egress IP would help
+(blocked vs clean hours differ little in our own sign-in volume; the
+crisis-week block pattern didn't track our bursts either).
+
+**Static outbound IP: declined** under current conditions — it would buy
+an unproven fix for a mostly-vanished problem. What stays in place:
+
+- the **SSO circuit breaker** (option 4) — users get an instant honest
+  answer during residual waves;
+- the **`sso-probe`** (30-min cadence) as a permanent early-warning
+  instrument;
+- the hot-loop lesson: a client stuck re-authing a stale account can
+  generate hundreds of worker spawns/day — `scripts/revoke.py --account`
+  stops it immediately (applied to valer*** 2026-09-25: 546 rejects/2d → 1).
+
+**Reopen criteria:** `sso-probe` block rate sustained above ~30 %/day, or
+a locked-out-user pattern returning despite the breaker. The strategic
+exit remains ticket 13 (official Garmin API, program currently paused).
 
 ## Symptom
 
