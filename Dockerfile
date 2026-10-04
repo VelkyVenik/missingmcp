@@ -26,7 +26,10 @@ COPY scripts ./scripts
 # pin here, in the same resolve, whenever one of them breaks the same way.
 RUN uv pip install --system . && \
     uv pip install --system "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}" "mcp<2"
-ENTRYPOINT ["tini", "--"]
+# -e 143: uvicorn (>=0.29) re-raises the SIGTERM it shut down on, so a clean
+# stop exits 143 and Railway mails "Deploy Crashed!" on every deploy. Only the
+# platform sends SIGTERM here; real crashes (OOM = SIGKILL, 137) still surface.
+ENTRYPOINT ["tini", "-e", "143", "--"]
 CMD ["missingmcp"]
 EXPOSE 8080
 # No VOLUME directive: Railway's builder rejects it ("use Railway Volumes") and
