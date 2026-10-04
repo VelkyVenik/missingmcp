@@ -21,6 +21,7 @@ class Config:
     orphan_client_ttl: int        # seconds; a 0-token OAuth client older than this is swept
     login_timeout: int            # seconds; wall-clock cap on a synchronous adapter sign-in
     sso_probe_interval: int       # seconds between Garmin SSO reachability probes; 0 = off
+    garmin_sso_proxy: str         # proxy URL for the gateway's Garmin sign-in traffic; "" = direct
     operator_name: str
     operator_email: str
     operator_url: str             # optional homepage the operator name links to
@@ -88,6 +89,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         # Diagnostic for ticket 12 (egress-IP blocking): attempt-independent
         # timeline of Garmin SSO reachability. Off unless explicitly enabled.
         sso_probe_interval=int(env.get("SSO_PROBE_INTERVAL", "0")),
+        # Ticket 12: Garmin's SSO rate-limits our shared egress IP; sign-in
+        # (and only sign-in) can leave through a dedicated IP instead.
+        garmin_sso_proxy=env.get("GARMIN_SSO_PROXY", "").strip(),
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
         operator_url=env.get("OPERATOR_URL", "").strip(),

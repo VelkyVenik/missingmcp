@@ -1,8 +1,31 @@
 # 12 — Garmin SSO rate-limits our Railway egress IP: fresh sign-ins ~25–75 % failing
 
 Type: incident (upstream/infra)
-Status: resolved (2026-09-28 — mitigated by the breaker + probe; static IP
-declined, see Resolution)
+Status: in-progress (reopened 2026-10-04 — wave returned; fix: dedicated
+egress via `GARMIN_SSO_PROXY`, see Reopened)
+
+## Reopened (2026-10-04)
+
+The wave came back on 10-02 (~13:00 UTC): 802× `login-start-failed
+reason=blocked` in 24 h (peak ~120/h on 10-03 morning), breaker opened 255×
+and rejected 801 attempts — effectively closed all day. `sso-probe` blocked
+14/26 on 10-02 — the >30 % reopen criterion. Users are writing in again.
+
+Options re-checked:
+- **Railway static outbound IP — ruled out**: Railway's docs state the
+  addresses "may be shared with other customers", i.e. the same exposure.
+- **IPv6 — ruled out**: `sso.garmin.com` has no AAAA record.
+- **Dedicated egress (option 3) — chosen.** Tested from the operator's
+  Hetzner box (46.224.200.91, garminconnect 0.3.17): a real sign-in reached
+  `needs_mfa` (portal/widget path); `mobile+*` 429'd there too, which the
+  newer library attributes to the client fingerprint, not the IP.
+
+Implementation: `GARMIN_SSO_PROXY` (adapters/garmin/egress.py) wraps the
+HTTP modules `garminconnect.client` uses so the gateway's own Garmin traffic
+(sign-in, MFA, verify) goes through an authenticated Squid on that box,
+restricted to `.garmin.com`. Workers and everything else stay direct;
+`sso-probe` follows the proxy (`via` field). Verify after enabling: the
+`login-start-failed`/breaker rates and the probe, for 24 h.
 
 ## Resolution (2026-09-28, decision by Václav)
 

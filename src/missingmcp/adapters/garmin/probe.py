@@ -1,6 +1,7 @@
 from __future__ import annotations
 import time
 from ...log import log
+from . import egress
 
 # The page garminconnect's login strategies hit first; its status from the
 # gateway's egress IP is the signal being graphed (reliability ticket 12).
@@ -39,10 +40,17 @@ class SsoProbe:
         self._next = t0 + self.interval
         try:
             status = self._fetch()
-            log("sso-probe", status=status, ms=int((time.monotonic() - t0) * 1000))
+            log("sso-probe", status=status, ms=int((time.monotonic() - t0) * 1000),
+                via=_via())
         except Exception as e:  # noqa: BLE001 - a diagnostic must never take the loop down
             log("sso-probe", status=None, error=type(e).__name__,
-                ms=int((time.monotonic() - t0) * 1000))
+                ms=int((time.monotonic() - t0) * 1000), via=_via())
+
+
+def _via() -> str:
+    # The probe measures whichever egress real sign-ins use (GARMIN_SSO_PROXY
+    # or direct), so its timeline stays comparable to login-start-failed.
+    return "proxy" if egress.current() else "direct"
 
 
 def _fetch_sso_status() -> int:
@@ -50,5 +58,6 @@ def _fetch_sso_status() -> int:
     # probe must present the same browser fingerprint the real sign-in does —
     # a plain client would measure generic bot blocking instead of ours.
     from curl_cffi import requests as cr
-    r = cr.get(_SSO_PAGE, impersonate="chrome", timeout=_FETCH_TIMEOUT_S)
+    kwargs = {"proxy": egress.current()} if egress.current() else {}
+    r = cr.get(_SSO_PAGE, impersonate="chrome", timeout=_FETCH_TIMEOUT_S, **kwargs)
     return r.status_code

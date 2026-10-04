@@ -7,7 +7,7 @@ from typing import Mapping
 from ...log import log
 from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
                     normalize_account_key)
-from . import login
+from . import egress, login
 
 
 # The worker's two possible sign-in verdicts, printed exactly once per worker
@@ -130,6 +130,11 @@ class GarminAdapter:
     def __init__(self, config):
         self.forward = GarminWorkerForward(config)
         self.breaker = SsoBreaker()
+        # Process-wide by nature (garminconnect's HTTP modules are shared);
+        # the adapter is built once per process, from the one Config.
+        egress.configure(config.garmin_sso_proxy)
+        if config.garmin_sso_proxy:
+            log("garmin-sso-proxy", proxy=egress.describe(config.garmin_sso_proxy))
 
     def login_hint(self, form: Mapping[str, str]) -> str:
         return form.get("garmin_email", "")
