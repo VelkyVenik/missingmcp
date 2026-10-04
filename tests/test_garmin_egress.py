@@ -117,22 +117,64 @@ def test_sign_in_runs_through_the_accounts_route_and_logs_it(capsys):
     assert rows[-1]["account"] == "me@x.cz"         # per-user attribution
 
 
-def test_blocked_sign_in_trips_only_its_route_and_the_retry_moves_on(capsys):
+def _accounts_on(pool, route, n):
+    """n distinct accounts whose sticky (first) route is `route`."""
+    out = []
+    for i in range(1000):
+        acct = f"user{i}@x.cz"
+        if pool.order(acct)[0] is route:
+            out.append(acct)
+            if len(out) == n:
+                return out
+    raise AssertionError("not enough accounts hashed onto the route")
+
+
+def test_one_blocked_account_cools_down_only_itself(capsys):
+    # Garmin limits repeat sign-ins of one account regardless of IP; that
+    # must not close the egress for everyone else on it.
     a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
-    first, second, _ = a.pool.order("me@x.cz")
+    first = a.pool.order("me@x.cz")[0]
+    other = _accounts_on(a.pool, first, 2)[1]
     seen, fake = _route_spy(login.GarminLoginError("429", reason="blocked"))
     with patch.object(login, "start_login", side_effect=fake):
         for _ in range(2):
             with pytest.raises(base.LoginError) as ei:
                 a.start_login(FORM)
             assert ei.value.reason == "blocked"
-    assert seen == [first.proxy, second.proxy]
-    assert first.breaker.remaining() > 0 and second.breaker.remaining() > 0
+    assert seen == [first.proxy]                    # the retry never reached Garmin
+    assert first.breaker.remaining() == 0
+    assert a.pool.pick(other) is first              # others keep using the egress
     rows = _rows(capsys)
-    opened = [r["egress"] for r in rows if r.get("event") == "login-breaker-open"]
-    assert opened == [first.label, second.label]
-    attempts = [r for r in rows if r.get("event") == "garmin-login-attempt"]
-    assert [(r["account"], r["outcome"]) for r in attempts] == [("me@x.cz", "blocked")] * 2
+    opened = [(r["scope"], r["egress"]) for r in rows if r.get("event") == "login-breaker-open"]
+    assert opened == [("account", first.label)]
+    rejects = [(r["scope"], r["account"]) for r in rows if r.get("event") == "login-breaker-reject"]
+    assert rejects == [("account", "me@x.cz")]
+
+
+def test_distinct_blocked_accounts_close_the_egress_and_shed_its_accounts(capsys):
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    first = a.pool.routes[0]
+    one, two, three = _accounts_on(a.pool, first, 3)
+    seen, fake = _route_spy(login.GarminLoginError("429", reason="blocked"))
+    with patch.object(login, "start_login", side_effect=fake):
+        for acct in (one, two):
+            with pytest.raises(base.LoginError):
+                a.start_login({"garmin_email": acct, "garmin_password": "pw"})
+    assert first.breaker.remaining() > 0            # 2 distinct accounts: IP-level limit
+    assert a.pool.pick(three) is not first          # its accounts move to the next route
+    opened = [r["scope"] for r in _rows(capsys) if r.get("event") == "login-breaker-open"]
+    assert opened == ["account", "egress"]
+
+
+def test_old_blocks_age_out_of_the_egress_window():
+    clock = [0.0]
+    pool = EgressPool(f"{P1},{P2}", clock=lambda: clock[0])
+    route = pool.routes[0]
+    one, two = _accounts_on(pool, route, 2)
+    assert pool.record_blocked(route, one) == "account"
+    clock[0] += egress._EGRESS_BLOCK_WINDOW_S + 1
+    assert pool.record_blocked(route, two) == "account"   # the first block is stale
+    assert route.breaker.remaining() == 0
 
 
 def test_mfa_resume_leaves_through_the_route_the_sign_in_used():

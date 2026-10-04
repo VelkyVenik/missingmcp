@@ -33,6 +33,17 @@ from garminconnect import client as _gc_client
 # can decay.
 _SSO_BREAKER_COOLDOWN_S = 300.0
 
+# Garmin also rate-limits repeat sign-ins of the *same account*, regardless of
+# IP: right after a success, a second sign-in of that account a minute later
+# comes back "blocked" while other accounts sail through the same egress
+# (observed 2026-10-04 on both dedicated IPs). A lone blocked account must not
+# take a whole egress down for everyone, so "blocked" first cools down only
+# the account; the egress breaker trips once several distinct accounts are
+# blocked on it within a window — the signature of an IP-level limit.
+ACCOUNT_COOLDOWN_S = 60.0
+_EGRESS_BLOCK_WINDOW_S = 600.0
+_EGRESS_BLOCK_ACCOUNTS = 2
+
 
 class SsoBreaker:
     """Process-local circuit breaker for Garmin SSO sign-in through one egress.
@@ -80,11 +91,16 @@ class Route:
 class EgressPool:
     """The sign-in egresses: each GARMIN_SSO_PROXY entry, then direct."""
 
-    def __init__(self, spec: str = "", breaker=SsoBreaker):
+    def __init__(self, spec: str = "", breaker=SsoBreaker, clock=time.monotonic):
         proxies = [p.strip() for p in spec.split(",") if p.strip()]
         self.proxied = proxies
         self.routes = [Route(describe(p), p, breaker()) for p in proxies]
         self.routes.append(Route("direct", None, breaker()))
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._account_until: dict[str, float] = {}
+        # per egress label: account -> when it was last blocked there
+        self._blocked: dict[str, dict[str, float]] = {r.label: {} for r in self.routes}
 
     def order(self, account_key: str) -> list[Route]:
         """Every route in this account's preference order: its sticky proxy
@@ -103,6 +119,33 @@ class EgressPool:
 
     def min_remaining(self) -> float:
         return min(r.breaker.remaining() for r in self.routes)
+
+    def account_remaining(self, account_key: str) -> float:
+        with self._lock:
+            return max(0.0, self._account_until.get(account_key, 0.0) - self._clock())
+
+    def record_blocked(self, route: Route, account_key: str) -> str:
+        """Note a "blocked" sign-in; return its scope. Always cools the account
+        down; trips the route's breaker ("egress") only once enough distinct
+        accounts were blocked on it within the window, else "account"."""
+        now = self._clock()
+        with self._lock:
+            for acct, until in list(self._account_until.items()):
+                if until <= now:
+                    del self._account_until[acct]
+            self._account_until[account_key] = now + ACCOUNT_COOLDOWN_S
+            recent = self._blocked[route.label]
+            for acct, at in list(recent.items()):
+                if now - at > _EGRESS_BLOCK_WINDOW_S:
+                    del recent[acct]
+            recent[account_key] = now
+            tripped = len(recent) >= _EGRESS_BLOCK_ACCOUNTS
+            if tripped:
+                recent.clear()
+        if tripped:
+            route.breaker.trip()
+            return "egress"
+        return "account"
 
 
 _local = threading.local()

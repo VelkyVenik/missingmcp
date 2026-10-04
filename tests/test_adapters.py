@@ -105,14 +105,15 @@ def test_start_login_auth_error_maps_message():
 _FORM = {"garmin_email": "me@x.cz", "garmin_password": "pw"}
 
 
-def test_blocked_login_trips_the_sso_breaker_and_fails_fast():
-    # Ticket 12: while Garmin's Cloudflare rate-limits our egress IP, one
-    # "blocked" outcome must open the breaker so follow-up sign-ins fail fast
-    # (same message/reason, zero SSO traffic) until the cooldown expires.
-    from missingmcp.adapters.garmin import EgressPool, SsoBreaker
+def test_blocked_login_cools_the_account_down_and_fails_fast():
+    # Ticket 12: one "blocked" outcome makes that account's follow-up sign-ins
+    # fail fast (same message/reason, zero SSO traffic) until its cooldown
+    # expires — Garmin limits repeat sign-ins per account, whatever the IP.
+    from missingmcp.adapters.garmin import EgressPool, SsoBreaker, egress
     a = _adapter()
     clock = [1000.0]
-    a.pool = EgressPool("", breaker=lambda: SsoBreaker(cooldown=300, clock=lambda: clock[0]))
+    a.pool = EgressPool("", breaker=lambda: SsoBreaker(cooldown=300, clock=lambda: clock[0]),
+                        clock=lambda: clock[0])
     calls = []
 
     def blocked(email, pw):
@@ -122,12 +123,13 @@ def test_blocked_login_trips_the_sso_breaker_and_fails_fast():
     with patch.object(login, "start_login", side_effect=blocked):
         with pytest.raises(base.LoginError):
             a.start_login(_FORM)
-        with pytest.raises(base.LoginError) as ei:     # breaker open: fast, no upstream call
+        with pytest.raises(base.LoginError) as ei:     # account cooling down: fast, no upstream call
             a.start_login(_FORM)
     assert len(calls) == 1
     assert ei.value.reason == "blocked" and "rate-limiting" in str(ei.value)
+    assert a.pool.routes[0].breaker.remaining() == 0   # one account never closes the egress
 
-    clock[0] += 301                                    # cooldown over: attempts flow again
+    clock[0] += egress.ACCOUNT_COOLDOWN_S + 1          # cooldown over: attempts flow again
     with patch.object(login, "start_login",
                       return_value=login.LoginResult(status="ok", tokens_json='{"t":1}')):
         r = a.start_login(_FORM)
