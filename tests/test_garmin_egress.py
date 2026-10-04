@@ -114,6 +114,7 @@ def test_sign_in_runs_through_the_accounts_route_and_logs_it(capsys):
     assert egress.current() is None                 # nothing leaks past the call
     rows = [r for r in _rows(capsys) if r.get("event") == "garmin-login-attempt"]
     assert rows[-1]["egress"] == route.label and rows[-1]["outcome"] == "ok"
+    assert rows[-1]["account"] == "me@x.cz"         # per-user attribution
 
 
 def test_blocked_sign_in_trips_only_its_route_and_the_retry_moves_on(capsys):
@@ -127,8 +128,11 @@ def test_blocked_sign_in_trips_only_its_route_and_the_retry_moves_on(capsys):
             assert ei.value.reason == "blocked"
     assert seen == [first.proxy, second.proxy]
     assert first.breaker.remaining() > 0 and second.breaker.remaining() > 0
-    opened = [r["egress"] for r in _rows(capsys) if r.get("event") == "login-breaker-open"]
+    rows = _rows(capsys)
+    opened = [r["egress"] for r in rows if r.get("event") == "login-breaker-open"]
     assert opened == [first.label, second.label]
+    attempts = [r for r in rows if r.get("event") == "garmin-login-attempt"]
+    assert [(r["account"], r["outcome"]) for r in attempts] == [("me@x.cz", "blocked")] * 2
 
 
 def test_mfa_resume_leaves_through_the_route_the_sign_in_used():
