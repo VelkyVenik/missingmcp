@@ -202,6 +202,19 @@ def test_requests_traffic_really_goes_through_the_proxy(recording_proxy):
     assert seen == ["http://sso.garmin.invalid/portal"]
 
 
+def test_chosen_proxy_beats_env_proxies(recording_proxy, monkeypatch):
+    # requests lets HTTP(S)_PROXY override Session.proxies unless trust_env is
+    # off — the route that logs/trips breakers must be the one actually used.
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    url, seen = recording_proxy
+    with egress.via(url):
+        s = gc_client.requests.Session()
+    r = s.get("http://sso.garmin.invalid/portal", timeout=5)
+    assert r.status_code == 200
+    assert seen == ["http://sso.garmin.invalid/portal"]
+
+
 def test_cffi_traffic_really_goes_through_the_proxy(recording_proxy):
     url, seen = recording_proxy
     with egress.via(url):

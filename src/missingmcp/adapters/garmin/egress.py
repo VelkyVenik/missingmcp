@@ -137,6 +137,10 @@ class _ProxiedRequests:
         proxy = current()
         if proxy:
             s.proxies.update({"http": proxy, "https": proxy})
+            # requests merges env proxies (HTTPS_PROXY…) *over* Session.proxies;
+            # the chosen egress must win, or a stray env var would carry the
+            # sign-in elsewhere while logs and breakers blame this route.
+            s.trust_env = False
         return s
 
     def post(self, url, **kwargs):
