@@ -47,6 +47,22 @@ class Config:
     posthog_host: str             # server-side ingestion host (EU cloud by default)
     posthog_web_host: str         # posthog-js api_host — the managed reverse proxy
     posthog_ui_host: str          # PostHog app host; posthog-js needs it behind a proxy
+    # Mail campaigns via Cloudflare Email Sending (mailer.py); disabled unless
+    # the API token, account id and from-address are all set.
+    mail_api_token: str           # Cloudflare token — Account → Email Sending → Edit only
+    mail_account_id: str
+    mail_api_base: str            # tests override
+    mail_from: str                # address on an onboarded sending (sub)domain
+    mail_from_name: str
+    mail_reply_to: str            # replies land here; also the mailto: unsubscribe
+    mail_daily_cap: int           # stay under the provider's daily quota (shared per account)
+
+
+def mail_daily_cap(env: Mapping[str, str]) -> int:
+    """MAIL_DAILY_CAP — own helper so scripts/campaign.py reads the same value
+    without the full load_config (which demands GATEWAY_SECRET). A new
+    Cloudflare account starts at 200/day; the default leaves headroom."""
+    return int(env.get("MAIL_DAILY_CAP", "180"))
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -116,4 +132,12 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         posthog_web_host=env.get("POSTHOG_WEB_HOST",
                                  env.get("POSTHOG_HOST", "https://eu.i.posthog.com")).rstrip("/"),
         posthog_ui_host=env.get("POSTHOG_UI_HOST", "https://eu.posthog.com").rstrip("/"),
+        mail_api_token=env.get("MAIL_API_TOKEN", "").strip(),
+        mail_account_id=env.get("MAIL_ACCOUNT_ID", "").strip(),
+        mail_api_base=env.get("MAIL_API_BASE",
+                              "https://api.cloudflare.com/client/v4").rstrip("/"),
+        mail_from=env.get("MAIL_FROM", "").strip(),
+        mail_from_name=env.get("MAIL_FROM_NAME", "").strip(),
+        mail_reply_to=env.get("MAIL_REPLY_TO", "").strip(),
+        mail_daily_cap=mail_daily_cap(env),
     )

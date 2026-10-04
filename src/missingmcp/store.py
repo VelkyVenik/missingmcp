@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import sqlite3
 import time
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -99,6 +100,35 @@ CREATE TABLE IF NOT EXISTS beers (
     matched     INTEGER NOT NULL DEFAULT 0, -- 1 if email matched an account_key
     source      TEXT NOT NULL DEFAULT 'manual',
     created_at  TEXT DEFAULT (datetime('now'))  -- purchase time (--at, else now)
+);
+CREATE TABLE IF NOT EXISTS campaigns (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug        TEXT NOT NULL UNIQUE,
+    subject     TEXT NOT NULL,
+    body        TEXT NOT NULL,              -- plain text, snapshotted at create
+    audience    TEXT NOT NULL,              -- all | users | subscribers
+    status      TEXT NOT NULL DEFAULT 'draft',  -- draft | active | paused | done
+    created_at  TEXT DEFAULT (datetime('now')),
+    started_at  TEXT,
+    finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS campaign_sends (
+    campaign_id INTEGER NOT NULL,
+    email       TEXT NOT NULL,
+    rank        INTEGER NOT NULL,           -- send order: most active users first
+    status      TEXT NOT NULL DEFAULT 'pending',
+    unsub_token TEXT NOT NULL UNIQUE,
+    message_id  TEXT,
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    last_error  TEXT,
+    sent_at     TEXT,                       -- set once the API accepted it (sent|bounced)
+    updated_at  TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (campaign_id, email)
+);
+CREATE TABLE IF NOT EXISTS unsubscribes (
+    email      TEXT PRIMARY KEY,
+    source     TEXT NOT NULL,               -- link | one-click | manual
+    created_at TEXT DEFAULT (datetime('now'))
 );
 """
 
@@ -502,8 +532,8 @@ def record_usage(conn, adapter: str, account_key: str, tool: str) -> None:
 
 
 # --- newsletter subscribers & connector suggestions -----------------------
-# Marketing opt-in captured on the home page. Stored locally only — no email is
-# sent from here (a provider is chosen later). Never log the address itself.
+# Marketing opt-in captured on the home page. Stored locally; mail goes out only
+# through an operator-started campaign (mailer.py). Never log the address itself.
 
 def add_subscriber(conn, email: str) -> None:
     """Record a newsletter opt-in. Idempotent: a repeat email is a silent no-op
@@ -565,3 +595,182 @@ def add_beer(conn, *, email: str | None, beers: int, amount: float | None,
     )
     conn.commit()
     return cur.lastrowid
+
+
+# --- mail campaigns (mailer.py) -------------------------------------------
+# One row per (campaign, recipient) is the send ledger: a recipient is mailed at
+# most once per campaign, and `sending` is written BEFORE the API call, so a
+# crash mid-call leaves an explicit `unknown` (never an automatic re-send).
+# Unsubscribes are global — they exclude the address from every campaign.
+
+SEND_STATUSES = ("pending", "sending", "sent", "bounced", "suppressed",
+                 "failed", "unknown", "unsubscribed")
+
+
+def campaign_audience(conn, audience: str) -> list[str]:
+    """Recipients for a new campaign, most engaged first: latest real tool use
+    (protocol traffic excluded, like active_accounts_between), then total
+    calls; never-active accounts and subscriber-only addresses go last.
+    `audience` is all | users (account emails) | subscribers. Unsubscribed
+    addresses are excluded."""
+    sources = {
+        "users": "SELECT account_key AS email FROM accounts",
+        "subscribers": "SELECT email FROM subscribers",
+        "all": "SELECT account_key AS email FROM accounts UNION SELECT email FROM subscribers",
+    }[audience]
+    placeholders = ",".join("?" * len(PROTOCOL_METHODS))
+    rows = conn.execute(
+        f"WITH people AS ({sources}), "
+        "activity AS (SELECT account_key AS email, MAX(last_used) AS last_active, "
+        "             SUM(calls) AS calls FROM tool_usage "
+        f"            WHERE tool NOT IN ({placeholders}) GROUP BY account_key) "
+        "SELECT DISTINCT p.email, a.last_active, COALESCE(a.calls, 0) AS calls "
+        "FROM people p LEFT JOIN activity a ON a.email = p.email "
+        "WHERE p.email NOT IN (SELECT email FROM unsubscribes) "
+        "ORDER BY a.last_active IS NULL, a.last_active DESC, calls DESC, p.email",
+        tuple(sorted(PROTOCOL_METHODS)),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def create_campaign(conn, slug: str, subject: str, body: str, audience: str,
+                    recipients: list[str]) -> int:
+    """Create a draft campaign and enqueue `recipients` (in send order) as
+    pending. Each send gets its own random unsubscribe token. Atomic."""
+    try:
+        cur = conn.execute(
+            "INSERT INTO campaigns (slug, subject, body, audience) VALUES (?, ?, ?, ?)",
+            (slug, subject, body, audience))
+        cid = cur.lastrowid
+        conn.executemany(
+            "INSERT INTO campaign_sends (campaign_id, email, rank, unsub_token) "
+            "VALUES (?, ?, ?, ?)",
+            [(cid, email, i, secrets.token_urlsafe(24))
+             for i, email in enumerate(recipients)])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return cid
+
+
+def get_campaign(conn, slug: str) -> dict | None:
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM campaigns WHERE slug=?", (slug,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_campaigns(conn) -> list[dict]:
+    conn.row_factory = sqlite3.Row
+    return [dict(r) for r in conn.execute("SELECT * FROM campaigns ORDER BY id")]
+
+
+def set_campaign_status(conn, campaign_id: int, status: str) -> None:
+    stamp = {"active": ", started_at = COALESCE(started_at, datetime('now'))",
+             "done": ", finished_at = datetime('now')"}.get(status, "")
+    conn.execute(f"UPDATE campaigns SET status=?{stamp} WHERE id=?", (status, campaign_id))
+    conn.commit()
+
+
+def active_campaign(conn) -> dict | None:
+    """The campaign the mailer works on: the earliest-started active one."""
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM campaigns WHERE status='active' "
+                       "ORDER BY started_at, id LIMIT 1").fetchone()
+    return dict(row) if row else None
+
+
+def next_pending(conn, campaign_id: int, limit: int) -> list[dict]:
+    """The next sends, in rank order. An address that unsubscribed after it
+    was (re)queued is dropped here, right before sending — the one choke point
+    every path to the API goes through (first send, retry, operator requeue)."""
+    conn.execute("UPDATE campaign_sends SET status='unsubscribed', updated_at=datetime('now') "
+                 "WHERE campaign_id=? AND status='pending' "
+                 "AND email IN (SELECT email FROM unsubscribes)", (campaign_id,))
+    conn.commit()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT email, unsub_token, attempts FROM campaign_sends "
+        "WHERE campaign_id=? AND status='pending' ORDER BY rank LIMIT ?",
+        (campaign_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_send(conn, campaign_id: int, email: str, status: str, *,
+              message_id: str | None = None, error: str | None = None,
+              attempted: bool = False, at: str | None = None) -> None:
+    """Move one ledger row to `status`. `sent_at` is stamped (with `at`, a UTC
+    'YYYY-MM-DD HH:MM:SS', else now) when the message counts toward the daily
+    quota: accepted (sent / bounced) or possibly accepted (unknown — counting
+    it errs on the side of staying under the provider's quota).
+    `attempted` bumps the retry counter."""
+    conn.execute(
+        "UPDATE campaign_sends SET status=?, "
+        "message_id=COALESCE(?, message_id), last_error=?, "
+        "attempts=attempts + ?, updated_at=datetime('now'), "
+        "sent_at=CASE WHEN ? IN ('sent','bounced','unknown') "
+        "THEN COALESCE(?, datetime('now')) ELSE sent_at END "
+        "WHERE campaign_id=? AND email=?",
+        (status, message_id, error, 1 if attempted else 0, status, at, campaign_id, email))
+    conn.commit()
+
+
+def mark_stale_sending(conn) -> int:
+    """A `sending` row outside a running send is a crash mid-API-call: the mail
+    may or may not have gone out. Park it as `unknown` (operator decides)."""
+    cur = conn.execute("UPDATE campaign_sends SET status='unknown', "
+                       "last_error='interrupted mid-send', updated_at=datetime('now') "
+                       "WHERE status='sending'")
+    conn.commit()
+    return cur.rowcount
+
+
+def sent_since(conn, since_utc: str) -> int:
+    """Mails the API accepted since `since_utc` (all campaigns) — the daily
+    quota gauge."""
+    return conn.execute("SELECT COUNT(*) FROM campaign_sends WHERE sent_at >= ?",
+                        (since_utc,)).fetchone()[0]
+
+
+def campaign_counts(conn, campaign_id: int) -> dict:
+    rows = conn.execute("SELECT status, COUNT(*) FROM campaign_sends "
+                        "WHERE campaign_id=? GROUP BY status", (campaign_id,)).fetchall()
+    counts = {s: 0 for s in SEND_STATUSES}
+    counts.update({r[0]: r[1] for r in rows})
+    return counts
+
+
+def requeue(conn, campaign_id: int, status: str) -> int:
+    """Operator decision after reviewing `unknown` or `failed` rows: send them
+    again (attempts reset). Unsubscribed addresses are still dropped at send
+    time by next_pending."""
+    if status not in ("unknown", "failed"):
+        raise ValueError(f"cannot requeue {status!r} sends")
+    cur = conn.execute("UPDATE campaign_sends SET status='pending', attempts=0, "
+                       "updated_at=datetime('now') WHERE campaign_id=? AND status=?",
+                       (campaign_id, status))
+    conn.commit()
+    return cur.rowcount
+
+
+def unknown_sends(conn, campaign_id: int) -> list[str]:
+    return [r[0] for r in conn.execute(
+        "SELECT email FROM campaign_sends WHERE campaign_id=? AND status='unknown' "
+        "ORDER BY rank", (campaign_id,))]
+
+
+def add_unsubscribe(conn, email: str, source: str) -> None:
+    """Global opt-out: recorded once, and every send to the address that could
+    still go out (pending, or unknown/failed awaiting an operator requeue) is
+    dropped from its campaign. Idempotent."""
+    conn.execute("INSERT OR IGNORE INTO unsubscribes (email, source) VALUES (?, ?)",
+                 (email, source))
+    conn.execute("UPDATE campaign_sends SET status='unsubscribed', updated_at=datetime('now') "
+                 "WHERE email=? AND status IN ('pending', 'unknown', 'failed')", (email,))
+    conn.commit()
+
+
+def email_for_unsub_token(conn, token: str) -> str | None:
+    row = conn.execute("SELECT email FROM campaign_sends WHERE unsub_token=?",
+                       (token,)).fetchone()
+    return row[0] if row else None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import html
 import json
 import os
 import re
@@ -10,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import backup, report, store, oauth, pages, proxy, security, telemetry, usage
+from . import backup, mailer, report, store, oauth, pages, proxy, security, telemetry, usage
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
@@ -74,6 +75,7 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     bk = backup.Backup(config)
     dr = report.DailyReport(config)
+    ml = mailer.Mailer(config)
     # Garmin SSO reachability probe (ticket 12) — diagnostic, env-gated, and
     # meaningless without the garmin adapter, so it stays off when garmin isn't
     # registered regardless of the env var.
@@ -215,6 +217,66 @@ def build_app(config: Config) -> Starlette:
         telemetry.capture("suggest", anonymous=True,
                           distinct_id=telemetry.anon_id_from_cookie(request.cookies))
         return JSONResponse({"ok": True})
+
+    # Campaign unsubscribe (mailer.py). The token in the link is the only
+    # credential: random per send, maps to one address. GET shows a confirm
+    # button (mail scanners prefetch links — a GET must never unsubscribe);
+    # POST unsubscribes — both the button and RFC 8058 one-click
+    # (`List-Unsubscribe=One-Click` body, sent by Gmail/Yahoo without a page).
+    # Rendered WITHOUT the posthog-js head (unlike _render): a $pageview would
+    # ship the token-bearing URL to PostHog (telemetry egress rule).
+    unsub_shell = pages.render_page("unsubscribe.html", "Unsubscribe — MissingMCP",
+                                    public_url=config.public_url, path="/unsubscribe",
+                                    noindex=True
+                                    ).replace("{OPERATOR}", pages.operator_html(config))
+
+    def _unsub_page(heading: str, body: str, status: int = 200) -> HTMLResponse:
+        return HTMLResponse(unsub_shell.replace("{HEADING}", heading)
+                            .replace("{BODY}", body), status_code=status)
+
+    _unsub_invalid = ("This link isn&rsquo;t valid",
+                      '<p class="sub">Reply to the email you got and we&rsquo;ll '
+                      "take you off the list by hand.</p>")
+
+    def _unsub_email(request) -> str | None | Response:
+        """The token's address; None for an unknown token, or a 429 response.
+        Only unknown tokens are rate-limited (per IP): a valid token is
+        unguessable, and one-click POSTs arrive from Gmail/Yahoo's SHARED
+        egress IPs — an IP limit would silently drop real opt-outs."""
+        tok = request.query_params.get("t", "")
+        email = store.email_for_unsub_token(conn, tok) if tok else None
+        ip = request.client.host if request.client else "unknown"
+        if email is None and not rate.check(f"unsubscribe:{ip}", 10, 60):
+            return PlainTextResponse("Too many attempts, wait a minute.", status_code=429)
+        return email
+
+    async def unsubscribe_get(request):
+        tok = request.query_params.get("t", "")
+        email = _unsub_email(request)
+        if isinstance(email, Response):
+            return email
+        if email is None:
+            return _unsub_page(*_unsub_invalid, status=404)
+        action = f"/unsubscribe?t={urllib.parse.quote(tok, safe='')}"
+        return _unsub_page(
+            "Unsubscribe from MissingMCP emails?",
+            f'<form method="post" action="{html.escape(action)}">'
+            '<button type="submit" class="btn">Unsubscribe</button></form>'
+            '<p class="sub">Your connected accounts keep working either way.</p>')
+
+    async def unsubscribe_post(request):
+        email = _unsub_email(request)
+        if isinstance(email, Response):
+            return email
+        raw = await security.read_body_limited(request, max_bytes=4_000)
+        if email is None:
+            return _unsub_page(*_unsub_invalid, status=404)
+        one_click = b"List-Unsubscribe=One-Click" in (raw or b"")
+        store.add_unsubscribe(conn, email, "one-click" if one_click else "link")
+        log("unsubscribe", source="one-click" if one_click else "link")  # never the address
+        return _unsub_page("You&rsquo;re unsubscribed",
+                           '<p class="sub">You won&rsquo;t get any more MissingMCP '
+                           "emails. Your connected accounts keep working.</p>")
 
     async def notfound(request):
         # Catch-all for unknown GET paths: humans get the MissingMCP home
@@ -412,6 +474,9 @@ def build_app(config: Config) -> Starlette:
                 if dr.enabled and dr.due():
                     # dr.run never raises; opens its own read-only DB connection
                     await asyncio.to_thread(dr.run)
+                if ml.enabled and ml.due():
+                    # ml.run never raises; one small batch of the active campaign
+                    await asyncio.to_thread(ml.run)
                 if sso_probe.enabled and sso_probe.due():
                     # sso_probe.run never raises; one impersonated GET per interval
                     await asyncio.to_thread(sso_probe.run)
@@ -454,6 +519,8 @@ def build_app(config: Config) -> Starlette:
         Route("/privacy", privacy, methods=["GET"]),
         Route("/subscribe", subscribe, methods=["POST"]),
         Route("/suggest", suggest, methods=["POST"]),
+        Route("/unsubscribe", unsubscribe_get, methods=["GET"]),
+        Route("/unsubscribe", unsubscribe_post, methods=["POST"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
         Route("/robots.txt", _text(robots_txt, "text/plain"), methods=["GET"]),

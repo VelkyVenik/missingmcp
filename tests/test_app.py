@@ -586,3 +586,83 @@ def test_privacy_mentions_signup_storage_and_deletion(tmp_path):
     r = _client(tmp_path).get("/privacy").text
     assert "newsletter" in r.lower() or "notify" in r.lower()   # opt-in disclosed
     assert "email the operator" in r.lower()                    # deletion path
+
+
+# --- campaign unsubscribe ---------------------------------------------------
+
+def _unsub_setup(tmp_path):
+    c, db = _client_and_db(tmp_path)
+    conn = store.init_db(db)
+    store.upsert_account(conn, "garmin", "u@x.com", "{}", "s" * 40)
+    cid = store.create_campaign(conn, "c1", "Hi", "Body", "all", ["u@x.com"])
+    tok = conn.execute("SELECT unsub_token FROM campaign_sends").fetchone()[0]
+    conn.close()
+    return c, db, tok, cid
+
+
+def test_unsubscribe_get_only_confirms(tmp_path):
+    c, db, tok, _ = _unsub_setup(tmp_path)
+    r = c.get(f"/unsubscribe?t={tok}")
+    assert r.status_code == 200
+    assert f'action="/unsubscribe?t={tok}"' in r.text and 'method="post"' in r.text
+    # a link scanner's GET must not unsubscribe anyone
+    assert _rows(db, "SELECT email FROM unsubscribes") == []
+
+
+def test_unsubscribe_post_button_and_one_click(tmp_path, capsys):
+    c, db, tok, _ = _unsub_setup(tmp_path)
+    r = c.post(f"/unsubscribe?t={tok}", data={})
+    assert r.status_code == 200 and "unsubscribed" in r.text
+    assert _rows(db, "SELECT email, source FROM unsubscribes") == [("u@x.com", "link")]
+    assert _rows(db, "SELECT status FROM campaign_sends") == [("unsubscribed",)]
+    # RFC 8058 one-click: a repeat is harmless (first source wins)
+    r = c.post(f"/unsubscribe?t={tok}", content=b"List-Unsubscribe=One-Click",
+               headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 200
+    assert "u@x.com" not in capsys.readouterr().out          # never log the address
+
+
+def test_unsubscribe_one_click_source(tmp_path):
+    c, db, tok, _ = _unsub_setup(tmp_path)
+    c.post(f"/unsubscribe?t={tok}", content=b"List-Unsubscribe=One-Click",
+           headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert _rows(db, "SELECT source FROM unsubscribes") == [("one-click",)]
+
+
+def test_unsubscribe_bad_token(tmp_path):
+    c, db, _, _ = _unsub_setup(tmp_path)
+    assert c.get("/unsubscribe?t=nope").status_code == 404
+    assert c.get("/unsubscribe").status_code == 404
+    assert c.post("/unsubscribe?t=nope").status_code == 404
+    assert _rows(db, "SELECT email FROM unsubscribes") == []
+
+
+def test_unsubscribe_page_carries_no_telemetry(tmp_path, monkeypatch):
+    from missingmcp import telemetry
+    # a stand-in client: telemetry reads as enabled, init() won't build a real one
+    monkeypatch.setattr(telemetry, "_client", object())
+    monkeypatch.setattr(telemetry, "_api_key", "phc_test")
+    db = str(tmp_path / "t.db")
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "DATA_DIR": str(tmp_path), "DB_PATH": db,
+                       "POSTHOG_API_KEY": "phc_test"})
+    c = TestClient(build_app(cfg))
+    assert "ph.js" in c.get("/privacy").text               # telemetry is on site-wide...
+    conn = store.init_db(db)
+    store.create_campaign(conn, "c1", "Hi", "Body", "all", ["u@x.com"])
+    tok = conn.execute("SELECT unsub_token FROM campaign_sends").fetchone()[0]
+    conn.close()
+    page = c.get(f"/unsubscribe?t={tok}").text
+    assert "ph.js" not in page                              # ...but never on the token URL
+    assert 'content="noindex"' in page
+
+
+def test_unsubscribe_rate_limits_only_unknown_tokens(tmp_path):
+    c, db, tok, _ = _unsub_setup(tmp_path)
+    # one-click POSTs arrive from a provider's shared IP — never throttled
+    for _ in range(15):
+        assert c.post(f"/unsubscribe?t={tok}", content=b"List-Unsubscribe=One-Click",
+                      headers={"Content-Type": "application/x-www-form-urlencoded"}
+                      ).status_code == 200
+    codes = [c.get(f"/unsubscribe?t=guess{i}").status_code for i in range(12)]
+    assert codes[:10] == [404] * 10 and codes[-1] == 429
