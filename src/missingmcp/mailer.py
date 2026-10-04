@@ -12,13 +12,18 @@ The send ledger (store.campaign_sends) is the safety net: one row per
 recipient, `sending` written BEFORE the API call, so a recipient is mailed at
 most once — an interrupted or ambiguous send (timeout, 5xx) parks as `unknown`
 for the operator to decide (scripts/campaign.py requeue-unknown), never an
-automatic re-send.
+automatic re-send. Failures are told apart by whose fault they are: a
+recipient-specific rejection (400/422) costs that recipient an attempt and the
+batch moves on; an account-wide one (bad token, quota, rate limit, outage)
+costs nobody anything and pauses the whole mailer for ERROR_BACKOFF.
 
 Same shape as backup.py / report.py: a `Mailer` with enabled/due/run, whose
 run() never raises and works on its own DB connection (it executes in a worker
-thread via asyncio.to_thread). Never log a recipient address.
+thread via asyncio.to_thread). Never log a recipient address — provider error
+text is passed through `redact` first.
 """
 from __future__ import annotations
+import re
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -27,19 +32,35 @@ from . import store
 from .log import log, log_exc, log_warn
 
 BATCH = 10                  # mails per lifespan tick (~60s) — gentle pacing
-MAX_ATTEMPTS = 3            # API rejections before a recipient is marked failed
-ERROR_BACKOFF = 15 * 60     # seconds to pause after any API error (quota, outage)
+RUN_BUDGET = 30.0           # wall-clock seconds per run — never stall the lifespan loop
+MAX_ATTEMPTS = 3            # recipient-specific rejections before it is marked failed
+ERROR_BACKOFF = 15 * 60     # seconds to pause after an account-wide error or a maybe-sent
 BOUNCE_MIN_ATTEMPTS = 50    # auto-pause guard: only judge after this many sends...
 BOUNCE_MAX_RATE = 0.05      # ...and pause above this hard-bounce rate
 
+# 4xx statuses that are about the account or the request rate, not the recipient
+_ACCOUNT_WIDE_4XX = {401, 403, 408, 409, 429}
+_EMAIL_RE = re.compile(r"[^\s<>\"'@,;:]+@[^\s<>\"'@,;:]+")
+_UTC_FMT = "%Y-%m-%d %H:%M:%S"   # matches SQLite datetime('now')
+
 
 class MailError(Exception):
-    """A send that did not succeed. `maybe_sent` = the request may have reached
-    the provider (timeout, 5xx) — the recipient must not be retried blindly."""
+    """A send that did not succeed.
+    `maybe_sent`: the request may have reached the provider (timeout, 5xx) —
+    never retry blindly. `recipient_fault`: the provider rejected this
+    recipient specifically — retry it a few times, the rest of the batch is
+    unaffected. Neither: an account-wide problem — retry later, charge nobody."""
 
-    def __init__(self, message: str, *, maybe_sent: bool):
+    def __init__(self, message: str, *, maybe_sent: bool = False,
+                 recipient_fault: bool = False):
         super().__init__(message)
         self.maybe_sent = maybe_sent
+        self.recipient_fault = recipient_fault
+
+
+def redact(text: str) -> str:
+    """Strip email addresses from provider error text before it is logged."""
+    return _EMAIL_RE.sub("<email>", text)
 
 
 def unsubscribe_url(public_url: str, token: str) -> str:
@@ -77,7 +98,7 @@ def send(config, to: str, subject: str, text: str, headers: dict | None = None) 
         r = httpx.post(url, json=payload, timeout=20.0,
                        headers={"Authorization": f"Bearer {config.mail_api_token}"})
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-        raise MailError(f"connect: {e}", maybe_sent=False) from e
+        raise MailError(f"connect: {type(e).__name__}") from e
     except httpx.HTTPError as e:   # timeout / reset after the request left
         raise MailError(f"transport: {type(e).__name__}", maybe_sent=True) from e
     if r.status_code >= 500:
@@ -90,7 +111,9 @@ def send(config, to: str, subject: str, text: str, headers: dict | None = None) 
     if r.status_code >= 400 or not data.get("success"):
         errs = "; ".join(f"{e.get('code')}: {e.get('message')}"
                          for e in data.get("errors") or []) or f"HTTP {r.status_code}"
-        raise MailError(errs, maybe_sent=False)
+        raise MailError(f"HTTP {r.status_code}: {errs}",
+                        recipient_fault=(400 <= r.status_code < 500
+                                         and r.status_code not in _ACCOUNT_WIDE_4XX))
     return data.get("result") or {}
 
 
@@ -105,9 +128,6 @@ def classify(result: dict, to: str) -> str:
     if has("delivered") or has("queued"):
         return "sent"
     return "unknown"
-
-
-_UTC_FMT = "%Y-%m-%d %H:%M:%S"   # matches SQLite datetime('now')
 
 
 def _utc_str(ts: float) -> str:
@@ -130,9 +150,10 @@ class Mailer:
     state only (next allowed run, last capped day); everything durable lives in
     the ledger, so a redeploy just resumes."""
 
-    def __init__(self, config, clock=time.time):
+    def __init__(self, config, clock=time.time, monotonic=time.monotonic):
         self._cfg = config
         self._clock = clock
+        self._monotonic = monotonic
         self._next_at = 0.0
         self._capped_day = None
 
@@ -153,7 +174,7 @@ class Mailer:
             finally:
                 conn.close()
         except Exception as e:  # noqa: BLE001 - mail must never take the gateway down
-            log_exc("campaign-run-failed", e, error=str(e))
+            log_exc("campaign-run-failed", e, error=redact(str(e)))
             self._next_at = now + ERROR_BACKOFF
 
     def _run(self, conn, now: float) -> None:
@@ -178,7 +199,10 @@ class Mailer:
         tally = {"sent": 0, "bounced": 0, "suppressed": 0, "unknown": 0,
                  "retry": 0, "failed": 0}
         error = None
+        started = self._monotonic()
         for row in store.next_pending(conn, cid, min(BATCH, room)):
+            if self._monotonic() - started > RUN_BUDGET:
+                break                                     # rest goes next tick
             email = row["email"]
             url = unsubscribe_url(self._cfg.public_url, row["unsub_token"])
             store.mark_send(conn, cid, email, "sending")
@@ -186,15 +210,20 @@ class Mailer:
                 result = send(self._cfg, email, camp["subject"], render_text(camp["body"], url),
                               list_unsubscribe_headers(url, self._cfg.mail_reply_to))
             except MailError as e:
-                error = str(e)
+                error = redact(str(e))
                 if e.maybe_sent:
-                    store.mark_send(conn, cid, email, "unknown", error=error)
+                    store.mark_send(conn, cid, email, "unknown", error=error,
+                                    at=_utc_str(self._clock()))
                     tally["unknown"] += 1
-                else:
+                elif e.recipient_fault:
                     final = row["attempts"] + 1 >= MAX_ATTEMPTS
                     store.mark_send(conn, cid, email, "failed" if final else "pending",
                                     error=error, attempted=True)
                     tally["failed" if final else "retry"] += 1
+                    continue                              # this address only
+                else:                                     # account-wide: charge nobody
+                    store.mark_send(conn, cid, email, "pending", error=error)
+                    tally["retry"] += 1
                 self._next_at = now + ERROR_BACKOFF
                 break
             status = classify(result, email)
@@ -207,7 +236,7 @@ class Mailer:
             return
         counts = store.campaign_counts(conn, cid)
         fields = {"campaign": slug, **tally,
-                  "sent_today": sent_today + tally["sent"] + tally["bounced"],
+                  "sent_today": store.sent_since(conn, day.strftime(_UTC_FMT)),
                   "pending": counts["pending"], "total_sent": counts["sent"],
                   "total_bounced": counts["bounced"]}
         if error:

@@ -13,6 +13,7 @@ Usage:
   python scripts/campaign.py status [<slug>]   # counts, sent today, ETA (no addresses)
   python scripts/campaign.py status <slug> --unknown   # + list the `unknown` addresses
   python scripts/campaign.py requeue-unknown <slug>    # send the `unknown` ones again
+  python scripts/campaign.py requeue-failed <slug>     # retry the `failed` ones (attempts reset)
   python scripts/campaign.py unsubscribe <email>       # manual opt-out (e.g. a reply)
 
 campaigns/<slug>.txt is plain text: a first line `Subject: ...`, a blank line,
@@ -30,7 +31,7 @@ import sys
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from missingmcp import mailer, security, store  # noqa: E402
+from missingmcp import config, mailer, security, store  # noqa: E402
 
 CAMPAIGNS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "campaigns")
 
@@ -66,7 +67,7 @@ def _campaign(conn, slug):
 
 
 def _cap() -> int:
-    return int(os.environ.get("MAIL_DAILY_CAP", "180"))
+    return config.mail_daily_cap(os.environ)
 
 
 def cmd_create(conn, args):
@@ -83,8 +84,7 @@ def cmd_create(conn, args):
 
 
 def cmd_test(conn, args):
-    from missingmcp.config import load_config
-    cfg = load_config()
+    cfg = config.load_config()
     c = _campaign(conn, args.slug)
     url = mailer.unsubscribe_url(cfg.public_url, "test-preview")
     res = mailer.send(cfg, args.to, c["subject"], mailer.render_text(c["body"], url),
@@ -122,9 +122,24 @@ def cmd_status(conn, args):
                 print(f"  unknown: {email}")
 
 
+def _requeue(conn, slug, status):
+    c = _campaign(conn, slug)
+    n = store.requeue(conn, c["id"], status)
+    print(f"{slug}: {n} {status} → pending")
+    if n and c["status"] == "done":
+        # the mailer only drains active campaigns — reopen it for the operator
+        store.set_campaign_status(conn, c["id"], "paused")
+        print(f"{slug}: was done, now paused — run `start {slug}` to send them")
+    elif n and c["status"] != "active":
+        print(f"{slug}: is {c['status']} — run `start {slug}` to send them")
+
+
 def cmd_requeue_unknown(conn, args):
-    c = _campaign(conn, args.slug)
-    print(f"{args.slug}: {store.requeue_unknown(conn, c['id'])} unknown → pending")
+    _requeue(conn, args.slug, "unknown")
+
+
+def cmd_requeue_failed(conn, args):
+    _requeue(conn, args.slug, "failed")
 
 
 def cmd_unsubscribe(conn, args):
@@ -143,7 +158,7 @@ def main(argv=None):
     s = sub.add_parser("test")
     s.add_argument("slug")
     s.add_argument("--to", required=True)
-    for name in ("start", "pause", "requeue-unknown"):
+    for name in ("start", "pause", "requeue-unknown", "requeue-failed"):
         sub.add_parser(name).add_argument("slug")
     s = sub.add_parser("status")
     s.add_argument("slug", nargs="?")
@@ -158,6 +173,7 @@ def main(argv=None):
     try:
         {"create": cmd_create, "test": cmd_test, "start": cmd_start, "pause": cmd_pause,
          "status": cmd_status, "requeue-unknown": cmd_requeue_unknown,
+         "requeue-failed": cmd_requeue_failed,
          "unsubscribe": cmd_unsubscribe}[args.cmd](conn, args)
     finally:
         conn.close()

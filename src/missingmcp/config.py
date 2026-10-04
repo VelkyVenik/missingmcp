@@ -58,6 +58,13 @@ class Config:
     mail_daily_cap: int           # stay under the provider's daily quota (shared per account)
 
 
+def mail_daily_cap(env: Mapping[str, str]) -> int:
+    """MAIL_DAILY_CAP — own helper so scripts/campaign.py reads the same value
+    without the full load_config (which demands GATEWAY_SECRET). A new
+    Cloudflare account starts at 200/day; the default leaves headroom."""
+    return int(env.get("MAIL_DAILY_CAP", "180"))
+
+
 def load_config(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
     secret = env.get("GATEWAY_SECRET", "")
@@ -132,6 +139,5 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         mail_from=env.get("MAIL_FROM", "").strip(),
         mail_from_name=env.get("MAIL_FROM_NAME", "").strip(),
         mail_reply_to=env.get("MAIL_REPLY_TO", "").strip(),
-        # A new Cloudflare account starts at 200/day; leave headroom for tests.
-        mail_daily_cap=int(env.get("MAIL_DAILY_CAP", "180")),
+        mail_daily_cap=mail_daily_cap(env),
     )

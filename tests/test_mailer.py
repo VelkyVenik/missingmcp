@@ -181,29 +181,89 @@ def test_batch_size_and_daily_cap(tmp_path, api, capsys):
     assert m.due()
 
 
-def test_api_rejection_retries_then_fails(tmp_path, api, capsys):
-    conn = _db(tmp_path, people=2)
+def _err(status, message):
+    return _Resp(status, {"success": False, "errors": [{"code": 1, "message": message}]})
+
+
+def test_recipient_rejection_retries_that_address_only(tmp_path, api, capsys):
+    conn = _db(tmp_path, people=3)
     cid = _campaign(conn)
-    api.reply = {"u0@x.com": _Resp(400, {"success": False,
-                                         "errors": [{"code": 1, "message": "quota"}]})}
-    t = [NOW]
-    m = mailer.Mailer(_cfg(tmp_path), clock=lambda: t[0])
+    api.reply = {"u0@x.com": _err(400, "invalid recipient u0@x.com")}
+    m = mailer.Mailer(_cfg(tmp_path), clock=lambda: NOW)
     m.run()
-    assert len(api.calls) == 1                           # stops the batch on an error
-    row = conn.execute("SELECT status, attempts, last_error FROM campaign_sends "
+    # the bad address doesn't hold up the batch, nor the mailer
+    assert [c["json"]["to"] for c in api.calls] == ["u0@x.com", "u1@x.com", "u2@x.com"]
+    assert m.due()
+    row = conn.execute("SELECT status, attempts FROM campaign_sends "
                        "WHERE email='u0@x.com'").fetchone()
-    assert tuple(row) == ("pending", 1, "1: quota")
-    assert not m.due()                                   # backing off
-    for _ in range(2):
-        t[0] += mailer.ERROR_BACKOFF
-        m.run()
+    assert tuple(row) == ("pending", 1)
+    m.run()
+    m.run()
     assert conn.execute("SELECT status FROM campaign_sends WHERE email='u0@x.com'"
                         ).fetchone()[0] == "failed"
-    ev = [e for e in _events(capsys) if e["event"] == "campaign-batch"]
-    assert ev[0]["level"] == "warn" and ev[-1]["failed"] == 1
-    t[0] += mailer.ERROR_BACKOFF
-    m.run()                                              # the rest still goes out
-    assert store.campaign_counts(conn, cid)["sent"] == 1
+    out = _events(capsys)
+    batches = [e for e in out if e["event"] == "campaign-batch"]
+    assert batches[0]["level"] == "warn" and batches[-1]["failed"] == 1
+    assert "u0@x.com" not in json.dumps(out)              # provider text is redacted
+    assert "<email>" in batches[0]["error"]
+    assert store.get_campaign(conn, "c1")["status"] == "done"
+    assert store.requeue(conn, cid, "failed") == 1
+    assert conn.execute("SELECT attempts FROM campaign_sends WHERE email='u0@x.com'"
+                        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_account_wide_error_charges_nobody_and_backs_off(tmp_path, api, status):
+    conn = _db(tmp_path, people=2)
+    cid = _campaign(conn)
+    api.reply = {"u0@x.com": _err(status, "nope")}
+    t = [NOW]
+    m = mailer.Mailer(_cfg(tmp_path), clock=lambda: t[0])
+    for _ in range(5):                                    # a long outage...
+        m.run()
+        assert not m.due()
+        t[0] += mailer.ERROR_BACKOFF
+    assert len(api.calls) == 5                            # one probe per backoff
+    row = conn.execute("SELECT status, attempts FROM campaign_sends "
+                       "WHERE email='u0@x.com'").fetchone()
+    assert tuple(row) == ("pending", 0)                   # ...burns no recipient
+    assert store.campaign_counts(conn, cid)["failed"] == 0
+
+
+def test_run_budget_stops_a_slow_batch(tmp_path, api):
+    conn = _db(tmp_path, people=5)
+    _campaign(conn)
+    ticks = iter([0, 0, 10, 20, 31, 40])                  # monotonic seconds per check
+    m = mailer.Mailer(_cfg(tmp_path), clock=lambda: NOW, monotonic=lambda: next(ticks))
+    m.run()
+    assert len(api.calls) == 3                            # 4th check is past RUN_BUDGET
+
+
+def test_unsubscribe_after_requeue_is_never_mailed(tmp_path, api):
+    conn = _db(tmp_path, people=2)
+    cid = _campaign(conn)
+    store.mark_send(conn, cid, "u0@x.com", "unknown")
+    store.mark_send(conn, cid, "u1@x.com", "failed")
+    store.add_unsubscribe(conn, "u1@x.com", "link")       # drops failed rows too
+    store.requeue(conn, cid, "unknown")
+    store.add_unsubscribe(conn, "u0@x.com", "link")       # after the requeue...
+    conn.execute("UPDATE campaign_sends SET status='pending' WHERE email='u0@x.com'")
+    conn.commit()                                         # ...even if a row slipped back
+    mailer.Mailer(_cfg(tmp_path), clock=lambda: NOW).run()
+    assert api.calls == []
+    assert store.campaign_counts(conn, cid)["unsubscribed"] == 2
+
+
+def test_unknown_counts_toward_the_daily_cap(tmp_path, api):
+    conn = _db(tmp_path, people=4)
+    cid = _campaign(conn)
+    api.reply = {"u0@x.com": httpx.ReadTimeout("slow")}
+    m = mailer.Mailer(_cfg(tmp_path, MAIL_DAILY_CAP="2"), clock=lambda: NOW)
+    m.run()
+    m._next_at = 0                                        # skip the backoff
+    m.run()
+    assert len(api.calls) == 2                            # unknown + 1 sent = cap
+    assert store.campaign_counts(conn, cid)["pending"] == 2
 
 
 def test_ambiguous_send_parks_as_unknown_and_is_never_resent(tmp_path, api):
@@ -218,7 +278,7 @@ def test_ambiguous_send_parks_as_unknown_and_is_never_resent(tmp_path, api):
     assert [c["json"]["to"] for c in api.calls] == ["u0@x.com", "u1@x.com"]
     assert store.unknown_sends(conn, cid) == ["u0@x.com"]
     assert store.get_campaign(conn, "c1")["status"] == "done"   # nothing pending
-    assert store.requeue_unknown(conn, cid) == 1
+    assert store.requeue(conn, cid, "unknown") == 1
 
 
 def test_crash_mid_send_becomes_unknown(tmp_path, api, capsys):

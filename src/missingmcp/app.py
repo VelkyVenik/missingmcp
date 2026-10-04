@@ -223,7 +223,12 @@ def build_app(config: Config) -> Starlette:
     # button (mail scanners prefetch links — a GET must never unsubscribe);
     # POST unsubscribes — both the button and RFC 8058 one-click
     # (`List-Unsubscribe=One-Click` body, sent by Gmail/Yahoo without a page).
-    unsub_shell = _render("unsubscribe.html", "Unsubscribe — MissingMCP")
+    # Rendered WITHOUT the posthog-js head (unlike _render): a $pageview would
+    # ship the token-bearing URL to PostHog (telemetry egress rule).
+    unsub_shell = pages.render_page("unsubscribe.html", "Unsubscribe — MissingMCP",
+                                    public_url=config.public_url, path="/unsubscribe",
+                                    noindex=True
+                                    ).replace("{OPERATOR}", pages.operator_html(config))
 
     def _unsub_page(heading: str, body: str, status: int = 200) -> HTMLResponse:
         return HTMLResponse(unsub_shell.replace("{HEADING}", heading)
@@ -233,9 +238,24 @@ def build_app(config: Config) -> Starlette:
                       '<p class="sub">Reply to the email you got and we&rsquo;ll '
                       "take you off the list by hand.</p>")
 
+    def _unsub_email(request) -> str | None | Response:
+        """The token's address; None for an unknown token, or a 429 response.
+        Only unknown tokens are rate-limited (per IP): a valid token is
+        unguessable, and one-click POSTs arrive from Gmail/Yahoo's SHARED
+        egress IPs — an IP limit would silently drop real opt-outs."""
+        tok = request.query_params.get("t", "")
+        email = store.email_for_unsub_token(conn, tok) if tok else None
+        ip = request.client.host if request.client else "unknown"
+        if email is None and not rate.check(f"unsubscribe:{ip}", 10, 60):
+            return PlainTextResponse("Too many attempts, wait a minute.", status_code=429)
+        return email
+
     async def unsubscribe_get(request):
         tok = request.query_params.get("t", "")
-        if not tok or store.email_for_unsub_token(conn, tok) is None:
+        email = _unsub_email(request)
+        if isinstance(email, Response):
+            return email
+        if email is None:
             return _unsub_page(*_unsub_invalid, status=404)
         action = f"/unsubscribe?t={urllib.parse.quote(tok, safe='')}"
         return _unsub_page(
@@ -245,12 +265,10 @@ def build_app(config: Config) -> Starlette:
             '<p class="sub">Your connected accounts keep working either way.</p>')
 
     async def unsubscribe_post(request):
-        ip = request.client.host if request.client else "unknown"
-        if not rate.check(f"unsubscribe:{ip}", 10, 60):
-            return PlainTextResponse("Too many attempts, wait a minute.", status_code=429)
+        email = _unsub_email(request)
+        if isinstance(email, Response):
+            return email
         raw = await security.read_body_limited(request, max_bytes=4_000)
-        tok = request.query_params.get("t", "")
-        email = store.email_for_unsub_token(conn, tok) if tok else None
         if email is None:
             return _unsub_page(*_unsub_invalid, status=404)
         one_click = b"List-Unsubscribe=One-Click" in (raw or b"")

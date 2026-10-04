@@ -265,14 +265,18 @@ python scripts/campaign.py pause <slug>
 python scripts/campaign.py status [<slug>]                # counts + sent today + ETA (no addresses)
 python scripts/campaign.py status <slug> --unknown        # + addresses whose send is unknown
 python scripts/campaign.py requeue-unknown <slug>         # decided to send those again
+python scripts/campaign.py requeue-failed <slug>          # retry the failed ones (attempts reset)
 python scripts/campaign.py unsubscribe <email>            # manual opt-out (e.g. from a reply)
 ```
 
 Every recipient is a row in a send ledger, so nobody gets a campaign twice: a
 send is recorded as `sending` *before* the API call, and a crash or an
 ambiguous API failure (timeout, 5xx) parks it as `unknown` for the operator
-instead of retrying blindly. API rejections retry up to 3 times with a 15-min
-backoff. Each mail carries an unsubscribe link plus RFC 8058 one-click
+instead of retrying blindly (and counts toward the daily cap). A rejection of
+one address (400/422) retries that address up to 3 times without holding up
+the rest; an account-wide error (bad token, quota, rate limit) charges nobody
+and pauses the mailer for 15 min. An address that unsubscribed is dropped
+right before every send, requeues included. Each mail carries an unsubscribe link plus RFC 8058 one-click
 `List-Unsubscribe` headers (`/unsubscribe` — GET only confirms, POST
 unsubscribes); an opt-out is global and drops the address from every campaign.
 A campaign auto-pauses if hard bounces exceed 5% (judged after 50 sends).

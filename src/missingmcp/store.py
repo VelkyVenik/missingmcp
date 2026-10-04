@@ -681,6 +681,13 @@ def active_campaign(conn) -> dict | None:
 
 
 def next_pending(conn, campaign_id: int, limit: int) -> list[dict]:
+    """The next sends, in rank order. An address that unsubscribed after it
+    was (re)queued is dropped here, right before sending — the one choke point
+    every path to the API goes through (first send, retry, operator requeue)."""
+    conn.execute("UPDATE campaign_sends SET status='unsubscribed', updated_at=datetime('now') "
+                 "WHERE campaign_id=? AND status='pending' "
+                 "AND email IN (SELECT email FROM unsubscribes)", (campaign_id,))
+    conn.commit()
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT email, unsub_token, attempts FROM campaign_sends "
@@ -693,15 +700,16 @@ def mark_send(conn, campaign_id: int, email: str, status: str, *,
               message_id: str | None = None, error: str | None = None,
               attempted: bool = False, at: str | None = None) -> None:
     """Move one ledger row to `status`. `sent_at` is stamped (with `at`, a UTC
-    'YYYY-MM-DD HH:MM:SS', else now) when the API accepted the message
-    (sent / bounced) — that is what counts toward the daily quota.
+    'YYYY-MM-DD HH:MM:SS', else now) when the message counts toward the daily
+    quota: accepted (sent / bounced) or possibly accepted (unknown — counting
+    it errs on the side of staying under the provider's quota).
     `attempted` bumps the retry counter."""
     conn.execute(
         "UPDATE campaign_sends SET status=?, "
         "message_id=COALESCE(?, message_id), last_error=?, "
         "attempts=attempts + ?, updated_at=datetime('now'), "
-        "sent_at=CASE WHEN ? IN ('sent','bounced') THEN COALESCE(?, datetime('now')) "
-        "ELSE sent_at END "
+        "sent_at=CASE WHEN ? IN ('sent','bounced','unknown') "
+        "THEN COALESCE(?, datetime('now')) ELSE sent_at END "
         "WHERE campaign_id=? AND email=?",
         (status, message_id, error, 1 if attempted else 0, status, at, campaign_id, email))
     conn.commit()
@@ -732,10 +740,15 @@ def campaign_counts(conn, campaign_id: int) -> dict:
     return counts
 
 
-def requeue_unknown(conn, campaign_id: int) -> int:
-    """Operator decision after reviewing `unknown` rows: send them again."""
-    cur = conn.execute("UPDATE campaign_sends SET status='pending', updated_at=datetime('now') "
-                       "WHERE campaign_id=? AND status='unknown'", (campaign_id,))
+def requeue(conn, campaign_id: int, status: str) -> int:
+    """Operator decision after reviewing `unknown` or `failed` rows: send them
+    again (attempts reset). Unsubscribed addresses are still dropped at send
+    time by next_pending."""
+    if status not in ("unknown", "failed"):
+        raise ValueError(f"cannot requeue {status!r} sends")
+    cur = conn.execute("UPDATE campaign_sends SET status='pending', attempts=0, "
+                       "updated_at=datetime('now') WHERE campaign_id=? AND status=?",
+                       (campaign_id, status))
     conn.commit()
     return cur.rowcount
 
@@ -747,12 +760,13 @@ def unknown_sends(conn, campaign_id: int) -> list[str]:
 
 
 def add_unsubscribe(conn, email: str, source: str) -> None:
-    """Global opt-out: recorded once, and every still-pending send to the
-    address is dropped from its campaign. Idempotent."""
+    """Global opt-out: recorded once, and every send to the address that could
+    still go out (pending, or unknown/failed awaiting an operator requeue) is
+    dropped from its campaign. Idempotent."""
     conn.execute("INSERT OR IGNORE INTO unsubscribes (email, source) VALUES (?, ?)",
                  (email, source))
     conn.execute("UPDATE campaign_sends SET status='unsubscribed', updated_at=datetime('now') "
-                 "WHERE email=? AND status='pending'", (email,))
+                 "WHERE email=? AND status IN ('pending', 'unknown', 'failed')", (email,))
     conn.commit()
 
 

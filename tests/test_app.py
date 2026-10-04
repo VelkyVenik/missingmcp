@@ -635,3 +635,34 @@ def test_unsubscribe_bad_token(tmp_path):
     assert c.get("/unsubscribe").status_code == 404
     assert c.post("/unsubscribe?t=nope").status_code == 404
     assert _rows(db, "SELECT email FROM unsubscribes") == []
+
+
+def test_unsubscribe_page_carries_no_telemetry(tmp_path, monkeypatch):
+    from missingmcp import telemetry
+    # a stand-in client: telemetry reads as enabled, init() won't build a real one
+    monkeypatch.setattr(telemetry, "_client", object())
+    monkeypatch.setattr(telemetry, "_api_key", "phc_test")
+    db = str(tmp_path / "t.db")
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://gw.example.com",
+                       "DATA_DIR": str(tmp_path), "DB_PATH": db,
+                       "POSTHOG_API_KEY": "phc_test"})
+    c = TestClient(build_app(cfg))
+    assert "ph.js" in c.get("/privacy").text               # telemetry is on site-wide...
+    conn = store.init_db(db)
+    store.create_campaign(conn, "c1", "Hi", "Body", "all", ["u@x.com"])
+    tok = conn.execute("SELECT unsub_token FROM campaign_sends").fetchone()[0]
+    conn.close()
+    page = c.get(f"/unsubscribe?t={tok}").text
+    assert "ph.js" not in page                              # ...but never on the token URL
+    assert 'content="noindex"' in page
+
+
+def test_unsubscribe_rate_limits_only_unknown_tokens(tmp_path):
+    c, db, tok, _ = _unsub_setup(tmp_path)
+    # one-click POSTs arrive from a provider's shared IP — never throttled
+    for _ in range(15):
+        assert c.post(f"/unsubscribe?t={tok}", content=b"List-Unsubscribe=One-Click",
+                      headers={"Content-Type": "application/x-www-form-urlencoded"}
+                      ).status_code == 200
+    codes = [c.get(f"/unsubscribe?t=guess{i}").status_code for i in range(12)]
+    assert codes[:10] == [404] * 10 and codes[-1] == 429
