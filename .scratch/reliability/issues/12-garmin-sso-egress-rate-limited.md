@@ -20,11 +20,14 @@ Options re-checked:
   `needs_mfa` (portal/widget path); `mobile+*` 429'd there too, which the
   newer library attributes to the client fingerprint, not the IP.
 
-Implementation: `GARMIN_SSO_PROXY` (adapters/garmin/egress.py) wraps the
-HTTP modules `garminconnect.client` uses so the gateway's own Garmin traffic
-(sign-in, MFA, verify) goes through an authenticated Squid on that box,
-restricted to `.garmin.com`. Workers and everything else stay direct;
-`sso-probe` follows the proxy (`via` field). Verify after enabling: the
+Implementation: `GARMIN_SSO_PROXY` (adapters/garmin/egress.py) — a list of
+proxies; the gateway's own Garmin traffic (sign-in, MFA, verify) goes through
+an authenticated Squid on that box (two IPs: primary 46.224.200.91 + floating
+167.233.184.254, one Squid port each), restricted to `.garmin.com`. Each
+account sticks to one IP by hash; each egress has its own breaker, direct
+(Railway) is the last resort. Workers and everything else stay direct —
+`connectapi` isn't blocked. Per-egress visibility: `garmin-login-attempt`
+(`egress`, `outcome`), `login-breaker-open` (`egress`), `sso-probe` (`via`). Verify after enabling: the
 `login-start-failed`/breaker rates and the probe, for 24 h.
 
 ## Resolution (2026-09-28, decision by Václav)

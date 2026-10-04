@@ -82,7 +82,7 @@ def test_start_login_mfa_state_carries_email():
                       return_value=login.LoginResult(status="needs_mfa", pending=("P", "S"))):
         r = _adapter().start_login({"garmin_email": "me@x.cz", "garmin_password": "pw"})
     assert isinstance(r, base.SecondFactorNeeded)
-    assert r.state == (("P", "S"), "me@x.cz")
+    assert r.state == (("P", "S"), "me@x.cz", None)   # + the egress the MFA must reuse
 
 
 def test_start_login_blocked_maps_message_and_reason():
@@ -109,10 +109,10 @@ def test_blocked_login_trips_the_sso_breaker_and_fails_fast():
     # Ticket 12: while Garmin's Cloudflare rate-limits our egress IP, one
     # "blocked" outcome must open the breaker so follow-up sign-ins fail fast
     # (same message/reason, zero SSO traffic) until the cooldown expires.
-    from missingmcp.adapters.garmin import SsoBreaker
+    from missingmcp.adapters.garmin import EgressPool, SsoBreaker
     a = _adapter()
     clock = [1000.0]
-    a.breaker = SsoBreaker(cooldown=300, clock=lambda: clock[0])
+    a.pool = EgressPool("", breaker=lambda: SsoBreaker(cooldown=300, clock=lambda: clock[0]))
     calls = []
 
     def blocked(email, pw):
@@ -155,7 +155,8 @@ def test_mfa_resume_bypasses_the_breaker():
     # A pending MFA session already passed the portal's first stage; an open
     # breaker must not strand the user holding a valid code.
     a = _adapter()
-    a.breaker.trip()
+    for r in a.pool.routes:
+        r.breaker.trip()
     with patch.object(login, "resume_login", return_value='{"t":9}'):
         r = a.resume_second_factor((("P", "S"), "Me@X.cz"), {"mfa_code": "123456"})
     assert r == base.LoginOk(account_key="me@x.cz", blob='{"t":9}')

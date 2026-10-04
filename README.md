@@ -148,7 +148,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
 | `SSO_PROBE_INTERVAL` | no | `0` (off) | Seconds between browser-impersonated GET probes of Garmin's SSO sign-in page (event `sso-probe`, floor 60 s) — an attempt-independent block timeline for diagnosing egress-IP rate-limiting (reliability ticket 12). |
-| `GARMIN_SSO_PROXY` | no | — (direct) | Proxy URL (`http://user:pass@host:port`) for the gateway's own Garmin traffic — sign-in, MFA, token verify — so it leaves through a dedicated IP instead of the shared host egress that Garmin's SSO rate-limits (ticket 12). Workers and all other traffic stay direct; `sso-probe` follows it (`via` field). Logged as host:port only. |
+| `GARMIN_SSO_PROXY` | no | — (direct) | Comma-separated proxy URLs (`http://user:pass@host:port`) on dedicated IPs for the gateway's own Garmin traffic — sign-in, MFA, token verify — instead of the shared host egress that Garmin's SSO rate-limits (ticket 12). Each account sticks to one proxy (by account hash); each egress has its own SSO breaker, and the direct path stays as the last resort. Workers and all other traffic stay direct. Events: `garmin-login-attempt` (`egress`, `outcome`), `login-breaker-open` (`egress`), `sso-probe` per egress (`via`). Logged as host:port only. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | no | — | Shown on the landing page. |
 | `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |

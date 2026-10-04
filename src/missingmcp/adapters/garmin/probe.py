@@ -1,7 +1,6 @@
 from __future__ import annotations
 import time
 from ...log import log
-from . import egress
 
 # The page garminconnect's login strategies hit first; its status from the
 # gateway's egress IP is the signal being graphed (reliability ticket 12).
@@ -26,8 +25,11 @@ class SsoProbe:
     `run()` is blocking and never raises — the lifespan loop calls it via
     asyncio.to_thread."""
 
-    def __init__(self, interval_s: int, fetch=None):
+    def __init__(self, interval_s: int, fetch=None, routes=None):
         self.enabled = interval_s > 0
+        # One probe per sign-in egress (egress.EgressPool.routes), so a
+        # blocked proxy IP is visible before users hit it; `via` labels each.
+        self._targets = [(r.label, r.proxy) for r in routes] if routes else [("direct", None)]
         self.interval = max(interval_s, _MIN_INTERVAL_S) if self.enabled else 0
         self._fetch = fetch or _fetch_sso_status
         self._next = 0.0                    # first due() fires immediately
@@ -38,26 +40,22 @@ class SsoProbe:
     def run(self) -> None:   # blocking: call via asyncio.to_thread
         t0 = time.monotonic()
         self._next = t0 + self.interval
-        try:
-            status = self._fetch()
-            log("sso-probe", status=status, ms=int((time.monotonic() - t0) * 1000),
-                via=_via())
-        except Exception as e:  # noqa: BLE001 - a diagnostic must never take the loop down
-            log("sso-probe", status=None, error=type(e).__name__,
-                ms=int((time.monotonic() - t0) * 1000), via=_via())
+        for label, proxy in self._targets:
+            t1 = time.monotonic()
+            try:
+                status = self._fetch(proxy)
+                log("sso-probe", status=status, ms=int((time.monotonic() - t1) * 1000),
+                    via=label)
+            except Exception as e:  # noqa: BLE001 - a diagnostic must never take the loop down
+                log("sso-probe", status=None, error=type(e).__name__,
+                    ms=int((time.monotonic() - t1) * 1000), via=label)
 
 
-def _via() -> str:
-    # The probe measures whichever egress real sign-ins use (GARMIN_SSO_PROXY
-    # or direct), so its timeline stays comparable to login-start-failed.
-    return "proxy" if egress.current() else "direct"
-
-
-def _fetch_sso_status() -> int:
+def _fetch_sso_status(proxy: str | None = None) -> int:
     # curl_cffi ships with garminconnect (already a gateway dependency). The
     # probe must present the same browser fingerprint the real sign-in does —
     # a plain client would measure generic bot blocking instead of ours.
     from curl_cffi import requests as cr
-    kwargs = {"proxy": egress.current()} if egress.current() else {}
+    kwargs = {"proxy": proxy} if proxy else {}
     r = cr.get(_SSO_PAGE, impersonate="chrome", timeout=_FETCH_TIMEOUT_S, **kwargs)
     return r.status_code

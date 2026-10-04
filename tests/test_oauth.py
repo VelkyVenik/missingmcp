@@ -21,8 +21,8 @@ def _fresh_sso_breaker():
     # legitimately opens its SSO breaker for every later attempt — exactly the
     # cross-request behavior production wants, and exactly the cross-TEST state
     # leak a suite must not have.
-    from missingmcp.adapters.garmin import SsoBreaker
-    ADAPTER.breaker = SsoBreaker()
+    from missingmcp.adapters.garmin import EgressPool
+    ADAPTER.pool = EgressPool(CONFIG.garmin_sso_proxy)
     yield
 
 
