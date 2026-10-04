@@ -1,45 +1,26 @@
-Subject: missingmcp: Garmin sign-ins should finally just work
+Subject: MissingMCP: Garmin sign-ins should finally just work
 
 Hi,
 
-TL;DR: I believe I've finally fixed the Garmin sign-in problems caused by
-Garmin's rate limiting.
+TL;DR: I believe I've finally fixed the Garmin sign-in problems caused by Garmin's rate limiting.
 
-I'm genuinely thrilled that in just three months, almost 2,000 of you use
-missingmcp every week. Let's see how many it takes for Garmin to ship a
-native MCP of their own :) Until then, missingmcp is here for you.
+I'm genuinely thrilled that in just three months, almost 2,000 of you use missingmcp every week. Let's see how many it takes for Garmin to ship a native MCP of their own :) Until then, missingmcp is here for you.
 
 Here's what's new.
 
 ⌚ GARMIN
-The biggest challenge has been load. This service started as something for
-me and a few friends, so we've been scaling it step by step as usage grows.
-Compute and memory are the easy part; Garmin's limits are the hard one.
-Garmin's sign-in was rate-limiting the shared cloud address the service runs
-on, so as of today, Garmin sign-ins go out through our own dedicated
-addresses, spread between them, with automatic fallback if one gets limited.
-I'm curious how far this takes us. I'm watching the logs closely and would
-love your feedback.
+The biggest challenge has been load. This service started as something for me and a few friends, so we've been scaling it step by step as usage grows. Compute and memory are the easy part; Garmin's limits are the hard one. Garmin's sign-in was rate-limiting the shared cloud address the service runs on, so as of today, Garmin sign-ins go out through our own dedicated addresses, spread between them, with automatic fallback if one gets limited. I'm curious how far this takes us. I'm watching the logs closely and would love your feedback.
 
-One tip: Garmin also limits repeated sign-ins of the same account. If you see
-"Garmin is temporarily rate-limiting new sign-ins" right after connecting,
-just wait a minute and try again.
+One tip: Garmin also limits repeated sign-ins of the same account. If you see "Garmin is temporarily rate-limiting new sign-ins" right after connecting, just wait a minute and try again.
 
 💪 WHOOP
-WHOOP's developer support has been incredibly responsive, and after two months
-they approved raising our user limit from 10 to 100. So if you've been
-waiting, there are plenty of free spots now.
+WHOOP's developer support has been incredibly responsive, and after two months they approved raising our user limit from 10 to 100. So if you've been waiting, there are plenty of free spots now.
 
 🚀 WHAT'S NEXT
-I'd like to expand the website with guides on adding missingmcp to other
-apps besides Claude. I use it a lot with the Grok bot these days. I also want
-to add examples of what you can actually do with each connector.
+I'd like to expand the website with guides on adding missingmcp to other apps besides Claude. I use it a lot with the Grok bot these days. I also want to add examples of what you can actually do with each connector.
 
 🍺 THANK YOU FOR THE BEERS
-Above all, a big thank you for the beers: 38 of you have already bought me
-one. Thanks to you, the running costs are covered, and that matters more and
-more, because the traffic is getting pretty substantial. Today the beers
-pay for:
+Above all, a big thank you for the beers: 38 of you have already bought me one. Thanks to you, the running costs are covered, and that matters more and more, because the traffic is getting pretty substantial. Today the beers pay for:
 - Railway: where the app runs
 - PostHog: analytics
 - Cloudflare: domain and email
@@ -50,9 +31,7 @@ None of this would be possible without these open-source projects:
 - garmin_mcp by Taxuspt: https://github.com/Taxuspt/garmin_mcp
 - python-garminconnect by cyberjunky: https://github.com/cyberjunky/python-garminconnect
 
-That's all for now. Got ideas for where to take the service next, or
-feedback on how it works for you? Just reply to this email, I read
-everything.
+That's all for now. Got ideas for where to take the service next, or feedback on how it works for you? Just reply to this email, I read everything.
 
 Take care,
 Václav
