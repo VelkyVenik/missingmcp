@@ -40,3 +40,11 @@ def test_probe_floors_a_mistyped_interval():
     assert SsoProbe(5, fetch=lambda proxy=None: 200).interval == 60
     assert SsoProbe(1800, fetch=lambda proxy=None: 200).interval == 1800
     assert SsoProbe(0).enabled is False and SsoProbe(0).interval == 0
+
+
+def test_probe_targets_the_embed_widget_not_the_portal():
+    # The portal sign-in page 403s from clean IPs where sign-in works, so it
+    # false-alarmed on every proxy; the embed widget is the strategy that gets
+    # through, and 429s when an egress is really blocked.
+    from missingmcp.adapters.garmin import probe
+    assert probe._SSO_PAGE == "https://sso.garmin.com/sso/embed"

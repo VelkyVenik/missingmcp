@@ -104,7 +104,8 @@ class GarminAdapter:
         # One route (and so one breaker) for the whole call: an abandoned
         # (timed-out) thread must trip the breaker of the egress its attempt
         # actually used, never whatever is preferred by the time it finishes.
-        route = self.pool.pick(normalize_account_key(email))
+        account = normalize_account_key(email)
+        route = self.pool.pick(account)
         if route is None:
             # Every egress is cooling down: fail fast with the same message and
             # reason as a live "blocked" failure, so the form copy and the
@@ -118,20 +119,21 @@ class GarminAdapter:
                 result = login.start_login(email, password)
         except login.GarminLoginError as e:
             reason = getattr(e, "reason", "unknown")
-            log("garmin-login-attempt", egress=route.label, outcome=reason)
+            log("garmin-login-attempt", account=account, egress=route.label, outcome=reason)
             if reason == "blocked":
                 # Only this egress cools down; the next attempt moves to the
                 # account's next route.
                 route.breaker.trip()
                 log("login-breaker-open", cooldown_s=int(route.breaker.cooldown),
-                    egress=route.label)
+                    egress=route.label, account=account)
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
-        log("garmin-login-attempt", egress=route.label, outcome=result.status)
+        log("garmin-login-attempt", account=account, egress=route.label,
+            outcome=result.status)
         if result.status == "needs_mfa":
             return SecondFactorNeeded(state=(result.pending, email, route.proxy))
-        return LoginOk(account_key=normalize_account_key(email), blob=result.tokens_json)
+        return LoginOk(account_key=account, blob=result.tokens_json)
 
     def resume_second_factor(self, state: object, form: Mapping[str, str]) -> LoginOk:
         # The MFA step must leave through the egress the sign-in started on

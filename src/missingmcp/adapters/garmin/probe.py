@@ -2,9 +2,12 @@ from __future__ import annotations
 import time
 from ...log import log
 
-# The page garminconnect's login strategies hit first; its status from the
-# gateway's egress IP is the signal being graphed (reliability ticket 12).
-_SSO_PAGE = "https://sso.garmin.com/portal/sso/en-US/sign-in"
+# The SSO embed widget — the page of the sign-in strategy that actually gets
+# through from a clean egress (widget+cffi). Its status per egress is the
+# signal being graphed (reliability ticket 12). Not the portal sign-in page:
+# Cloudflare answers that one 403 even from IPs where sign-in succeeds, so it
+# false-alarmed on every proxy (2026-10-04; the probe used it until then).
+_SSO_PAGE = "https://sso.garmin.com/sso/embed"
 _MIN_INTERVAL_S = 60           # floor a mistyped env var — never hammer Garmin
 _FETCH_TIMEOUT_S = 15
 
