@@ -77,7 +77,8 @@ def build_app(config: Config) -> Starlette:
     # Garmin SSO reachability probe (ticket 12) — diagnostic, env-gated, and
     # meaningless without the garmin adapter, so it stays off when garmin isn't
     # registered regardless of the env var.
-    sso_probe = SsoProbe(config.sso_probe_interval if "garmin" in adapters else 0)
+    sso_probe = (SsoProbe(config.sso_probe_interval, routes=adapters["garmin"].pool.routes)
+                 if "garmin" in adapters else SsoProbe(0))
     meter = usage.UsageMeter(conn)
 
     # {USAGE_METER_<ADAPTER>} placeholders survive the startup render and are

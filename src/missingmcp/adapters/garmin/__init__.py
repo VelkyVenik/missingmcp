@@ -1,13 +1,12 @@
 from __future__ import annotations
 import json
 import os
-import threading
-import time
 from typing import Mapping
 from ...log import log
 from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
                     normalize_account_key)
-from . import login
+from . import egress, login
+from .egress import EgressPool, SsoBreaker  # noqa: F401 - SsoBreaker re-exported
 
 
 # The worker's two possible sign-in verdicts, printed exactly once per worker
@@ -72,42 +71,6 @@ class GarminWorkerForward:
         return content
 
 
-# When Garmin's Cloudflare rate-limits our egress IP (reliability ticket 12),
-# every sign-in attempt burns ~30s cycling login strategies before failing
-# "blocked" — and those very attempts keep the rate limiter hot. Once one
-# attempt reports blocked, fail new sign-ins fast for a cooldown instead: the
-# user gets the honest "wait a few minutes" answer immediately, and our SSO
-# footprint drops to zero so the block can decay.
-_SSO_BREAKER_COOLDOWN_S = 300.0
-
-
-class SsoBreaker:
-    """Process-local circuit breaker for the Garmin SSO portal sign-in.
-
-    Time-based and deliberately tiny: `trip()` opens it for `cooldown` seconds,
-    `remaining()` says how long it stays open; expiry alone closes it (the next
-    attempt after the cooldown is the half-open probe). Thread-safe because
-    `start_login` runs on `asyncio.to_thread` workers — including *abandoned*
-    ones whose authorize POST already timed out: when such a thread finally
-    fails "blocked", its trip() is fresh evidence the portal is still blocking,
-    arriving exactly when the next request needs it. Process-local state is
-    fine here for the same reason it is for `RateLimiter` (single-node)."""
-
-    def __init__(self, cooldown: float = _SSO_BREAKER_COOLDOWN_S, clock=time.monotonic):
-        self.cooldown = cooldown
-        self._clock = clock
-        self._lock = threading.Lock()
-        self._open_until = 0.0
-
-    def trip(self) -> None:
-        with self._lock:
-            self._open_until = self._clock() + self.cooldown
-
-    def remaining(self) -> float:
-        with self._lock:
-            return max(0.0, self._open_until - self._clock())
-
-
 def _login_error_message(reason: str) -> str:
     if reason == "blocked":
         # Garmin (via Cloudflare) rate-limits fresh logins on the mobile SSO
@@ -129,50 +92,66 @@ class GarminAdapter:
 
     def __init__(self, config):
         self.forward = GarminWorkerForward(config)
-        self.breaker = SsoBreaker()
+        self.pool = EgressPool(config.garmin_sso_proxy)
+        if self.pool.proxied:
+            log("garmin-sso-proxy", egress=",".join(r.label for r in self.pool.routes))
 
     def login_hint(self, form: Mapping[str, str]) -> str:
         return form.get("garmin_email", "")
 
     def start_login(self, form: Mapping[str, str]) -> LoginOk | SecondFactorNeeded:
-        # One breaker reference for the whole call: an abandoned (timed-out)
-        # thread must trip the breaker that was active when its attempt began,
-        # never a replacement installed later (tests swap breakers per test).
-        breaker = self.breaker
-        remaining = breaker.remaining()
-        if remaining > 0:
-            # Fail fast while the SSO portal is rate-limiting us: same message
-            # and reason as a live "blocked" failure, so the form copy and the
+        email = form.get("garmin_email", "")
+        # One route (and so one breaker) for the whole call: an abandoned
+        # (timed-out) thread must trip the breaker of the egress its attempt
+        # actually used, never whatever is preferred by the time it finishes.
+        route = self.pool.pick(normalize_account_key(email))
+        if route is None:
+            # Every egress is cooling down: fail fast with the same message and
+            # reason as a live "blocked" failure, so the form copy and the
             # triage classification stay identical — minus the 30s of doomed
             # strategies each attempt would otherwise fire at the limiter.
-            log("login-breaker-reject", remaining_s=int(remaining))
+            log("login-breaker-reject", remaining_s=int(self.pool.min_remaining()))
             raise LoginError(_login_error_message("blocked"), reason="blocked")
-        email = form.get("garmin_email", "")
         password = form.get("garmin_password", "")
         try:
-            result = login.start_login(email, password)
+            with egress.via(route.proxy):
+                result = login.start_login(email, password)
         except login.GarminLoginError as e:
             reason = getattr(e, "reason", "unknown")
+            log("garmin-login-attempt", egress=route.label, outcome=reason)
             if reason == "blocked":
-                breaker.trip()
-                log("login-breaker-open", cooldown_s=int(breaker.cooldown))
+                # Only this egress cools down; the next attempt moves to the
+                # account's next route.
+                route.breaker.trip()
+                log("login-breaker-open", cooldown_s=int(route.breaker.cooldown),
+                    egress=route.label)
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
+        log("garmin-login-attempt", egress=route.label, outcome=result.status)
         if result.status == "needs_mfa":
-            return SecondFactorNeeded(state=(result.pending, email))
+            return SecondFactorNeeded(state=(result.pending, email, route.proxy))
         return LoginOk(account_key=normalize_account_key(email), blob=result.tokens_json)
 
     def resume_second_factor(self, state: object, form: Mapping[str, str]) -> LoginOk:
-        pending, email = state
+        # The MFA step must leave through the egress the sign-in started on
+        # (same Garmin session); it bypasses the breakers deliberately — a
+        # pending session already passed the portal.
+        pending, email, *rest = state
+        proxy = rest[0] if rest else None
         try:
-            tokens = login.resume_login(pending, form.get("mfa_code", ""))
+            with egress.via(proxy):
+                tokens = login.resume_login(pending, form.get("mfa_code", ""))
         except Exception as e:  # noqa: BLE001 - wrong/expired code: caller re-prompts
             raise SecondFactorError("Incorrect or expired code, try again", state=state) from e
         return LoginOk(account_key=normalize_account_key(email), blob=tokens)
 
     def verify(self, blob: str) -> str:
+        # Token verify talks to Garmin's API/token hosts, not the SSO portal,
+        # but rides the same egress preference as sign-in for consistency.
+        route = self.pool.pick("") or self.pool.routes[0]
         try:
-            return login.verify_tokens(blob)
+            with egress.via(route.proxy):
+                return login.verify_tokens(blob)
         except login.GarminLoginError as e:
             raise LoginError("Garmin sign-in could not be verified") from e
