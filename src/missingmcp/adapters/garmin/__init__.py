@@ -101,17 +101,25 @@ class GarminAdapter:
 
     def start_login(self, form: Mapping[str, str]) -> LoginOk | SecondFactorNeeded:
         email = form.get("garmin_email", "")
+        account = normalize_account_key(email)
+        remaining = self.pool.account_remaining(account)
+        if remaining > 0:
+            # Garmin is limiting this very account (any IP would do the same):
+            # answer fast instead of spending ~30s of strategies on it.
+            log("login-breaker-reject", remaining_s=int(remaining), scope="account",
+                account=account)
+            raise LoginError(_login_error_message("blocked"), reason="blocked")
         # One route (and so one breaker) for the whole call: an abandoned
         # (timed-out) thread must trip the breaker of the egress its attempt
         # actually used, never whatever is preferred by the time it finishes.
-        account = normalize_account_key(email)
         route = self.pool.pick(account)
         if route is None:
             # Every egress is cooling down: fail fast with the same message and
             # reason as a live "blocked" failure, so the form copy and the
             # triage classification stay identical — minus the 30s of doomed
             # strategies each attempt would otherwise fire at the limiter.
-            log("login-breaker-reject", remaining_s=int(self.pool.min_remaining()))
+            log("login-breaker-reject", remaining_s=int(self.pool.min_remaining()),
+                scope="egress", account=account)
             raise LoginError(_login_error_message("blocked"), reason="blocked")
         password = form.get("garmin_password", "")
         try:
@@ -121,10 +129,13 @@ class GarminAdapter:
             reason = getattr(e, "reason", "unknown")
             log("garmin-login-attempt", account=account, egress=route.label, outcome=reason)
             if reason == "blocked":
-                # Only this egress cools down; the next attempt moves to the
-                # account's next route.
-                route.breaker.trip()
-                log("login-breaker-open", cooldown_s=int(route.breaker.cooldown),
+                # The account always cools down; the egress only once several
+                # accounts are blocked on it (an IP-level limit) — then its
+                # accounts move to their next route.
+                scope = self.pool.record_blocked(route, account)
+                cooldown = (route.breaker.cooldown if scope == "egress"
+                            else egress.ACCOUNT_COOLDOWN_S)
+                log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
                     egress=route.label, account=account)
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
