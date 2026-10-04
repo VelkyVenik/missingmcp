@@ -162,6 +162,12 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `POSTHOG_HOST` | no | `https://eu.i.posthog.com` | Server-side ingestion host (SDK events + OTLP log tee). |
 | `POSTHOG_WEB_HOST` | no | `$POSTHOG_HOST` | posthog-js `api_host` — set it to the managed reverse proxy (e.g. `https://j.missingmcp.com`) for ad-blocker resilience. |
 | `POSTHOG_UI_HOST` | no | `https://eu.posthog.com` | PostHog app host; posthog-js needs it when `POSTHOG_WEB_HOST` is a proxy. |
+| `MAIL_API_TOKEN` | no | — | Cloudflare API token for mail campaigns — scope it to **Account → Email Sending → Edit** only. Campaigns are disabled unless this, `MAIL_ACCOUNT_ID` and `MAIL_FROM` are set. |
+| `MAIL_ACCOUNT_ID` | no | — | Cloudflare account id the sending domain lives in. |
+| `MAIL_FROM` | no | — | Sender address on an onboarded Cloudflare Email Sending (sub)domain, e.g. `you@news.example.com`. |
+| `MAIL_FROM_NAME` | no | — | Sender display name. |
+| `MAIL_REPLY_TO` | no | — | Where replies go; also the `mailto:` target of the `List-Unsubscribe` header. |
+| `MAIL_DAILY_CAP` | no | `180` | Max campaign mails per UTC day. Keep it under the Cloudflare account's daily quota (200 on a new account, shared by every sending domain). |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
 
@@ -242,6 +248,37 @@ The gateway also posts this daily user-stats report to Slack on its own each
 morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
 `SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
 demand for testing.
+
+**Mail campaigns** — one-off announcements to users and newsletter
+subscribers, sent through Cloudflare Email Sending (`MAIL_*` env above). The
+operator creates and starts a campaign; the gateway drains it on its own, a
+batch per minute, at most `MAIL_DAILY_CAP` a day, most active users first —
+a large list simply spreads over several days.
+
+```bash
+# text lives in the repo: campaigns/<slug>.txt ("Subject: ..." line, blank line, body)
+python scripts/campaign.py create <slug>                  # snapshot text + enqueue everyone not unsubscribed
+python scripts/campaign.py create <slug> --audience users # or: subscribers
+python scripts/campaign.py test <slug> --to <you>         # one real send, not recorded
+python scripts/campaign.py start <slug>                   # the gateway starts sending
+python scripts/campaign.py pause <slug>
+python scripts/campaign.py status [<slug>]                # counts + sent today + ETA (no addresses)
+python scripts/campaign.py status <slug> --unknown        # + addresses whose send is unknown
+python scripts/campaign.py requeue-unknown <slug>         # decided to send those again
+python scripts/campaign.py unsubscribe <email>            # manual opt-out (e.g. from a reply)
+```
+
+Every recipient is a row in a send ledger, so nobody gets a campaign twice: a
+send is recorded as `sending` *before* the API call, and a crash or an
+ambiguous API failure (timeout, 5xx) parks it as `unknown` for the operator
+instead of retrying blindly. API rejections retry up to 3 times with a 15-min
+backoff. Each mail carries an unsubscribe link plus RFC 8058 one-click
+`List-Unsubscribe` headers (`/unsubscribe` — GET only confirms, POST
+unsubscribes); an opt-out is global and drops the address from every campaign.
+A campaign auto-pauses if hard bounces exceed 5% (judged after 50 sends).
+Progress is reported **only** as log events — `campaign-batch`,
+`campaign-daily-cap`, `campaign-auto-paused`, `campaign-done`,
+`campaign-send-unknown`, `campaign-run-failed` — never by mail.
 
 **Daily triage** — a GitHub Actions workflow
 (`.github/workflows/daily-triage.yml`) runs `scripts/daily_triage.py` every

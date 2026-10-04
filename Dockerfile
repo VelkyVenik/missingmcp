@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git tini && rm 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY scripts ./scripts
+# mail campaign texts — scripts/campaign.py create reads them inside the container
+COPY campaigns ./campaigns
 # mcp<2: garmin_mcp is written against the mcp 1.x API (mcp.server.fastmcp) and
 # doesn't bound its own dependency — mcp 2.0.0 (2026-07-28) removed that module,
 # and the first image rebuild after the release crashed every worker spawn with

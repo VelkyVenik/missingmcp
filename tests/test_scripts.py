@@ -211,3 +211,40 @@ def test_subscribers_multiline_description_is_flattened(tmp_path, capsys, monkey
     out = run_script("subscribers", ["--db", path], capsys, monkeypatch)
     assert "line one line two with tab" in out       # normalized to single spaces
     assert "oneline" not in out                       # words not glued together
+
+
+# --- campaign.py -----------------------------------------------------------
+
+def test_campaign_create_start_status(seeded_db, tmp_path, capsys, monkeypatch):
+    d = tmp_path / "campaigns"
+    d.mkdir()
+    (d / "hello.txt").write_text("Subject: Big news\n\nHi there,\nit works now.\n")
+    out = run_script("campaign", ["--db", seeded_db, "create", "hello", "--dir", str(d)],
+                     capsys, monkeypatch)
+    # alice (one person on two adapters) + sub@ + wanter@ — nomail@ never opted in
+    assert "3 recipients" in out
+    conn = sqlite3.connect(seeded_db)
+    assert conn.execute("SELECT subject, body, status FROM campaigns").fetchone() == (
+        "Big news", "Hi there,\nit works now.", "draft")
+    assert conn.execute("SELECT email FROM campaign_sends ORDER BY rank").fetchall()[0] == (
+        "alice@example.com",)                       # the only active user goes first
+    conn.close()
+
+    run_script("campaign", ["--db", seeded_db, "start", "hello"], capsys, monkeypatch)
+    out = run_script("campaign", ["--db", seeded_db, "status"], capsys, monkeypatch)
+    assert "hello [active, all] pending 3" in out
+    assert "@" not in out.split("\n", 1)[1]         # status never prints addresses
+
+    run_script("campaign", ["--db", seeded_db, "unsubscribe", "Sub@Example.com"],
+               capsys, monkeypatch)
+    out = run_script("campaign", ["--db", seeded_db, "status", "hello"], capsys, monkeypatch)
+    assert "pending 2 · unsubscribed 1" in out
+
+
+def test_campaign_create_rejects_missing_subject(seeded_db, tmp_path, capsys, monkeypatch):
+    d = tmp_path / "campaigns"
+    d.mkdir()
+    (d / "bad.txt").write_text("No subject here\n\nbody\n")
+    with pytest.raises(SystemExit):
+        run_script("campaign", ["--db", seeded_db, "create", "bad", "--dir", str(d)],
+                   capsys, monkeypatch)
