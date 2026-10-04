@@ -49,7 +49,7 @@ def unsubscribe_url(public_url: str, token: str) -> str:
 def render_text(body: str, unsub_url: str) -> str:
     """Campaign body + the unsubscribe footer (plain text)."""
     return (f"{body.rstrip()}\n\n--\n"
-            "You're getting this because you use MissingMCP (missingmcp.com).\n"
+            "You're getting this because you signed up at MissingMCP (missingmcp.com).\n"
             f"Unsubscribe: {unsub_url}\n")
 
 
