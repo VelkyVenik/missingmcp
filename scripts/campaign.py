@@ -28,7 +28,7 @@ import argparse
 import math
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from missingmcp import config, mailer, security, store  # noqa: E402
@@ -109,7 +109,7 @@ def cmd_pause(conn, args):
 
 
 def cmd_status(conn, args):
-    since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    since = mailer._utc_str(datetime.now(timezone.utc).timestamp() - mailer.QUOTA_WINDOW)
     print(f"sent in last 24h (all campaigns): {store.sent_since(conn, since)} / {_cap()}")
     camps = [_campaign(conn, args.slug)] if args.slug else store.list_campaigns(conn)
     for c in camps:

@@ -315,6 +315,8 @@ def test_crash_mid_send_becomes_unknown(tmp_path, api, capsys):
     m.run()
     assert store.unknown_sends(conn, cid) == ["u0@x.com"]
     assert len(api.calls) == 1
+    # a crash-interrupted send may have reached the provider: it counts toward the quota
+    assert store.sent_since(conn, "2000-01-01 00:00:00") == 1
     names = [e["event"] for e in _events(capsys)]
     assert "campaign-run-failed" in names and "campaign-send-unknown" in names
 
@@ -341,3 +343,27 @@ def test_no_active_campaign_is_a_no_op(tmp_path, api):
     _campaign(conn, status="draft")
     mailer.Mailer(_cfg(tmp_path), clock=lambda: NOW).run()
     assert api.calls == []
+
+
+def test_zero_cap_is_a_quiet_kill_switch(tmp_path, api, capsys):
+    conn = _db(tmp_path, people=2)
+    _campaign(conn)
+    m = mailer.Mailer(_cfg(tmp_path, MAIL_DAILY_CAP="0"), clock=lambda: NOW)
+    m.run()
+    assert api.calls == [] and m._next_at == NOW + 3600     # hourly, not every tick
+
+
+def test_cap_event_logged_again_for_a_different_campaign(tmp_path, api, capsys):
+    conn = _db(tmp_path, people=4)
+    a = _campaign(conn, "a")
+    t = [NOW]
+    m = mailer.Mailer(_cfg(tmp_path, MAIL_DAILY_CAP="2"), clock=lambda: t[0])
+    m.run()
+    m.run()                                                 # a: capped → event
+    store.set_campaign_status(conn, a, "paused")
+    store.create_campaign(conn, "b", "Hi", "Body", "all", ["u0@x.com"])
+    store.set_campaign_status(conn, store.get_campaign(conn, "b")["id"], "active")
+    t[0] += 3600
+    m.run()                                                 # b: capped → its own event
+    caps = [e["campaign"] for e in _events(capsys) if e["event"] == "campaign-daily-cap"]
+    assert caps == ["a", "b"]

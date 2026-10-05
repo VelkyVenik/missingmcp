@@ -717,9 +717,12 @@ def mark_send(conn, campaign_id: int, email: str, status: str, *,
 
 def mark_stale_sending(conn) -> int:
     """A `sending` row outside a running send is a crash mid-API-call: the mail
-    may or may not have gone out. Park it as `unknown` (operator decides)."""
+    may or may not have gone out. Park it as `unknown` (operator decides), and
+    count it toward the quota like any maybe-sent: sent_at = when it was marked
+    `sending` (its updated_at), unless already stamped."""
     cur = conn.execute("UPDATE campaign_sends SET status='unknown', "
-                       "last_error='interrupted mid-send', updated_at=datetime('now') "
+                       "last_error='interrupted mid-send', "
+                       "sent_at=COALESCE(sent_at, updated_at), updated_at=datetime('now') "
                        "WHERE status='sending'")
     conn.commit()
     return cur.rowcount

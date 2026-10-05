@@ -33,7 +33,7 @@ from .log import log, log_exc, log_warn
 
 BATCH = 10                  # mails per lifespan tick (~60s) — gentle pacing
 QUOTA_WINDOW = 24 * 3600    # provider quota is a rolling 24h window
-RUN_BUDGET = 30.0          # wall-clock seconds per run — never stall the lifespan loop
+RUN_BUDGET = 30.0           # wall-clock seconds per run — never stall the lifespan loop
 MAX_ATTEMPTS = 3            # recipient-specific rejections before it is marked failed
 ERROR_BACKOFF = 15 * 60     # seconds to pause after an account-wide error or a maybe-sent
 BOUNCE_MIN_ATTEMPTS = 50    # auto-pause guard: only judge after this many sends...
@@ -155,7 +155,7 @@ class Mailer:
         self._clock = clock
         self._monotonic = monotonic
         self._next_at = 0.0
-        self._cap_logged_at = None
+        self._cap_logged = None    # (campaign slug, when) of the last cap event
 
     @property
     def enabled(self) -> bool:
@@ -192,14 +192,17 @@ class Mailer:
         sent_24h = store.sent_since(conn, window)
         room = self._cfg.mail_daily_cap - sent_24h
         if room <= 0:
-            # one event per capped stretch, not one per trickle refill
-            if self._cap_logged_at is None or now - self._cap_logged_at > QUOTA_WINDOW / 2:
-                self._cap_logged_at = now
+            # one event per campaign per capped stretch — not one per trickle
+            # refill as the window slides (that would be ~one a minute)
+            last = self._cap_logged
+            if last is None or last[0] != slug or now - last[1] > QUOTA_WINDOW / 2:
+                self._cap_logged = (slug, now)
                 log("campaign-daily-cap", campaign=slug, cap=self._cfg.mail_daily_cap,
                     sent_24h=sent_24h, pending=store.campaign_counts(conn, cid)["pending"])
             oldest = store.oldest_sent_since(conn, window)
-            # wake when the oldest send ages out of the window
-            self._next_at = (_parse_utc(oldest) + QUOTA_WINDOW + 60) if oldest else now + 60
+            # wake when the oldest send ages out of the window; with nothing in
+            # the window the cap itself is <= 0 (a kill switch) — check hourly
+            self._next_at = (_parse_utc(oldest) + QUOTA_WINDOW + 60) if oldest else now + 3600
             return
 
         tally = {"sent": 0, "bounced": 0, "suppressed": 0, "unknown": 0,
