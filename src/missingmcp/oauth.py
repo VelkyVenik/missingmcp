@@ -168,6 +168,13 @@ def render_authorize(params: dict, csrf_token: str, config, adapter, error: str 
     return HTMLResponse(body)
 
 
+def _signin_url(adapter, params: dict) -> str:
+    """The credential form again, same OAuth request — the way out of the MFA
+    page for someone whose code never comes (Garmin shows that page even after
+    a wrong password, and only sends a code after a correct one)."""
+    return f"/{adapter.name}/oauth/authorize?" + urlencode(params)
+
+
 def _oauth_params_from(source) -> dict:
     return {
         "client_id": source.get("client_id", ""),
@@ -322,6 +329,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
             body = _fill(_second_factor_page(adapter, config),
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                           "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                          "SIGNIN_URL": _signin_url(adapter, params),
                           **_operator_fields(config)},
                          str(e))
             return HTMLResponse(body, status_code=400)
@@ -382,6 +390,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         body = _fill(_second_factor_page(adapter, config),
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                       "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
+                      "SIGNIN_URL": _signin_url(adapter, params),
                       **_operator_fields(config)}, "")
         return HTMLResponse(body)
     try:

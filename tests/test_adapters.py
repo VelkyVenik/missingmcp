@@ -176,7 +176,7 @@ def test_resume_failure_is_retryable_with_same_state():
         with pytest.raises(base.SecondFactorError) as ei:
             _adapter().resume_second_factor(state, {"mfa_code": "000000"})
     assert ei.value.state is state
-    assert "Incorrect or expired code" in str(ei.value)
+    assert "code didn't work" in str(ei.value) and "password" in str(ei.value)
 
 
 def test_verify_ok_and_failure():

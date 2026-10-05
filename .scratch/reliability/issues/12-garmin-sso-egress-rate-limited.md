@@ -45,17 +45,22 @@ Why that IP, as far as the data shows: before 05:00 it carried 2× the
 attempts of :3128 (52 vs 26) and ~5× the repeats (23 vs 5) — users retrying
 about once a minute after a 60 s account cooldown, each retry a full round of
 SSO requests (2× mobile 429, widget, portal) plus an in-call second round.
-Across 184 attempts there were **0 `auth` outcomes**, so wrong passwords are
-almost certainly being classified `blocked` (or `needs_mfa`: a nonexistent
-account reached `needs_mfa` in a manual test) — those users retry the most.
-Many distinct accounts + failures from one datacenter IP is a
+Across 184 attempts there were **0 `auth` outcomes**. Tested 2026-10-05
+with the operator's own MFA account and a deliberately wrong password (via
+:3131): the result was `needs_mfa` and **no code was sent**; a nonexistent
+account also reaches `needs_mfa`. So Garmin shows its code page whatever the
+password, and sends a code only after a correct one. Wrong credentials surface
+as `needs_mfa` → `mfa-resume-failed`, **not** as `blocked`; `blocked` is a real
+429/403. The MFA page now says so and links back to sign-in. Many distinct
+accounts from one datacenter IP, plus repeats, still look like a
 credential-stuffing signature.
 
 Actions: :3129 removed from `GARMIN_SSO_PROXY` (2026-10-05); replace the
 floating IP before re-adding it. Code (PR #39): skip mobile strategies when
 proxied, no in-call retry on `blocked`, account cooldown 60 s → 5 min, egress
 cooldown 5 → 30 min, `message` on routing events; direct kept as last resort.
-Open: verify the wrong-password classification (needs a real account test);
+Done: wrong-password behaviour verified (see above; MFA-page hint shipped).
+Open:
 probe that exercises the credential POST; log labels by egress IP.
 
 ## Resolution (2026-09-28, decision by Václav)
