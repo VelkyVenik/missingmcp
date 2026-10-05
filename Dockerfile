@@ -9,7 +9,7 @@ WORKDIR /app
 # network destinations; NOTE the worker now logs in on a background thread and
 # answers /healthz before the sign-in resolves, which is why WorkerManager gates
 # spawns on the sign-in log lines (forward.login_outcome).
-ARG GARMIN_MCP_REF=e8554bcd761a4494dc12a98461224bb3dcf1fbc5
+ARG GARMIN_MCP_REF=cfc5d799ab0f165e837f1188a1d093c65838aaf7
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
 # git: uv installs the pinned garmin_mcp worker from a git ref.
