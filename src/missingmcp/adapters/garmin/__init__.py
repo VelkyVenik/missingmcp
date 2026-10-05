@@ -141,8 +141,10 @@ class GarminAdapter:
                 result = login.start_login(email, password, skip_strategies=skip)
         except login.GarminLoginError as e:
             reason = getattr(e, "reason", "unknown")
+            self.pool.note(route, reason)
             log("garmin-login-attempt", account=account, egress=route.label,
-                outcome=reason, message=_attempt_message(route.label, reason))
+                egress_ip=route.egress_ip, outcome=reason,
+                message=_attempt_message(route.label, reason))
             if reason == "blocked":
                 # The account always cools down; the egress only once several
                 # accounts are blocked on it (an IP-level limit) — then its
@@ -158,8 +160,9 @@ class GarminAdapter:
         finally:
             del password  # never retained beyond the login call
         self.pool.record_ok(route)
+        self.pool.note(route, result.status)
         log("garmin-login-attempt", account=account, egress=route.label,
-            outcome=result.status,
+            egress_ip=route.egress_ip, outcome=result.status,
             message=_attempt_message(route.label, result.status))
         if result.status == "needs_mfa":
             return SecondFactorNeeded(state=(result.pending, email, route.proxy))

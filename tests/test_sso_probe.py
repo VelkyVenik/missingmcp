@@ -15,7 +15,7 @@ def test_probe_is_off_by_default():
 
 
 def test_probe_logs_status_and_reschedules(capsys):
-    p = SsoProbe(600, fetch=lambda proxy=None: 429)
+    p = SsoProbe(600, fetch=lambda proxy=None: 429, trace=lambda proxy=None: None)
     assert p.due()                      # first probe fires immediately
     p.run()
     row = [r for r in _rows(capsys) if r.get("event") == "sso-probe"][0]
@@ -29,7 +29,7 @@ def test_probe_never_raises_and_logs_the_error(capsys):
     # timeout) must become a data point, never an exception in the loop.
     def boom(proxy=None):
         raise RuntimeError("tls exploded")
-    p = SsoProbe(600, fetch=boom)
+    p = SsoProbe(600, fetch=boom, trace=lambda proxy=None: None)
     p.run()
     row = [r for r in _rows(capsys) if r.get("event") == "sso-probe"][0]
     assert row["status"] is None and row["error"] == "RuntimeError"
@@ -37,8 +37,8 @@ def test_probe_never_raises_and_logs_the_error(capsys):
 
 def test_probe_floors_a_mistyped_interval():
     # SSO_PROBE_INTERVAL=5 must not turn into hammering Garmin every 5 s.
-    assert SsoProbe(5, fetch=lambda proxy=None: 200).interval == 60
-    assert SsoProbe(1800, fetch=lambda proxy=None: 200).interval == 1800
+    assert SsoProbe(5, fetch=lambda proxy=None: 200, trace=lambda proxy=None: None).interval == 60
+    assert SsoProbe(1800, fetch=lambda proxy=None: 200, trace=lambda proxy=None: None).interval == 1800
     assert SsoProbe(0).enabled is False and SsoProbe(0).interval == 0
 
 
