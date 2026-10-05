@@ -128,7 +128,7 @@
     <div class="wrap">
       <h2 class="sec-h">All tools</h2>
 <!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_garmin_tools.py -->
-      <p class="lede">All <strong>148 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/e8554bcd761a4494dc12a98461224bb3dcf1fbc5"><code>e8554bc</code></a>). Click a group to expand.</p>
+      <p class="lede">All <strong>153 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/cfc5d799ab0f165e837f1188a1d093c65838aaf7"><code>cfc5d79</code></a>). Click a group to expand.</p>
       <div class="tools">
         <details>
           <summary>Activities <span class="count">&middot; 21 tools</span></summary>
@@ -157,9 +157,11 @@
           </dl>
         </details>
         <details>
-          <summary>Health &amp; wellness <span class="count">&middot; 30 tools</span></summary>
+          <summary>Health &amp; wellness <span class="count">&middot; 33 tools</span></summary>
           <dl>
             <dt><code>get_stats</code></dt><dd>Get daily activity stats with curated essential metrics</dd>
+            <dt><code>get_stats_range</code></dt><dd>Get lightweight per-day calorie and step totals for a date range.</dd>
+            <dt><code>get_energy_balance</code></dt><dd>Estimate a composition-derived TDEE from logged intake, Garmin&#x27;s claimed expenditure, and body-composition change over a date range.</dd>
             <dt><code>get_user_summary</code></dt><dd>Get user summary data (compatible with garminconnect-ha)</dd>
             <dt><code>get_body_composition</code></dt><dd>Get body composition data for a single date or date range</dd>
             <dt><code>get_stats_and_body</code></dt><dd>Get stats and body composition data</dd>
@@ -189,6 +191,7 @@
             <dt><code>get_weekly_stress</code></dt><dd>Get weekly stress data aggregates</dd>
             <dt><code>get_weekly_intensity_minutes</code></dt><dd>Get weekly intensity minutes data aggregates</dd>
             <dt><code>get_morning_training_readiness</code></dt><dd>Get morning training readiness score</dd>
+            <dt><code>get_recovery_time_remaining</code></dt><dd>Get remaining recovery time in hours for a day.</dd>
           </dl>
         </details>
         <details>
@@ -234,7 +237,7 @@
         <details>
           <summary>Challenges &amp; badges <span class="count">&middot; 9 tools</span></summary>
           <dl>
-            <dt><code>get_goals</code></dt><dd>Get Garmin Connect goals (active, future, or past)</dd>
+            <dt><code>get_goals</code></dt><dd>Get Garmin Connect goals (active, future, or past).</dd>
             <dt><code>get_personal_record</code></dt><dd>Get personal records for user</dd>
             <dt><code>get_earned_badges</code></dt><dd>Get earned badges for user</dd>
             <dt><code>get_adhoc_challenges</code></dt><dd>Get user-created social/group challenges (e.g., step competitions with friends)</dd>
@@ -251,7 +254,7 @@
             <dt><code>get_progress_summary_between_dates</code></dt><dd>Get progress summary for a metric between dates</dd>
             <dt><code>get_hill_score</code></dt><dd>Get hill score data between dates</dd>
             <dt><code>get_endurance_score</code></dt><dd>Get endurance score data between dates</dd>
-            <dt><code>get_training_effect</code></dt><dd>Get training effect data for a specific activity</dd>
+            <dt><code>get_training_effect</code></dt><dd>Get training effect data for a specific activity.</dd>
             <dt><code>get_hrv_data</code></dt><dd>Get Heart Rate Variability (HRV) data</dd>
             <dt><code>get_fitnessage_data</code></dt><dd>Get fitness age data</dd>
             <dt><code>get_training_status</code></dt><dd>Get training status with curated metrics</dd>
@@ -304,9 +307,10 @@
           </dl>
         </details>
         <details>
-          <summary>Nutrition <span class="count">&middot; 14 tools</span></summary>
+          <summary>Nutrition <span class="count">&middot; 15 tools</span></summary>
           <dl>
             <dt><code>get_nutrition_daily_food_log</code></dt><dd>Get daily food consumption records for a date</dd>
+            <dt><code>get_nutrition_summary_between_dates</code></dt><dd>Get per-day nutrition totals for every day in a date range.</dd>
             <dt><code>get_nutrition_daily_meals</code></dt><dd>Get daily meal summaries for a date</dd>
             <dt><code>get_nutrition_daily_settings</code></dt><dd>Get nutrition plan/settings for a date</dd>
             <dt><code>set_nutrition_daily_settings</code></dt><dd>Update daily nutrition goals (calorie target and macronutrient targets).</dd>
@@ -323,10 +327,11 @@
           </dl>
         </details>
         <details>
-          <summary>Workout builders <span class="count">&middot; 5 tools</span></summary>
+          <summary>Workout builders <span class="count">&middot; 6 tools</span></summary>
           <dl>
             <dt><code>create_walk_run_workout</code></dt><dd>Create a walk/run interval workout and upload it to Garmin Connect.</dd>
             <dt><code>create_run_workout</code></dt><dd>Create a continuous run workout and upload it to Garmin Connect.</dd>
+            <dt><code>create_run_interval_workout</code></dt><dd>Create a repeat-based interval run workout and upload it to Garmin Connect.</dd>
             <dt><code>create_z2_walk_workout</code></dt><dd>Create a steady Z2 walking workout and upload it to Garmin Connect.</dd>
             <dt><code>create_strength_workout</code></dt><dd>Create a strength workout and upload it to Garmin Connect.</dd>
             <dt><code>schedule_week</code></dt><dd>Schedule a list of workouts for the week in a single call.</dd>
