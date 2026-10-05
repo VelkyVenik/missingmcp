@@ -1,4 +1,5 @@
 from __future__ import annotations
+import collections
 import contextlib
 import hashlib
 import threading
@@ -95,6 +96,11 @@ class Route:
     label: str             # log-safe: "direct" or host:port
     proxy: str | None      # None = the host's own egress
     breaker: SsoBreaker
+    # The address Garmin actually sees, learned by the probe (cdn-cgi/trace).
+    # The label shows the *proxy* host — every port on the box shares it,
+    # while each port leaves through its own IP (ticket 12: that mix-up made
+    # a burned floating IP look like the primary one).
+    egress_ip: str | None = None
 
 
 class EgressPool:
@@ -110,6 +116,9 @@ class EgressPool:
         self._account_until: dict[str, float] = {}
         # per egress label: account -> when it was last blocked there
         self._blocked: dict[str, dict[str, float]] = {r.label: {} for r in self.routes}
+        # per egress label: sign-in outcomes since the last take_stats()
+        self._stats: dict[str, collections.Counter] = {
+            r.label: collections.Counter() for r in self.routes}
 
     def order(self, account_key: str) -> list[Route]:
         """Every route in this account's preference order: its sticky proxy
@@ -132,6 +141,18 @@ class EgressPool:
     def account_remaining(self, account_key: str) -> float:
         with self._lock:
             return max(0.0, self._account_until.get(account_key, 0.0) - self._clock())
+
+    def note(self, route: Route, outcome: str) -> None:
+        """Count one sign-in outcome on this egress (for egress-health)."""
+        with self._lock:
+            self._stats[route.label][outcome] += 1
+
+    def take_stats(self) -> dict[str, collections.Counter]:
+        """Outcome counts per egress since the previous call, then reset."""
+        with self._lock:
+            out = self._stats
+            self._stats = {r.label: collections.Counter() for r in self.routes}
+        return out
 
     def record_ok(self, route: Route) -> None:
         """A sign-in got through this egress: blocks counted so far were

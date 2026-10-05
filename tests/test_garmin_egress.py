@@ -303,7 +303,7 @@ def test_probe_checks_every_egress_and_labels_it(capsys):
     def fetch(proxy=None):
         asked.append(proxy)
         return 429 if proxy is None else 200
-    SsoProbe(600, fetch=fetch, routes=pool.routes).run()
+    SsoProbe(600, fetch=fetch, routes=pool.routes, trace=lambda proxy=None: None).run()
     rows = [r for r in _rows(capsys) if r.get("event") == "sso-probe"]
     assert asked == [P1, P2, None]                  # direct kept as the baseline
     assert [(r["via"], r["status"]) for r in rows] == [
@@ -324,3 +324,52 @@ def test_a_sign_in_getting_through_resets_the_egress_block_count():
     # ...while blocks with nobody getting through in between still trip it.
     three = _accounts_on(pool, route, 3)[2]
     assert pool.record_blocked(route, three) == "egress"
+
+
+def test_probe_learns_each_egress_ip_and_sign_ins_carry_it(capsys):
+    # Every port shares the proxy host in its label; the probe learns the IP
+    # each one really leaves from, and sign-in events carry it.
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    ips = {P1: "203.0.113.1", P2: "203.0.113.2", None: "198.51.100.9"}
+    SsoProbe(600, fetch=lambda proxy=None: 200, pool=a.pool,
+             trace=lambda proxy=None: ips[proxy]).run()
+    assert [r.egress_ip for r in a.pool.routes] == ["203.0.113.1", "203.0.113.2", "198.51.100.9"]
+    route = a.pool.pick("me@x.cz")
+    with patch.object(login, "start_login",
+                      return_value=login.LoginResult(status="ok", tokens_json='{"t":1}')):
+        a.start_login(FORM)
+    att = [r for r in _rows(capsys) if r.get("event") == "garmin-login-attempt"][-1]
+    assert att["egress_ip"] == route.egress_ip
+
+
+def test_probe_keeps_the_last_known_ip_and_logs_a_change(capsys):
+    pool = EgressPool(P1)
+    answers = iter(["203.0.113.1", None, "203.0.113.7"])
+    p = SsoProbe(600, fetch=lambda proxy=None: 200, pool=pool,
+                 trace=lambda proxy=None: next(answers) if proxy else None)
+    p.run()
+    p.run()                                          # trace failed: keep the old IP
+    assert pool.routes[0].egress_ip == "203.0.113.1"
+    p.run()
+    assert pool.routes[0].egress_ip == "203.0.113.7"
+    changed = [r for r in _rows(capsys) if r.get("event") == "egress-ip-changed"]
+    assert [(c["previous"], c["egress_ip"]) for c in changed] == [("203.0.113.1", "203.0.113.7")]
+
+
+def test_probe_reports_real_sign_in_outcomes_per_egress_and_resets(capsys):
+    # The embed GET can't see a blocked credential POST; egress-health counts
+    # what real sign-ins got since the previous run, with no extra traffic.
+    pool = EgressPool(f"{P1},{P2}")
+    first, second, direct = pool.routes
+    for outcome in ("ok", "needs_mfa", "blocked", "blocked", "unknown"):
+        pool.note(first, outcome)
+    pool.note(second, "ok")
+    p = SsoProbe(600, fetch=lambda proxy=None: 200, pool=pool, trace=lambda proxy=None: None)
+    p.run()
+    health = {r["via"]: r for r in _rows(capsys) if r.get("event") == "egress-health"}
+    h = health[first.label]
+    assert (h["attempts"], h["ok"], h["needs_mfa"], h["blocked"], h["other"]) == (5, 1, 1, 2, 1)
+    assert health[second.label]["attempts"] == 1 and health["direct"]["attempts"] == 0
+    p.run()                                           # counters reset per run
+    again = {r["via"]: r for r in _rows(capsys) if r.get("event") == "egress-health"}
+    assert all(r["attempts"] == 0 for r in again.values())

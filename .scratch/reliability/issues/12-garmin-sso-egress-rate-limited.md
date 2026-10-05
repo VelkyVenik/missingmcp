@@ -60,8 +60,10 @@ floating IP before re-adding it. Code (PR #39): skip mobile strategies when
 proxied, no in-call retry on `blocked`, account cooldown 60 s → 5 min, egress
 cooldown 5 → 30 min, `message` on routing events; direct kept as last resort.
 Done: wrong-password behaviour verified (see above; MFA-page hint shipped).
-Open:
-probe that exercises the credential POST; log labels by egress IP.
+Done (2026-10-05): `egress_ip` on sign-in/probe events (learned via
+cdn-cgi/trace per egress) and a passive `egress-health` per egress each
+probe run (real sign-in outcomes — an active credential probe would itself
+be fake failed sign-ins from our IPs, i.e. the burning signature).
 
 ## Resolution (2026-09-28, decision by Václav)
 
