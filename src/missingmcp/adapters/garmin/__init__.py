@@ -175,7 +175,13 @@ class GarminAdapter:
             with egress.via(proxy):
                 tokens = login.resume_login(pending, form.get("mfa_code", ""))
         except Exception as e:  # noqa: BLE001 - wrong/expired code: caller re-prompts
-            raise SecondFactorError("Incorrect or expired code, try again", state=state) from e
+            # Garmin shows its code page even after a wrong password (and
+            # sends no code then), so a failing code often means the
+            # credentials were wrong — say so, not just "try again".
+            raise SecondFactorError(
+                "That code didn't work. If you never received a code, your Garmin "
+                "email or password was likely wrong. Go back and sign in again.",
+                state=state) from e
         return LoginOk(account_key=normalize_account_key(email), blob=tokens)
 
     def verify(self, blob: str) -> str:

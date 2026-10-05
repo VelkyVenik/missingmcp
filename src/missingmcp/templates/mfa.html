@@ -1,6 +1,6 @@
   <div class="auth">
     <h1>Enter your <span class="hl">MFA</span> code</h1>
-    <p class="sub">Garmin sent a verification code to your email or phone.</p>
+    <p class="sub">If your email and password were right, Garmin just sent a verification code to your email or phone.</p>
     <div class="note">
       The code is used once to finish signing in to Garmin and is not stored.
       Only the resulting encrypted session tokens are kept. This gateway is
@@ -13,4 +13,7 @@
       <label>MFA code<input name="mfa_code" inputmode="numeric" autocomplete="one-time-code" required></label>
       <button class="btn" type="submit">Verify</button>
     </form>
+    <p class="sub">No code after a minute? Your Garmin email or password is probably
+      wrong: Garmin shows this page either way, but only sends a code after a
+      correct sign-in. <a href="{SIGNIN_URL}">Go back and sign in again</a>.</p>
   </div>

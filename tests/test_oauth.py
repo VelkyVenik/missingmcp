@@ -1,3 +1,4 @@
+import html
 import re
 import hashlib
 import base64
@@ -168,6 +169,10 @@ def test_login_mfa_then_verify_redirects(conn):
             "garmin_email": "me@x.cz", "garmin_password": "pw",
         })
     assert r1.status_code == 200 and "login_id" in r1.text
+    assert "No code after a minute?" in r1.text
+    _assert_signin_link(r1.text, {"client_id": cid, "redirect_uri": "https://claude.ai/cb",
+                                  "state": "xyz", "code_challenge": "abc",
+                                  "code_challenge_method": "S256"})
     # operators query this exact literal in Railway logs — a typo here breaks monitoring silently
     status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
     assert status_calls == ["needs_mfa"]
@@ -398,6 +403,17 @@ def test_mfa_wrong_code_reprompts(conn):
         r = client.post("/oauth/authorize", data={"csrf": csrf, "login_id": lid, "mfa_code": "000000"})
     assert r.status_code == 400
     assert "login_id" in r.text                          # re-prompts MFA form
+    # Garmin shows its code page even after a wrong password and sends no code
+    # then: the re-prompt says so and links back to the same OAuth request.
+    assert "password was likely wrong" in r.text
+    _assert_signin_link(r.text, params)
+
+
+def _assert_signin_link(page: str, params: dict):
+    href = html.unescape(re.search(r'<a href="([^"]*oauth/authorize\?[^"]*)"', page).group(1))
+    path, _, query = href.partition("?")
+    assert path == "/garmin/oauth/authorize"
+    assert {k: v[0] for k, v in parse_qs(query).items()} == params
 
 
 def test_mfa_verify_failure_restarts(conn):
