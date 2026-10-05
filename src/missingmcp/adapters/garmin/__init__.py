@@ -7,6 +7,7 @@ from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
                     normalize_account_key)
 from . import egress, login
 from .egress import EgressPool, SsoBreaker  # noqa: F401 - SsoBreaker re-exported
+from .login import _SKIP_MOBILE_WHEN_PROXIED
 
 
 # The worker's two possible sign-in verdicts, printed exactly once per worker
@@ -19,6 +20,13 @@ _LOGIN_FAILED_LINES = (
     "Garmin Connect client failed to initialize",       # >= e8554bc (background login)
     "Failed to initialize Garmin Connect client",       # older pins (exit-on-failure era)
 )
+
+
+def _attempt_message(egress_label: str, outcome: str) -> str:
+    """Railway's log UI indexes/displays `message`; without it, structured
+    events like garmin-login-attempt are invisible in text search (ops saw
+    only garminconnect's bridged 'Login failed:…' lines on 2026-10-05)."""
+    return f"garmin login via {egress_label}: {outcome}"
 
 
 class GarminWorkerForward:
@@ -94,7 +102,9 @@ class GarminAdapter:
         self.forward = GarminWorkerForward(config)
         self.pool = EgressPool(config.garmin_sso_proxy)
         if self.pool.proxied:
-            log("garmin-sso-proxy", egress=",".join(r.label for r in self.pool.routes))
+            labels = ",".join(r.label for r in self.pool.routes)
+            log("garmin-sso-proxy", egress=labels,
+                message=f"garmin SSO egress routes: {labels}")
 
     def login_hint(self, form: Mapping[str, str]) -> str:
         return form.get("garmin_email", "")
@@ -107,7 +117,8 @@ class GarminAdapter:
             # Garmin is limiting this very account (any IP would do the same):
             # answer fast instead of spending ~30s of strategies on it.
             log("login-breaker-reject", remaining_s=int(remaining), scope="account",
-                account=account)
+                account=account,
+                message=f"garmin login rejected (account cooldown {int(remaining)}s)")
             raise LoginError(_login_error_message("blocked"), reason="blocked")
         # One route (and so one breaker) for the whole call: an abandoned
         # (timed-out) thread must trip the breaker of the egress its attempt
@@ -118,16 +129,20 @@ class GarminAdapter:
             # reason as a live "blocked" failure, so the form copy and the
             # triage classification stay identical — minus the 30s of doomed
             # strategies each attempt would otherwise fire at the limiter.
-            log("login-breaker-reject", remaining_s=int(self.pool.min_remaining()),
-                scope="egress", account=account)
+            wait = int(self.pool.min_remaining())
+            log("login-breaker-reject", remaining_s=wait, scope="egress",
+                account=account,
+                message=f"garmin login rejected (all egresses cooling {wait}s)")
             raise LoginError(_login_error_message("blocked"), reason="blocked")
         password = form.get("garmin_password", "")
+        skip = _SKIP_MOBILE_WHEN_PROXIED if route.proxy else None
         try:
             with egress.via(route.proxy):
-                result = login.start_login(email, password)
+                result = login.start_login(email, password, skip_strategies=skip)
         except login.GarminLoginError as e:
             reason = getattr(e, "reason", "unknown")
-            log("garmin-login-attempt", account=account, egress=route.label, outcome=reason)
+            log("garmin-login-attempt", account=account, egress=route.label,
+                outcome=reason, message=_attempt_message(route.label, reason))
             if reason == "blocked":
                 # The account always cools down; the egress only once several
                 # accounts are blocked on it (an IP-level limit) — then its
@@ -136,12 +151,16 @@ class GarminAdapter:
                 cooldown = (route.breaker.cooldown if scope == "egress"
                             else egress.ACCOUNT_COOLDOWN_S)
                 log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
-                    egress=route.label, account=account)
+                    egress=route.label, account=account,
+                    message=(f"garmin {scope} breaker open on {route.label} "
+                             f"for {int(cooldown)}s"))
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
+        self.pool.record_ok(route)
         log("garmin-login-attempt", account=account, egress=route.label,
-            outcome=result.status)
+            outcome=result.status,
+            message=_attempt_message(route.label, result.status))
         if result.status == "needs_mfa":
             return SecondFactorNeeded(state=(result.pending, email, route.proxy))
         return LoginOk(account_key=account, blob=result.tokens_json)

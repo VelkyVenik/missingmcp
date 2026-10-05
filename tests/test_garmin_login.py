@@ -39,7 +39,28 @@ def test_login_needs_mfa_then_resume():
     assert json.loads(tokens) == {"oauth": "tok"}
 
 
-def test_login_retries_blocked_then_succeeds():
+def test_login_does_not_retry_blocked():
+    # Ticket 12: a second round after "blocked" only doubles our SSO footprint
+    # on an egress Cloudflare is scoring; the adapter's cooldowns decide next.
+    calls = {"n": 0}
+
+    def make(*a, **k):
+        g = MagicMock()
+
+        def login(*la, **lk):
+            calls["n"] += 1
+            raise garmin_login.GarminConnectConnectionError("Portal login failed: HTTP 403")
+
+        g.login.side_effect = login
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
+    assert ei.value.reason == "blocked" and calls["n"] == 1
+
+
+def test_login_retries_unexpected_failure_once():
     calls = {"n": 0}
 
     def dump(path):
@@ -53,7 +74,7 @@ def test_login_retries_blocked_then_succeeds():
         def login(*la, **lk):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise garmin_login.GarminConnectConnectionError("Portal login failed: HTTP 403")
+                raise ValueError("flaky parse")
             return (None, None)
 
         g.login.side_effect = login
@@ -61,7 +82,7 @@ def test_login_retries_blocked_then_succeeds():
 
     with patch.object(garmin_login, "Garmin", side_effect=make):
         r = garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
-    assert r.status == "ok" and calls["n"] == 2      # retried once, then succeeded
+    assert r.status == "ok" and calls["n"] == 2
 
 
 def test_login_auth_error_not_retried():

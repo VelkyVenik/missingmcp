@@ -116,7 +116,7 @@ def test_blocked_login_cools_the_account_down_and_fails_fast():
                         clock=lambda: clock[0])
     calls = []
 
-    def blocked(email, pw):
+    def blocked(email, pw, **_kw):
         calls.append(1)
         raise login.GarminLoginError("429", reason="blocked")
 
@@ -142,7 +142,7 @@ def test_auth_failures_do_not_trip_the_breaker():
     a = _adapter()
     calls = []
 
-    def bad(email, pw):
+    def bad(email, pw, **_kw):
         calls.append(1)
         raise login.GarminLoginError("bad", reason="auth")
 

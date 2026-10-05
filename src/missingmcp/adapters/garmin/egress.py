@@ -14,6 +14,9 @@ from garminconnect import client as _gc_client
 # signs in through one of them (sticky by account hash), and each egress —
 # every proxy plus the direct path, kept as the last resort — has its own
 # circuit breaker, so one blocked IP sheds its accounts onto the others.
+# Direct stays last on purpose: it is only reached when every proxy is
+# cooling down (0 sign-ins took it in the first 16 h), and without it two
+# tripped proxies would mean no sign-ins at all for the 30 min cooldown.
 #
 # garminconnect takes no proxy option and builds its HTTP sessions internally,
 # so the two HTTP modules garminconnect.client uses are swapped for thin
@@ -27,11 +30,13 @@ from garminconnect import client as _gc_client
 
 # When Garmin's Cloudflare rate-limits an egress IP, every sign-in attempt
 # through it burns ~30s cycling login strategies before failing "blocked" —
-# and those very attempts keep the rate limiter hot. Once one attempt reports
-# blocked, that egress is skipped for a cooldown: its accounts move to the
-# next egress, and our footprint on the blocked IP drops to zero so the block
-# can decay.
-_SSO_BREAKER_COOLDOWN_S = 300.0
+# and those very attempts keep the rate limiter hot. Once enough distinct
+# accounts report blocked on one egress, that egress is skipped for a
+# cooldown: its accounts move to the next proxy, and our footprint on the
+# blocked IP drops to zero so the block can decay. 30 min (not 5): a burned
+# proxy that reopens after 5 min just re-attracts its sticky accounts and
+# fails them again (observed 2026-10-05 on one of the two Hetzner ports).
+_SSO_BREAKER_COOLDOWN_S = 1800.0
 
 # Garmin also rate-limits repeat sign-ins of the *same account*, regardless of
 # IP: right after a success, a second sign-in of that account a minute later
@@ -40,7 +45,11 @@ _SSO_BREAKER_COOLDOWN_S = 300.0
 # take a whole egress down for everyone, so "blocked" first cools down only
 # the account; the egress breaker trips once several distinct accounts are
 # blocked on it within a window — the signature of an IP-level limit.
-ACCOUNT_COOLDOWN_S = 60.0
+# 5 min (was 60 s): users retried about once a minute, each retry another
+# full round of SSO requests from our IP — the repeat-heavy egress was the one
+# Cloudflare burned on 2026-10-05; the form copy already says "a couple of
+# minutes".
+ACCOUNT_COOLDOWN_S = 300.0
 _EGRESS_BLOCK_WINDOW_S = 600.0
 _EGRESS_BLOCK_ACCOUNTS = 2
 
@@ -124,10 +133,19 @@ class EgressPool:
         with self._lock:
             return max(0.0, self._account_until.get(account_key, 0.0) - self._clock())
 
+    def record_ok(self, route: Route) -> None:
+        """A sign-in got through this egress: blocks counted so far were
+        account-level (Garmin let someone else in), so forget them. Without
+        this, routine per-account blocks on a healthy IP would add up to an
+        egress trip and send everyone to direct for the whole cooldown."""
+        with self._lock:
+            self._blocked[route.label].clear()
+
     def record_blocked(self, route: Route, account_key: str) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account
         down; trips the route's breaker ("egress") only once enough distinct
-        accounts were blocked on it within the window, else "account"."""
+        accounts were blocked on it within the window with no sign-in getting
+        through in between (see record_ok), else "account"."""
         now = self._clock()
         with self._lock:
             for acct, until in list(self._account_until.items()):

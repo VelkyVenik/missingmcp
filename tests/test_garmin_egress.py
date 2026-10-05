@@ -71,6 +71,7 @@ def test_adapter_builds_routes_and_logs_labels_only(capsys):
     assert "pw@" not in out
     row = [json.loads(line) for line in out.splitlines() if '"garmin-sso-proxy"' in line][0]
     assert row["egress"] == "10.0.0.1:3128,10.0.0.2:3129,direct"
+    assert "10.0.0.1:3128" in row["message"]
 
 
 def test_accounts_stick_to_one_proxy_and_spread_across_them():
@@ -88,7 +89,7 @@ def test_blocked_proxy_sheds_its_accounts_to_the_next_route():
     first.breaker.trip()
     assert pool.pick(acct) is second
     second.breaker.trip()
-    assert pool.pick(acct) is direct
+    assert pool.pick(acct) is direct                # last resort, not "no sign-ins"
     direct.breaker.trip()
     assert pool.pick(acct) is None
 
@@ -96,7 +97,7 @@ def test_blocked_proxy_sheds_its_accounts_to_the_next_route():
 def _route_spy(outcome):
     seen = []
 
-    def fake(email, pw):
+    def fake(email, pw, **_kw):
         seen.append(egress.current())
         if isinstance(outcome, Exception):
             raise outcome
@@ -115,6 +116,31 @@ def test_sign_in_runs_through_the_accounts_route_and_logs_it(capsys):
     rows = [r for r in _rows(capsys) if r.get("event") == "garmin-login-attempt"]
     assert rows[-1]["egress"] == route.label and rows[-1]["outcome"] == "ok"
     assert rows[-1]["account"] == "me@x.cz"         # per-user attribution
+    assert rows[-1]["message"] == f"garmin login via {route.label}: ok"
+
+
+def test_proxied_sign_in_skips_mobile_strategies():
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
+    seen = {}
+
+    def fake(email, pw, skip_strategies=None):
+        seen["skip"] = skip_strategies
+        return login.LoginResult(status="ok", tokens_json='{"t":1}')
+    with patch.object(login, "start_login", side_effect=fake):
+        a.start_login(FORM)
+    assert seen["skip"] == login._SKIP_MOBILE_WHEN_PROXIED
+
+
+def test_direct_sign_in_does_not_skip_mobile_strategies():
+    a = GarminAdapter(_cfg())
+    seen = {}
+
+    def fake(email, pw, skip_strategies=None):
+        seen["skip"] = skip_strategies
+        return login.LoginResult(status="ok", tokens_json='{"t":1}')
+    with patch.object(login, "start_login", side_effect=fake):
+        a.start_login(FORM)
+    assert seen["skip"] is None
 
 
 def _accounts_on(pool, route, n):
@@ -279,6 +305,22 @@ def test_probe_checks_every_egress_and_labels_it(capsys):
         return 429 if proxy is None else 200
     SsoProbe(600, fetch=fetch, routes=pool.routes).run()
     rows = [r for r in _rows(capsys) if r.get("event") == "sso-probe"]
-    assert asked == [P1, P2, None]
+    assert asked == [P1, P2, None]                  # direct kept as the baseline
     assert [(r["via"], r["status"]) for r in rows] == [
         ("10.0.0.1:3128", 200), ("10.0.0.2:3129", 200), ("direct", 429)]
+    assert all("sso-probe via" in r["message"] for r in rows)
+
+
+def test_a_sign_in_getting_through_resets_the_egress_block_count():
+    # Healthy IP, routine per-account blocks around a success: account-level,
+    # so the egress must stay open (2026-10-05: :3128 kept 37 good / 15 blocked).
+    pool = EgressPool(f"{P1},{P2}")
+    route = pool.routes[0]
+    one, two = _accounts_on(pool, route, 2)
+    assert pool.record_blocked(route, one) == "account"
+    pool.record_ok(route)
+    assert pool.record_blocked(route, two) == "account"
+    assert route.breaker.remaining() == 0
+    # ...while blocks with nobody getting through in between still trip it.
+    three = _accounts_on(pool, route, 3)[2]
+    assert pool.record_blocked(route, three) == "egress"
