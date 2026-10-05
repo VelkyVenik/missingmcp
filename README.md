@@ -167,7 +167,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `MAIL_FROM` | no | — | Sender address on an onboarded Cloudflare Email Sending (sub)domain, e.g. `you@news.example.com`. |
 | `MAIL_FROM_NAME` | no | — | Sender display name. |
 | `MAIL_REPLY_TO` | no | — | Where replies go; also the `mailto:` target of the `List-Unsubscribe` header. |
-| `MAIL_DAILY_CAP` | no | `180` | Max campaign mails per UTC day. Keep it under the Cloudflare account's daily quota (200 on a new account, shared by every sending domain). |
+| `MAIL_DAILY_CAP` | no | `180` | Max campaign mails per rolling 24h (Cloudflare's quota window). Keep it under the Cloudflare account's daily quota (200 on a new account, shared by every sending domain). |
 | `GATEWAY_LOG_FILE` | no | — | If set, tees structured + stdlib logs to this file. |
 | `GATEWAY_LOG_LEVEL` | no | `info` | `debug`\|`info`\|`warning`\|`error`\|`critical`. `debug` is verbose (logs garminconnect/urllib3 internals) — avoid in production. |
 
@@ -262,7 +262,7 @@ python scripts/campaign.py create <slug> --audience users # or: subscribers
 python scripts/campaign.py test <slug> --to <you>         # one real send, not recorded
 python scripts/campaign.py start <slug>                   # the gateway starts sending
 python scripts/campaign.py pause <slug>
-python scripts/campaign.py status [<slug>]                # counts + sent today + ETA (no addresses)
+python scripts/campaign.py status [<slug>]                # counts + sent in last 24h + ETA (no addresses)
 python scripts/campaign.py status <slug> --unknown        # + addresses whose send is unknown
 python scripts/campaign.py requeue-unknown <slug>         # decided to send those again
 python scripts/campaign.py requeue-failed <slug>          # retry the failed ones (attempts reset)

@@ -10,7 +10,7 @@ Usage:
         # send the rendered mail once to one address (not recorded in the ledger)
   python scripts/campaign.py start <slug>      # draft|paused → active: the gateway starts sending
   python scripts/campaign.py pause <slug>      # stop after the current batch
-  python scripts/campaign.py status [<slug>]   # counts, sent today, ETA (no addresses)
+  python scripts/campaign.py status [<slug>]   # counts, sent in last 24h, ETA (no addresses)
   python scripts/campaign.py status <slug> --unknown   # + list the `unknown` addresses
   python scripts/campaign.py requeue-unknown <slug>    # send the `unknown` ones again
   python scripts/campaign.py requeue-failed <slug>     # retry the `failed` ones (attempts reset)
@@ -28,7 +28,7 @@ import argparse
 import math
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from missingmcp import config, mailer, security, store  # noqa: E402
@@ -109,8 +109,8 @@ def cmd_pause(conn, args):
 
 
 def cmd_status(conn, args):
-    day = datetime.now(timezone.utc).strftime("%Y-%m-%d 00:00:00")
-    print(f"sent today (UTC, all campaigns): {store.sent_since(conn, day)} / {_cap()}")
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"sent in last 24h (all campaigns): {store.sent_since(conn, since)} / {_cap()}")
     camps = [_campaign(conn, args.slug)] if args.slug else store.list_campaigns(conn)
     for c in camps:
         n = store.campaign_counts(conn, c["id"])

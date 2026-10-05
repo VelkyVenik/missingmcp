@@ -174,11 +174,33 @@ def test_batch_size_and_daily_cap(tmp_path, api, capsys):
     assert len(api.calls) == 12
     assert store.campaign_counts(conn, cid)["pending"] == 13
     caps = [e for e in _events(capsys) if e["event"] == "campaign-daily-cap"]
-    assert len(caps) == 1 and caps[0]["pending"] == 13
-    # not due again until shortly after the next UTC midnight
+    assert len(caps) == 1 and caps[0]["pending"] == 13 and caps[0]["sent_24h"] == 12
+    # not due again until the oldest send ages out of the 24h window
     assert not m.due()
-    m._clock = lambda: datetime(2026, 10, 6, 0, 6, tzinfo=timezone.utc).timestamp()
+    m._clock = lambda: NOW + mailer.QUOTA_WINDOW + 61
     assert m.due()
+
+
+def test_cap_is_a_rolling_24h_window_not_a_utc_day(tmp_path, api, capsys):
+    """Regression: 180 sent late evening + a fresh 'day' after UTC midnight
+    overran Cloudflare's rolling quota (429 throttled until evening)."""
+    conn = _db(tmp_path, people=30)
+    cid = _campaign(conn)
+    evening = datetime(2026, 10, 4, 21, 40, tzinfo=timezone.utc).timestamp()
+    t = [evening]
+    m = mailer.Mailer(_cfg(tmp_path, MAIL_DAILY_CAP="10"), clock=lambda: t[0])
+    m.run()
+    assert len(api.calls) == 10
+    t[0] = datetime(2026, 10, 5, 0, 10, tzinfo=timezone.utc).timestamp()  # past midnight
+    m.run()
+    assert len(api.calls) == 10                          # still inside the 24h window
+    assert m._next_at == evening + mailer.QUOTA_WINDOW + 60
+    t[0] = m._next_at
+    m.run()
+    assert len(api.calls) == 20                          # the evening batch aged out
+    assert store.campaign_counts(conn, cid)["pending"] == 10
+    caps = [e for e in _events(capsys) if e["event"] == "campaign-daily-cap"]
+    assert len(caps) == 1
 
 
 def _err(status, message):

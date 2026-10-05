@@ -2,7 +2,7 @@
 
 A campaign is created and started by the operator (scripts/campaign.py); this
 module drains it from the app lifespan loop — a small batch per tick, capped
-per UTC day under the provider's quota, so a 3k-recipient announcement goes out
+per rolling 24h under the provider's quota, so a 3k-recipient announcement goes out
 over days without anyone babysitting it. Progress is reported only as
 structured log events (campaign-batch / -daily-cap / -auto-paused / -done /
 -send-unknown / -run-failed): operator tooling watches the log stream, nothing
@@ -26,13 +26,14 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import httpx
 from . import store
 from .log import log, log_exc, log_warn
 
 BATCH = 10                  # mails per lifespan tick (~60s) — gentle pacing
-RUN_BUDGET = 30.0           # wall-clock seconds per run — never stall the lifespan loop
+QUOTA_WINDOW = 24 * 3600    # provider quota is a rolling 24h window
+RUN_BUDGET = 30.0          # wall-clock seconds per run — never stall the lifespan loop
 MAX_ATTEMPTS = 3            # recipient-specific rejections before it is marked failed
 ERROR_BACKOFF = 15 * 60     # seconds to pause after an account-wide error or a maybe-sent
 BOUNCE_MIN_ATTEMPTS = 50    # auto-pause guard: only judge after this many sends...
@@ -134,9 +135,8 @@ def _utc_str(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime(_UTC_FMT)
 
 
-def _utc_day_start(now: float) -> datetime:
-    return datetime.fromtimestamp(now, timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0)
+def _parse_utc(s: str) -> float:
+    return datetime.strptime(s, _UTC_FMT).replace(tzinfo=timezone.utc).timestamp()
 
 
 def open_rw(db_path: str) -> sqlite3.Connection:
@@ -147,7 +147,7 @@ def open_rw(db_path: str) -> sqlite3.Connection:
 
 class Mailer:
     """Drains the active campaign from the lifespan loop. Process-local pacing
-    state only (next allowed run, last capped day); everything durable lives in
+    state only (next allowed run, last cap log); everything durable lives in
     the ledger, so a redeploy just resumes."""
 
     def __init__(self, config, clock=time.time, monotonic=time.monotonic):
@@ -155,7 +155,7 @@ class Mailer:
         self._clock = clock
         self._monotonic = monotonic
         self._next_at = 0.0
-        self._capped_day = None
+        self._cap_logged_at = None
 
     @property
     def enabled(self) -> bool:
@@ -185,15 +185,21 @@ class Mailer:
         if camp is None:
             return
         cid, slug = camp["id"], camp["slug"]
-        day = _utc_day_start(now)
-        sent_today = store.sent_since(conn, day.strftime(_UTC_FMT))
-        room = self._cfg.mail_daily_cap - sent_today
+        # Cloudflare's daily quota is a ROLLING 24h window, not a UTC day — a
+        # calendar-day cap let a late-evening batch plus a post-midnight one
+        # overrun it (429 throttled until the evening batch aged out).
+        window = _utc_str(now - QUOTA_WINDOW)
+        sent_24h = store.sent_since(conn, window)
+        room = self._cfg.mail_daily_cap - sent_24h
         if room <= 0:
-            if self._capped_day != day:
-                self._capped_day = day
+            # one event per capped stretch, not one per trickle refill
+            if self._cap_logged_at is None or now - self._cap_logged_at > QUOTA_WINDOW / 2:
+                self._cap_logged_at = now
                 log("campaign-daily-cap", campaign=slug, cap=self._cfg.mail_daily_cap,
-                    sent_today=sent_today, pending=store.campaign_counts(conn, cid)["pending"])
-            self._next_at = (day + timedelta(days=1, minutes=5)).timestamp()
+                    sent_24h=sent_24h, pending=store.campaign_counts(conn, cid)["pending"])
+            oldest = store.oldest_sent_since(conn, window)
+            # wake when the oldest send ages out of the window
+            self._next_at = (_parse_utc(oldest) + QUOTA_WINDOW + 60) if oldest else now + 60
             return
 
         tally = {"sent": 0, "bounced": 0, "suppressed": 0, "unknown": 0,
@@ -236,7 +242,7 @@ class Mailer:
             return
         counts = store.campaign_counts(conn, cid)
         fields = {"campaign": slug, **tally,
-                  "sent_today": store.sent_since(conn, day.strftime(_UTC_FMT)),
+                  "sent_24h": store.sent_since(conn, window),
                   "pending": counts["pending"], "total_sent": counts["sent"],
                   "total_bounced": counts["bounced"]}
         if error:

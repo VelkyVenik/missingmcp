@@ -726,9 +726,16 @@ def mark_stale_sending(conn) -> int:
 
 
 def sent_since(conn, since_utc: str) -> int:
-    """Mails the API accepted since `since_utc` (all campaigns) — the daily
-    quota gauge."""
+    """Mails the API accepted since `since_utc` (all campaigns) — the quota
+    gauge, over a rolling 24h window."""
     return conn.execute("SELECT COUNT(*) FROM campaign_sends WHERE sent_at >= ?",
+                        (since_utc,)).fetchone()[0]
+
+
+def oldest_sent_since(conn, since_utc: str) -> str | None:
+    """The earliest sent_at inside the window — when it ages out of the
+    rolling 24h quota window, room opens up again."""
+    return conn.execute("SELECT MIN(sent_at) FROM campaign_sends WHERE sent_at >= ?",
                         (since_utc,)).fetchone()[0]
 
 
