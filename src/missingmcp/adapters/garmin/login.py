@@ -32,8 +32,17 @@ def _dump_tokens(client) -> str:
             return f.read()
 
 
+# Mobile SSO strategies 429 from datacenter fingerprints even on a clean
+# dedicated IP (verified 2026-10-04 on the Hetzner box; garminconnect attributes
+# it to the client fingerprint, not the IP). Running them first just burns ~10s
+# and Cloudflare budget before widget/portal — the strategies that actually
+# succeed through GARMIN_SSO_PROXY. Applied only when a proxy is in play.
+_SKIP_MOBILE_WHEN_PROXIED = frozenset({"mobile+cffi", "mobile+requests"})
+
+
 def start_login(email: str, password: str, attempts: int = 2,
-                backoff: float = 6.0, sleep=time.sleep) -> LoginResult:
+                backoff: float = 6.0, sleep=time.sleep,
+                skip_strategies: frozenset[str] | set[str] | None = None) -> LoginResult:
     """Log in, retrying transient/blocked failures a couple of times with a short
     backoff. Garmin (via Cloudflare) 429-rate-limits fresh logins on the mobile SSO
     endpoint — per-account, not per-IP (garth#217, garminconnect#344) — and the
@@ -46,6 +55,8 @@ def start_login(email: str, password: str, attempts: int = 2,
     for attempt in range(attempts):
         try:
             g = Garmin(email=email, password=password, return_on_mfa=True)
+            if skip_strategies:
+                g.client.skip_strategies = set(skip_strategies)
             result1, result2 = g.login()
             if result1 == "needs_mfa":
                 return LoginResult(status="needs_mfa", pending=(g, result2))

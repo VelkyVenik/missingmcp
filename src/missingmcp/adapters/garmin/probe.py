@@ -48,10 +48,11 @@ class SsoProbe:
             try:
                 status = self._fetch(proxy)
                 log("sso-probe", status=status, ms=int((time.monotonic() - t1) * 1000),
-                    via=label)
+                    via=label, message=f"sso-probe via {label}: {status}")
             except Exception as e:  # noqa: BLE001 - a diagnostic must never take the loop down
                 log("sso-probe", status=None, error=type(e).__name__,
-                    ms=int((time.monotonic() - t1) * 1000), via=label)
+                    ms=int((time.monotonic() - t1) * 1000), via=label,
+                    message=f"sso-probe via {label}: {type(e).__name__}")
 
 
 def _fetch_sso_status(proxy: str | None = None) -> int:

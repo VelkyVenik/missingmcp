@@ -22,13 +22,27 @@ Options re-checked:
 
 Implementation: `GARMIN_SSO_PROXY` (adapters/garmin/egress.py) — a list of
 proxies; the gateway's own Garmin traffic (sign-in, MFA, verify) goes through
-an authenticated Squid on that box (two IPs: primary 46.224.200.91 + floating
-167.233.184.254, one Squid port each), restricted to `.garmin.com`. Each
-account sticks to one IP by hash; each egress has its own breaker, direct
-(Railway) is the last resort. Workers and everything else stay direct —
-`connectapi` isn't blocked. Per-egress visibility: `garmin-login-attempt`
-(`egress`, `outcome`), `login-breaker-open` (`egress`), `sso-probe` (`via`). Verify after enabling: the
-`login-start-failed`/breaker rates and the probe, for 24 h.
+an authenticated Squid on that box (two ports on the primary IP), restricted
+to `.garmin.com`. Each account sticks to one egress by hash; each egress has
+its own breaker. When proxies are configured, Railway/direct is **not** a
+fallback (fail closed — 2026-10-05). Mobile strategies are skipped on proxied
+sign-ins. Workers and everything else stay direct — `connectapi` isn't
+blocked. Per-egress visibility: `garmin-login-attempt` (`egress`, `outcome`,
+`message`), `login-breaker-open` (`egress`), `sso-probe` (`via`).
+
+### Follow-up (2026-10-05 morning)
+
+After #33/#34/#36: sign-ins *do* leave via the proxies (PostHog Logs
+`garmin-login-attempt.egress` = `46.224.200.91:3128|3129`; network-flow to
+those ports; **zero** login attempts with `egress=direct`). Embed `sso-probe`
+returns 200 on both proxies *and* direct, so the probe understates login
+health. One proxy port (:3129) degraded overnight to ~100% `blocked` while
+:3128 still produced `ok`/`needs_mfa`. Ops could not find `garmin-login-attempt`
+in Railway text search because structured events lacked a `message` field
+(Railway indexes/displays that); events were in PostHog Logs all along.
+Next code fix: drop direct fallback, skip mobile when proxied, 30 min egress
+cooldown, add `message` on routing events. Operator next step if :3129 stays
+burned: rotate/replace that egress IP (do not add more Railway-direct traffic).
 
 ## Resolution (2026-09-28, decision by Václav)
 

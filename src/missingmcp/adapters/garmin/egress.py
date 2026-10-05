@@ -11,9 +11,12 @@ from garminconnect import client as _gc_client
 # Reliability ticket 12: Cloudflare in front of Garmin's SSO rate-limits the
 # gateway's shared Railway egress IP, while the same request from a clean IP
 # gets through. GARMIN_SSO_PROXY lists proxies on dedicated IPs; each account
-# signs in through one of them (sticky by account hash), and each egress —
-# every proxy plus the direct path, kept as the last resort — has its own
-# circuit breaker, so one blocked IP sheds its accounts onto the others.
+# signs in through one of them (sticky by account hash), and each proxy has
+# its own circuit breaker so one blocked IP sheds its accounts onto the
+# others. When proxies are configured the direct (Railway) path is NOT kept
+# as a fallback — falling back to the known-blocked shared egress was the
+# failure mode that made "proxies are set" look like "sign-ins still fail"
+# (2026-10-05). Unset GARMIN_SSO_PROXY ⇒ the only route is direct, as before.
 #
 # garminconnect takes no proxy option and builds its HTTP sessions internally,
 # so the two HTTP modules garminconnect.client uses are swapped for thin
@@ -27,11 +30,13 @@ from garminconnect import client as _gc_client
 
 # When Garmin's Cloudflare rate-limits an egress IP, every sign-in attempt
 # through it burns ~30s cycling login strategies before failing "blocked" —
-# and those very attempts keep the rate limiter hot. Once one attempt reports
-# blocked, that egress is skipped for a cooldown: its accounts move to the
-# next egress, and our footprint on the blocked IP drops to zero so the block
-# can decay.
-_SSO_BREAKER_COOLDOWN_S = 300.0
+# and those very attempts keep the rate limiter hot. Once enough distinct
+# accounts report blocked on one egress, that egress is skipped for a
+# cooldown: its accounts move to the next proxy, and our footprint on the
+# blocked IP drops to zero so the block can decay. 30 min (not 5): a burned
+# proxy that reopens after 5 min just re-attracts its sticky accounts and
+# fails them again (observed 2026-10-05 on one of the two Hetzner ports).
+_SSO_BREAKER_COOLDOWN_S = 1800.0
 
 # Garmin also rate-limits repeat sign-ins of the *same account*, regardless of
 # IP: right after a success, a second sign-in of that account a minute later
@@ -89,13 +94,17 @@ class Route:
 
 
 class EgressPool:
-    """The sign-in egresses: each GARMIN_SSO_PROXY entry, then direct."""
+    """The sign-in egresses: each GARMIN_SSO_PROXY entry, or direct alone."""
 
     def __init__(self, spec: str = "", breaker=SsoBreaker, clock=time.monotonic):
         proxies = [p.strip() for p in spec.split(",") if p.strip()]
         self.proxied = proxies
         self.routes = [Route(describe(p), p, breaker()) for p in proxies]
-        self.routes.append(Route("direct", None, breaker()))
+        if not proxies:
+            # No dedicated egress configured: the host's own IP is the only
+            # route. When proxies *are* set we deliberately omit direct —
+            # Railway's shared egress is the IP Cloudflare already rate-limits.
+            self.routes.append(Route("direct", None, breaker()))
         self._clock = clock
         self._lock = threading.Lock()
         self._account_until: dict[str, float] = {}
@@ -105,13 +114,13 @@ class EgressPool:
     def order(self, account_key: str) -> list[Route]:
         """Every route in this account's preference order: its sticky proxy
         first (stable hash, so one account keeps one IP and accounts spread
-        evenly), the other proxies after it, direct last."""
+        evenly), the other proxies after it. With no proxies configured the
+        sole route is direct."""
         n = len(self.proxied)
         if not n:
             return list(self.routes)
         start = int(hashlib.sha256(account_key.encode()).hexdigest(), 16) % n
-        proxied = self.routes[:n]
-        return proxied[start:] + proxied[:start] + self.routes[n:]
+        return self.routes[start:] + self.routes[:start]
 
     def pick(self, account_key: str) -> Route | None:
         """The first route whose breaker is closed, or None if all are open."""

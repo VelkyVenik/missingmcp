@@ -325,7 +325,7 @@ def test_blocked_login_opens_breaker_for_the_next_form_post(conn):
     cid = _register(conn)
     calls = []
 
-    def blocked(email, pw):
+    def blocked(email, pw, **_kw):
         calls.append(1)
         raise garmin_login.GarminLoginError("429 rate limited", reason="blocked")
 
