@@ -133,10 +133,19 @@ class EgressPool:
         with self._lock:
             return max(0.0, self._account_until.get(account_key, 0.0) - self._clock())
 
+    def record_ok(self, route: Route) -> None:
+        """A sign-in got through this egress: blocks counted so far were
+        account-level (Garmin let someone else in), so forget them. Without
+        this, routine per-account blocks on a healthy IP would add up to an
+        egress trip and send everyone to direct for the whole cooldown."""
+        with self._lock:
+            self._blocked[route.label].clear()
+
     def record_blocked(self, route: Route, account_key: str) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account
         down; trips the route's breaker ("egress") only once enough distinct
-        accounts were blocked on it within the window, else "account"."""
+        accounts were blocked on it within the window with no sign-in getting
+        through in between (see record_ok), else "account"."""
         now = self._clock()
         with self._lock:
             for acct, until in list(self._account_until.items()):

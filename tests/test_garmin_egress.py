@@ -309,3 +309,18 @@ def test_probe_checks_every_egress_and_labels_it(capsys):
     assert [(r["via"], r["status"]) for r in rows] == [
         ("10.0.0.1:3128", 200), ("10.0.0.2:3129", 200), ("direct", 429)]
     assert all("sso-probe via" in r["message"] for r in rows)
+
+
+def test_a_sign_in_getting_through_resets_the_egress_block_count():
+    # Healthy IP, routine per-account blocks around a success: account-level,
+    # so the egress must stay open (2026-10-05: :3128 kept 37 good / 15 blocked).
+    pool = EgressPool(f"{P1},{P2}")
+    route = pool.routes[0]
+    one, two = _accounts_on(pool, route, 2)
+    assert pool.record_blocked(route, one) == "account"
+    pool.record_ok(route)
+    assert pool.record_blocked(route, two) == "account"
+    assert route.breaker.remaining() == 0
+    # ...while blocks with nobody getting through in between still trip it.
+    three = _accounts_on(pool, route, 3)[2]
+    assert pool.record_blocked(route, three) == "egress"

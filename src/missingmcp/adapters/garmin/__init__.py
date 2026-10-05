@@ -157,6 +157,7 @@ class GarminAdapter:
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
+        self.pool.record_ok(route)
         log("garmin-login-attempt", account=account, egress=route.label,
             outcome=result.status,
             message=_attempt_message(route.label, result.status))
