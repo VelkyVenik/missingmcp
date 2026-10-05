@@ -717,18 +717,28 @@ def mark_send(conn, campaign_id: int, email: str, status: str, *,
 
 def mark_stale_sending(conn) -> int:
     """A `sending` row outside a running send is a crash mid-API-call: the mail
-    may or may not have gone out. Park it as `unknown` (operator decides)."""
+    may or may not have gone out. Park it as `unknown` (operator decides), and
+    count it toward the quota like any maybe-sent: sent_at = when it was marked
+    `sending` (its updated_at), unless already stamped."""
     cur = conn.execute("UPDATE campaign_sends SET status='unknown', "
-                       "last_error='interrupted mid-send', updated_at=datetime('now') "
+                       "last_error='interrupted mid-send', "
+                       "sent_at=COALESCE(sent_at, updated_at), updated_at=datetime('now') "
                        "WHERE status='sending'")
     conn.commit()
     return cur.rowcount
 
 
 def sent_since(conn, since_utc: str) -> int:
-    """Mails the API accepted since `since_utc` (all campaigns) — the daily
-    quota gauge."""
+    """Mails the API accepted since `since_utc` (all campaigns) — the quota
+    gauge, over a rolling 24h window."""
     return conn.execute("SELECT COUNT(*) FROM campaign_sends WHERE sent_at >= ?",
+                        (since_utc,)).fetchone()[0]
+
+
+def oldest_sent_since(conn, since_utc: str) -> str | None:
+    """The earliest sent_at inside the window — when it ages out of the
+    rolling 24h quota window, room opens up again."""
+    return conn.execute("SELECT MIN(sent_at) FROM campaign_sends WHERE sent_at >= ?",
                         (since_utc,)).fetchone()[0]
 
 
