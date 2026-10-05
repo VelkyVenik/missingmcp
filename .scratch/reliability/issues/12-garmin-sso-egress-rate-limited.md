@@ -22,27 +22,41 @@ Options re-checked:
 
 Implementation: `GARMIN_SSO_PROXY` (adapters/garmin/egress.py) — a list of
 proxies; the gateway's own Garmin traffic (sign-in, MFA, verify) goes through
-an authenticated Squid on that box (two ports on the primary IP), restricted
-to `.garmin.com`. Each account sticks to one egress by hash; each egress has
-its own breaker. When proxies are configured, Railway/direct is **not** a
-fallback (fail closed — 2026-10-05). Mobile strategies are skipped on proxied
-sign-ins. Workers and everything else stay direct — `connectapi` isn't
-blocked. Per-egress visibility: `garmin-login-attempt` (`egress`, `outcome`,
-`message`), `login-breaker-open` (`egress`), `sso-probe` (`via`).
+an authenticated Squid on that box (two ports, each with its own outgoing
+address: :3128 → primary 46.224.200.91, :3129 → floating 167.233.184.254 —
+verified via sso.garmin.com/cdn-cgi/trace; log labels show the proxy host,
+not the egress IP), restricted to `.garmin.com`. Each account sticks to one
+egress by hash; each egress has its own breaker; direct (Railway) stays the
+last resort. Mobile strategies are skipped on proxied sign-ins. Workers and
+everything else stay direct — `connectapi` isn't blocked. Per-egress
+visibility: `garmin-login-attempt` (`egress`, `outcome`, `message`),
+`login-breaker-open` (`egress`, `scope`), `sso-probe` (`via`).
 
 ### Follow-up (2026-10-05 morning)
 
-After #33/#34/#36: sign-ins *do* leave via the proxies (PostHog Logs
-`garmin-login-attempt.egress` = `46.224.200.91:3128|3129`; network-flow to
-those ports; **zero** login attempts with `egress=direct`). Embed `sso-probe`
-returns 200 on both proxies *and* direct, so the probe understates login
-health. One proxy port (:3129) degraded overnight to ~100% `blocked` while
-:3128 still produced `ok`/`needs_mfa`. Ops could not find `garmin-login-attempt`
-in Railway text search because structured events lacked a `message` field
-(Railway indexes/displays that); events were in PostHog Logs all along.
-Next code fix: drop direct fallback, skip mobile when proxied, 30 min egress
-cooldown, add `message` on routing events. Operator next step if :3129 stays
-burned: rotate/replace that egress IP (do not add more Railway-direct traffic).
+Sign-ins do leave via the proxies (0 attempts with `egress=direct`). From
+~05:00 UTC the **floating IP (:3129) was blocked at IP level**: 1 good / 55
+blocked across 19 distinct accounts, while :3128 kept going (37 good / 15
+blocked). The embed `sso-probe` still returned 200 on both — it only GETs the
+page; the block hits the credential POST (`Widget signin POST returned 429`),
+so the probe understates sign-in health.
+
+Why that IP, as far as the data shows: before 05:00 it carried 2× the
+attempts of :3128 (52 vs 26) and ~5× the repeats (23 vs 5) — users retrying
+about once a minute after a 60 s account cooldown, each retry a full round of
+SSO requests (2× mobile 429, widget, portal) plus an in-call second round.
+Across 184 attempts there were **0 `auth` outcomes**, so wrong passwords are
+almost certainly being classified `blocked` (or `needs_mfa`: a nonexistent
+account reached `needs_mfa` in a manual test) — those users retry the most.
+Many distinct accounts + failures from one datacenter IP is a
+credential-stuffing signature.
+
+Actions: :3129 removed from `GARMIN_SSO_PROXY` (2026-10-05); replace the
+floating IP before re-adding it. Code (PR #39): skip mobile strategies when
+proxied, no in-call retry on `blocked`, account cooldown 60 s → 5 min, egress
+cooldown 5 → 30 min, `message` on routing events; direct kept as last resort.
+Open: verify the wrong-password classification (needs a real account test);
+probe that exercises the credential POST; log labels by egress IP.
 
 ## Resolution (2026-09-28, decision by Václav)
 

@@ -11,12 +11,12 @@ from garminconnect import client as _gc_client
 # Reliability ticket 12: Cloudflare in front of Garmin's SSO rate-limits the
 # gateway's shared Railway egress IP, while the same request from a clean IP
 # gets through. GARMIN_SSO_PROXY lists proxies on dedicated IPs; each account
-# signs in through one of them (sticky by account hash), and each proxy has
-# its own circuit breaker so one blocked IP sheds its accounts onto the
-# others. When proxies are configured the direct (Railway) path is NOT kept
-# as a fallback — falling back to the known-blocked shared egress was the
-# failure mode that made "proxies are set" look like "sign-ins still fail"
-# (2026-10-05). Unset GARMIN_SSO_PROXY ⇒ the only route is direct, as before.
+# signs in through one of them (sticky by account hash), and each egress —
+# every proxy plus the direct path, kept as the last resort — has its own
+# circuit breaker, so one blocked IP sheds its accounts onto the others.
+# Direct stays last on purpose: it is only reached when every proxy is
+# cooling down (0 sign-ins took it in the first 16 h), and without it two
+# tripped proxies would mean no sign-ins at all for the 30 min cooldown.
 #
 # garminconnect takes no proxy option and builds its HTTP sessions internally,
 # so the two HTTP modules garminconnect.client uses are swapped for thin
@@ -45,7 +45,11 @@ _SSO_BREAKER_COOLDOWN_S = 1800.0
 # take a whole egress down for everyone, so "blocked" first cools down only
 # the account; the egress breaker trips once several distinct accounts are
 # blocked on it within a window — the signature of an IP-level limit.
-ACCOUNT_COOLDOWN_S = 60.0
+# 5 min (was 60 s): users retried about once a minute, each retry another
+# full round of SSO requests from our IP — the repeat-heavy egress was the one
+# Cloudflare burned on 2026-10-05; the form copy already says "a couple of
+# minutes".
+ACCOUNT_COOLDOWN_S = 300.0
 _EGRESS_BLOCK_WINDOW_S = 600.0
 _EGRESS_BLOCK_ACCOUNTS = 2
 
@@ -94,17 +98,13 @@ class Route:
 
 
 class EgressPool:
-    """The sign-in egresses: each GARMIN_SSO_PROXY entry, or direct alone."""
+    """The sign-in egresses: each GARMIN_SSO_PROXY entry, then direct."""
 
     def __init__(self, spec: str = "", breaker=SsoBreaker, clock=time.monotonic):
         proxies = [p.strip() for p in spec.split(",") if p.strip()]
         self.proxied = proxies
         self.routes = [Route(describe(p), p, breaker()) for p in proxies]
-        if not proxies:
-            # No dedicated egress configured: the host's own IP is the only
-            # route. When proxies *are* set we deliberately omit direct —
-            # Railway's shared egress is the IP Cloudflare already rate-limits.
-            self.routes.append(Route("direct", None, breaker()))
+        self.routes.append(Route("direct", None, breaker()))
         self._clock = clock
         self._lock = threading.Lock()
         self._account_until: dict[str, float] = {}
@@ -114,13 +114,13 @@ class EgressPool:
     def order(self, account_key: str) -> list[Route]:
         """Every route in this account's preference order: its sticky proxy
         first (stable hash, so one account keeps one IP and accounts spread
-        evenly), the other proxies after it. With no proxies configured the
-        sole route is direct."""
+        evenly), the other proxies after it, direct last."""
         n = len(self.proxied)
         if not n:
             return list(self.routes)
         start = int(hashlib.sha256(account_key.encode()).hexdigest(), 16) % n
-        return self.routes[start:] + self.routes[:start]
+        proxied = self.routes[:n]
+        return proxied[start:] + proxied[:start] + self.routes[n:]
 
     def pick(self, account_key: str) -> Route | None:
         """The first route whose breaker is closed, or None if all are open."""

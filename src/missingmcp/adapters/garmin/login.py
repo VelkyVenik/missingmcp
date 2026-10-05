@@ -43,12 +43,14 @@ _SKIP_MOBILE_WHEN_PROXIED = frozenset({"mobile+cffi", "mobile+requests"})
 def start_login(email: str, password: str, attempts: int = 2,
                 backoff: float = 6.0, sleep=time.sleep,
                 skip_strategies: frozenset[str] | set[str] | None = None) -> LoginResult:
-    """Log in, retrying transient/blocked failures a couple of times with a short
-    backoff. Garmin (via Cloudflare) 429-rate-limits fresh logins on the mobile SSO
-    endpoint — per-account, not per-IP (garth#217, garminconnect#344) — and the
-    widget/portal fallback can flake (403); a quick retry usually gets through.
-    Wrong credentials ('auth') are NOT retried. Retries are deliberately small/short
-    so the synchronous authorize POST stays under the OAuth callback timeout.
+    """Log in, retrying an unexpected failure once after a short backoff.
+
+    A "blocked" outcome (429 / all strategies exhausted) is NOT retried within
+    the call: one sign-in already fires several SSO requests, a second round
+    doubles our footprint on an egress Cloudflare is scoring (ticket 12 — the
+    egress burned on 2026-10-05 carried the most repeats), and the adapter's
+    account cooldown / egress breaker decide what happens next. Wrong
+    credentials ('auth') are never retried either.
 
     Raises GarminLoginError with .reason in {auth, blocked, unknown}."""
     last: Exception | None = None
@@ -64,7 +66,8 @@ def start_login(email: str, password: str, attempts: int = 2,
         except GarminConnectAuthenticationError as e:
             raise GarminLoginError(str(e), reason="auth") from e   # bad password — never retry
         except (GarminConnectTooManyRequestsError, GarminConnectConnectionError) as e:
-            last = e                                               # rate-limited / blocked / flaky
+            last = e                                               # rate-limited / blocked
+            break
         except Exception as e:  # noqa: BLE001 - unexpected; retry once, then surface
             last = e
         if attempt + 1 < attempts:

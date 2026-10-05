@@ -66,11 +66,11 @@ def test_describe_never_leaks_credentials():
 def test_adapter_builds_routes_and_logs_labels_only(capsys):
     a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f" {P1} , {P2} "))
     assert [(r.label, r.proxy) for r in a.pool.routes] == [
-        ("10.0.0.1:3128", P1), ("10.0.0.2:3129", P2)]
+        ("10.0.0.1:3128", P1), ("10.0.0.2:3129", P2), ("direct", None)]
     out = capsys.readouterr().out
     assert "pw@" not in out
     row = [json.loads(line) for line in out.splitlines() if '"garmin-sso-proxy"' in line][0]
-    assert row["egress"] == "10.0.0.1:3128,10.0.0.2:3129"
+    assert row["egress"] == "10.0.0.1:3128,10.0.0.2:3129,direct"
     assert "10.0.0.1:3128" in row["message"]
 
 
@@ -79,23 +79,19 @@ def test_accounts_stick_to_one_proxy_and_spread_across_them():
     picks = {k: pool.pick(k).label for k in (f"user{i}@x.cz" for i in range(40))}
     assert picks == {k: pool.pick(k).label for k in picks}          # sticky
     assert set(picks.values()) == {"10.0.0.1:3128", "10.0.0.2:3129"}  # spread
-    assert all("direct" not in {r.label for r in pool.order(k)} for k in picks)
+    assert all(pool.order(k)[-1].label == "direct" for k in picks)  # direct last
 
 
 def test_blocked_proxy_sheds_its_accounts_to_the_next_route():
     pool = EgressPool(f"{P1},{P2}")
     acct = "me@x.cz"
-    first, second = pool.order(acct)
+    first, second, direct = pool.order(acct)
     first.breaker.trip()
     assert pool.pick(acct) is second
     second.breaker.trip()
-    assert pool.pick(acct) is None   # no direct fallback when proxies are set
-
-
-def test_proxied_pool_never_includes_direct():
-    pool = EgressPool(f"{P1},{P2}")
-    assert [r.label for r in pool.routes] == ["10.0.0.1:3128", "10.0.0.2:3129"]
-    assert pool.pick("anyone@x.cz").proxy is not None
+    assert pool.pick(acct) is direct                # last resort, not "no sign-ins"
+    direct.breaker.trip()
+    assert pool.pick(acct) is None
 
 
 def _route_spy(outcome):
@@ -309,7 +305,7 @@ def test_probe_checks_every_egress_and_labels_it(capsys):
         return 429 if proxy is None else 200
     SsoProbe(600, fetch=fetch, routes=pool.routes).run()
     rows = [r for r in _rows(capsys) if r.get("event") == "sso-probe"]
-    assert asked == [P1, P2]                        # no direct probe when proxied
+    assert asked == [P1, P2, None]                  # direct kept as the baseline
     assert [(r["via"], r["status"]) for r in rows] == [
-        ("10.0.0.1:3128", 200), ("10.0.0.2:3129", 200)]
+        ("10.0.0.1:3128", 200), ("10.0.0.2:3129", 200), ("direct", 429)]
     assert all("sso-probe via" in r["message"] for r in rows)
