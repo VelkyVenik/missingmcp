@@ -116,6 +116,63 @@ def test_login_blocked_exhausted_raises_blocked():
     assert ei.value.reason == "blocked"
 
 
+def test_set_password_title_is_password_reset_not_blocked():
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectConnectionError(
+            "Widget login: unexpected title 'Set Password'")
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
+    assert ei.value.reason == "password_reset"
+
+
+def test_auth_app_title_without_mfa_vars_is_auth_not_blocked():
+    # garminconnect ≥0.3.14 turns this title + mfaMethod into needs_mfa; when
+    # it reaches us as unexpected title the signin page came back without MFA
+    # vars — treat as credentials, not an IP block.
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectConnectionError(
+            "Widget login: unexpected title 'GARMIN Authentication Application'")
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", attempts=2, backoff=0, sleep=lambda s: None)
+    assert ei.value.reason == "auth"
+
+
+def test_skip_strategies_is_honored_by_installed_garminconnect():
+    # Guards the Docker pin: garmin-mcp's ==0.3.2 downgrade made setattr a
+    # silent no-op and mobile kept running on every proxied sign-in.
+    assert garmin_login.supports_skip_strategies()
+
+
+def test_start_login_sets_skip_strategies_on_client():
+    seen = {}
+
+    def make(*a, **k):
+        g = MagicMock()
+        g.client.skip_strategies = set()
+
+        def login(*la, **lk):
+            seen["skip"] = set(g.client.skip_strategies)
+            raise garmin_login.GarminConnectAuthenticationError("stop")
+
+        g.login.side_effect = login
+        return g
+
+    with patch.object(garmin_login, "Garmin", side_effect=make):
+        with pytest.raises(garmin_login.GarminLoginError):
+            garmin_login.start_login(
+                "me@x.cz", "pw",
+                skip_strategies=garmin_login._SKIP_MOBILE_WHEN_PROXIED)
+    assert seen["skip"] == set(garmin_login._SKIP_MOBILE_WHEN_PROXIED)
+
+
 def test_verify_tokens_returns_name():
     with patch.object(garmin_login, "Garmin", side_effect=_fake_garmin_factory()):
         name = garmin_login.verify_tokens('{"oauth":"tok"}')

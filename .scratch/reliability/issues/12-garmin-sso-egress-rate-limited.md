@@ -65,6 +65,18 @@ cdn-cgi/trace per egress) and a passive `egress-health` per egress each
 probe run (real sign-in outcomes — an active credential probe would itself
 be fake failed sign-ins from our IPs, i.e. the burning signature).
 
+### Follow-up (2026-10-06) — garminconnect pin + widget titles
+
+Mobile SSO still ran on every proxied sign-in after #39 (82× "IP rate limited
+by Garmin" pairs). Root cause: Dockerfile installs garmin-mcp *after* the
+gateway, and garmin-mcp pins `garminconnect==0.3.2`, which **downgrades** the
+resolve. 0.3.2 has no `skip_strategies` (setattr was a silent no-op) and only
+detects MFA when the page title literally contains `"MFA"` — so email-MFA
+pages titled `GARMIN Authentication Application` became `unexpected title` →
+`blocked`. `Set Password` titles were likewise generic blocked. Fix: pin
+`garminconnect==0.3.17` and reinstall it after garmin-mcp; classify those
+widget titles as `auth` / `password_reset` (not `blocked`, no breaker trip).
+
 ## Resolution (2026-09-28, decision by Václav)
 
 The wave decayed on its own: `sso-probe` block rate fell from 28 % (09-23)

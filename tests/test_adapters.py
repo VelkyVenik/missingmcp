@@ -153,6 +153,25 @@ def test_auth_failures_do_not_trip_the_breaker():
     assert len(calls) == 2
 
 
+def test_password_reset_surfaces_clear_copy_and_does_not_cool_down():
+    a = _adapter()
+    calls = []
+
+    def reset(email, pw, **_kw):
+        calls.append(1)
+        raise login.GarminLoginError("Set Password", reason="password_reset")
+
+    with patch.object(login, "start_login", side_effect=reset):
+        with pytest.raises(base.LoginError) as ei:
+            a.start_login(_FORM)
+        with pytest.raises(base.LoginError):   # no account cooldown — retry reaches Garmin
+            a.start_login(_FORM)
+    assert ei.value.reason == "password_reset"
+    assert "set a new password" in str(ei.value).lower()
+    assert len(calls) == 2
+    assert a.pool.account_remaining("me@x.cz") == 0
+
+
 def test_mfa_resume_bypasses_the_breaker():
     # A pending MFA session already passed the portal's first stage; an open
     # breaker must not strand the user holding a valid code.

@@ -1,8 +1,9 @@
 from __future__ import annotations
+import importlib.metadata
 import json
 import os
 from typing import Mapping
-from ...log import log
+from ...log import log, log_warn
 from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
                     normalize_account_key)
 from . import egress, login
@@ -86,6 +87,10 @@ def _login_error_message(reason: str) -> str:
         # the widget/portal fallback can flake. Not the user's fault; a retry usually works.
         return ("Garmin is temporarily rate-limiting new sign-ins (a limit on "
                 "Garmin's side, not your password). Please wait a couple of minutes and try again.")
+    if reason == "password_reset":
+        return ("Garmin needs you to set a new password for this account before "
+                "it can sign in here. Open Garmin Connect in a browser, complete "
+                "the password reset, then try again.")
     if reason == "auth":
         return "Garmin sign-in failed — check your Garmin email and password."
     return "Garmin sign-in failed, please try again."
@@ -101,6 +106,17 @@ class GarminAdapter:
     def __init__(self, config):
         self.forward = GarminWorkerForward(config)
         self.pool = EgressPool(config.garmin_sso_proxy)
+        try:
+            gc_ver = importlib.metadata.version("garminconnect")
+        except importlib.metadata.PackageNotFoundError:
+            gc_ver = "unknown"
+        log("garminconnect-version", version=gc_ver,
+            skip_ok=login.supports_skip_strategies(),
+            message=f"garminconnect {gc_ver}")
+        if self.pool.proxied and not login.supports_skip_strategies():
+            log_warn("garmin-skip-unsupported", version=gc_ver,
+                     message=(f"garminconnect {gc_ver} ignores skip_strategies; "
+                              "proxied sign-ins will still hit mobile SSO"))
         if self.pool.proxied:
             labels = ",".join(r.label for r in self.pool.routes)
             log("garmin-sso-proxy", egress=labels,
@@ -144,11 +160,13 @@ class GarminAdapter:
             self.pool.note(route, reason)
             log("garmin-login-attempt", account=account, egress=route.label,
                 egress_ip=route.egress_ip, outcome=reason,
+                skipped_mobile=bool(skip),
                 message=_attempt_message(route.label, reason))
             if reason == "blocked":
                 # The account always cools down; the egress only once several
                 # accounts are blocked on it (an IP-level limit) — then its
-                # accounts move to their next route.
+                # accounts move to their next route. auth / password_reset do
+                # not trip breakers — those are the user's account, not the IP.
                 scope = self.pool.record_blocked(route, account)
                 cooldown = (route.breaker.cooldown if scope == "egress"
                             else egress.ACCOUNT_COOLDOWN_S)
@@ -163,6 +181,7 @@ class GarminAdapter:
         self.pool.note(route, result.status)
         log("garmin-login-attempt", account=account, egress=route.label,
             egress_ip=route.egress_ip, outcome=result.status,
+            skipped_mobile=bool(skip),
             message=_attempt_message(route.label, result.status))
         if result.status == "needs_mfa":
             return SecondFactorNeeded(state=(result.pending, email, route.proxy))
