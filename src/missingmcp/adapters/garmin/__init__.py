@@ -91,6 +91,13 @@ def _login_error_message(reason: str) -> str:
     return "Garmin sign-in failed, please try again."
 
 
+# failing-logins map, "Choose the throttle policy": the two new turn-aways.
+_IN_FLIGHT_MESSAGE = ("A sign-in for this Garmin account is already in progress. "
+                      "Wait a minute, then try again.")
+_POST_CONNECT_MESSAGE = ("This Garmin account was just connected. If you're adding "
+                         "another device, try again in two minutes.")
+
+
 class GarminAdapter:
     name = "garmin"
     display_name = "Garmin"
@@ -112,6 +119,14 @@ class GarminAdapter:
     def start_login(self, form: Mapping[str, str]) -> LoginOk | SecondFactorNeeded:
         email = form.get("garmin_email", "")
         account = normalize_account_key(email)
+        held = self.pool.hold_remaining(account)
+        if held > 0:
+            # Just connected: a double submit or a second device would only
+            # send Garmin a repeat sign-in of this email (failing-logins map).
+            log("login-breaker-reject", remaining_s=int(held), scope="post_success",
+                account=account,
+                message=f"garmin login rejected (post-connect hold {int(held)}s)")
+            raise LoginError(_POST_CONNECT_MESSAGE, reason="blocked")
         remaining = self.pool.account_remaining(account)
         if remaining > 0:
             # Garmin is limiting this very account (any IP would do the same):
@@ -134,9 +149,19 @@ class GarminAdapter:
                 account=account,
                 message=f"garmin login rejected (all egresses cooling {wait}s)")
             raise LoginError(_login_error_message("blocked"), reason="blocked")
+        if not self.pool.begin(account):
+            # One sign-in per email at a time: overlapping attempts (a resubmit
+            # while the first still runs — even after its form timed out) were
+            # the main avoidable traffic the account cooldown can't stop.
+            log("login-breaker-reject", remaining_s=0, scope="in_flight", account=account,
+                message="garmin login rejected (sign-in already in flight)")
+            raise LoginError(_IN_FLIGHT_MESSAGE, reason="blocked")
         password = form.get("garmin_password", "")
         skip = _SKIP_MOBILE_WHEN_PROXIED if route.proxy else None
         try:
+            # Runs on a to_thread worker to completion even when the form
+            # gives up: end() in the finally below frees the slot only once
+            # Garmin has really answered.
             with egress.via(route.proxy):
                 result = login.start_login(email, password, skip_strategies=skip)
         except login.GarminLoginError as e:
@@ -150,7 +175,7 @@ class GarminAdapter:
                 # accounts are blocked on it (an IP-level limit) — then its
                 # accounts move to their next route.
                 scope = self.pool.record_blocked(route, account)
-                cooldown = (route.breaker.cooldown if scope == "egress"
+                cooldown = (route.rest_s if scope == "egress"
                             else egress.ACCOUNT_COOLDOWN_S)
                 log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
                     egress=route.label, account=account,
@@ -159,6 +184,7 @@ class GarminAdapter:
             raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
+            self.pool.end(account)
         self.pool.record_ok(route)
         self.pool.note(route, result.status)
         log("garmin-login-attempt", account=account, egress=route.label,
@@ -166,6 +192,7 @@ class GarminAdapter:
             message=_attempt_message(route.label, result.status))
         if result.status == "needs_mfa":
             return SecondFactorNeeded(state=(result.pending, email, route.proxy))
+        self.pool.mark_connected(account)
         return LoginOk(account_key=account, blob=result.tokens_json)
 
     def resume_second_factor(self, state: object, form: Mapping[str, str]) -> LoginOk:
@@ -185,7 +212,9 @@ class GarminAdapter:
                 "That code didn't work. If you never received a code, your Garmin "
                 "email or password was likely wrong. Go back and sign in again.",
                 state=state) from e
-        return LoginOk(account_key=normalize_account_key(email), blob=tokens)
+        account = normalize_account_key(email)
+        self.pool.mark_connected(account)   # MFA finished: a real connection
+        return LoginOk(account_key=account, blob=tokens)
 
     def verify(self, blob: str) -> str:
         # Token verify talks to Garmin's API/token hosts, not the SSO portal,

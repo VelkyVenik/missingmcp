@@ -8,7 +8,7 @@ from garminconnect import client as gc_client
 from unittest.mock import patch
 
 from missingmcp.adapters import base
-from missingmcp.adapters.garmin import EgressPool, GarminAdapter, egress, login
+from missingmcp.adapters.garmin import EgressPool, GarminAdapter, SsoBreaker, egress, login
 from missingmcp.adapters.garmin.probe import SsoProbe
 from missingmcp.config import load_config
 
@@ -373,3 +373,100 @@ def test_probe_reports_real_sign_in_outcomes_per_egress_and_resets(capsys):
     p.run()                                           # counters reset per run
     again = {r["via"]: r for r in _rows(capsys) if r.get("event") == "egress-health"}
     assert all(r["attempts"] == 0 for r in again.values())
+
+
+# ---- failing-logins map: "Choose the throttle policy" ------------------------
+
+def test_one_in_flight_sign_in_per_email(capsys):
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow(email, pw, **_kw):
+        calls.append(email)
+        started.set()
+        release.wait(5)
+        return login.LoginResult(status="needs_mfa", pending=("P", "S"))
+
+    with patch.object(login, "start_login", side_effect=slow):
+        t = threading.Thread(target=lambda: a.start_login(FORM))
+        t.start()
+        assert started.wait(5)
+        with pytest.raises(base.LoginError) as ei:       # concurrent second submit
+            a.start_login(FORM)
+        assert "already in progress" in str(ei.value)
+        release.set()
+        t.join(5)
+        a.start_login(FORM)                               # slot freed once Garmin answered
+    assert calls == ["me@x.cz", "me@x.cz"]
+    rejects = [r for r in _rows(capsys) if r.get("event") == "login-breaker-reject"]
+    assert [r["scope"] for r in rejects] == ["in_flight"]
+
+
+def test_in_flight_slot_is_freed_on_failure_too():
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
+    with patch.object(login, "start_login",
+                      side_effect=login.GarminLoginError("x", reason="unknown")):
+        with pytest.raises(base.LoginError):
+            a.start_login(FORM)
+    assert a.pool.begin("me@x.cz")                       # nothing left holding it
+
+
+def test_post_connect_hold_after_a_real_connection_only(capsys):
+    clock = [1000.0]
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
+    a.pool = EgressPool(P1, clock=lambda: clock[0])
+    # reaching MFA alone (what a wrong password looks like) starts no hold
+    with patch.object(login, "start_login",
+                      return_value=login.LoginResult(status="needs_mfa", pending=("P", "S"))):
+        need = a.start_login(FORM)
+        a.start_login(FORM)
+    # finishing MFA is a real connection: the next sign-in is held
+    with patch.object(login, "resume_login", return_value='{"t":9}'):
+        a.resume_second_factor(need.state, {"mfa_code": "123456"})
+    with pytest.raises(base.LoginError) as ei:
+        a.start_login(FORM)
+    assert "just connected" in str(ei.value)
+    clock[0] += egress.POST_CONNECT_HOLD_S + 1
+    with patch.object(login, "start_login",
+                      return_value=login.LoginResult(status="ok", tokens_json='{"t":1}')):
+        a.start_login(FORM)                               # hold over
+        with pytest.raises(base.LoginError):              # and an ok starts a new one
+            a.start_login(FORM)
+    scopes = [r["scope"] for r in _rows(capsys) if r.get("event") == "login-breaker-reject"]
+    assert scopes == ["post_success", "post_success"]
+
+
+def test_ten_blocks_in_an_hour_trip_an_egress_even_with_successes_between():
+    clock = [0.0]
+    pool = EgressPool(f"{P1},{P2}", clock=lambda: clock[0])
+    route = pool.routes[0]
+    accts = _accounts_on(pool, route, 10)
+    for i, acct in enumerate(accts):
+        pool.record_ok(route)                            # healthy-looking traffic
+        clock[0] += 300                                  # 10 blocks over 50 min
+        scope = pool.record_blocked(route, acct)
+        assert scope == ("egress" if i == 9 else "account")
+    assert route.breaker.remaining() > 0
+
+
+def test_egress_rest_escalates_and_resets_after_a_sign_in_gets_through():
+    clock = [0.0]
+    pool = EgressPool(f"{P1},{P2}", breaker=lambda: SsoBreaker(clock=lambda: clock[0]),
+                      clock=lambda: clock[0])
+    route = pool.routes[0]
+    accts = _accounts_on(pool, route, 8)
+
+    def trip(i):
+        pool.record_blocked(route, accts[i])
+        assert pool.record_blocked(route, accts[i + 1]) == "egress"
+        return route.rest_s
+
+    assert trip(0) == 1800
+    clock[0] += 1801
+    assert trip(2) == 3600
+    clock[0] += 3601
+    assert trip(4) == 7200                              # capped at the last step
+    clock[0] += 7201
+    pool.record_ok(route)                               # recovered: back to step one
+    assert trip(6) == 1800

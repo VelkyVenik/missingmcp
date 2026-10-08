@@ -22,12 +22,13 @@ def test_orphan_client_ttl_default_is_thirty_days():
     assert c.orphan_client_ttl == 30 * 86400
 
 
-def test_login_timeout_default_is_30s():
-    # Wall-clock cap on a synchronous adapter sign-in (garminconnect), so a
-    # rate-limited Garmin login can't block the request (and the event loop) for
-    # minutes. Hardcoded, not env-configurable.
+def test_login_timeout_default_is_75s():
+    # Wall-clock cap on a synchronous adapter sign-in (garminconnect). Long
+    # enough to outwait a blocked Garmin attempt (30-90 s) so users don't
+    # resubmit into an overlapping sign-in; short of a ~2 min hang.
+    # Hardcoded, not env-configurable.
     c = load_config(BASE)
-    assert c.login_timeout == 30
+    assert c.login_timeout == 75
 
 def test_strips_trailing_slash_from_public_url():
     c = load_config({**BASE, "PUBLIC_URL": "https://gw.example.com/"})
