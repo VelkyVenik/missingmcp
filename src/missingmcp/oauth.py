@@ -282,8 +282,10 @@ async def _bounded(config, fn, *args):
 
 
 def _timeout_message(adapter) -> str:
+    # The sign-in keeps going in the background after this (and holds the
+    # email's in-flight slot), so "try again" right away would be turned away.
     return (f"{adapter.display_name} sign-in timed out — the service may be "
-            "rate-limiting new sign-ins. Please wait a moment and try again.")
+            "rate-limiting new sign-ins. Wait a minute, then try again.")
 
 
 async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse | RedirectResponse:

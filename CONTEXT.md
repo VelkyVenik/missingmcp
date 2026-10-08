@@ -80,3 +80,43 @@ An access token whose `last_used` is older than a chosen threshold. This is what
 **Orphan account** (defined, out of current cleanup scope):
 An account row with no live access token — stored credentials for someone with no
 connected device.
+
+### Upstream sign-in (Garmin)
+
+**Sign-in attempt**:
+One try to sign a login email in to Garmin through one egress, ending
+**ok**, **needs MFA**, or **blocked**. Not yet an account — it becomes one
+only when the sign-in completes.
+_Avoid_: login (blurs the attempt with the account), auth attempt
+
+**Failing login**:
+A login email whose sign-in attempts keep not getting through — blocked, or
+stuck at needs MFA with no code ever arriving (what a wrong password looks
+like: Garmin shows its code page for any password and only sends a code
+after a correct one) — and that has not become an account.
+_Avoid_: bad account, failed account (an account is a stored connection)
+
+**Egress**:
+The outgoing address a sign-in attempt reaches Garmin from — one of the
+dedicated proxy IPs, or the host's own (shared) address as the last resort.
+**Burned** when Garmin's edge blocks sign-ins from it for everyone; a burned
+egress recovers after a rest, it is not lost.
+_Avoid_: proxy (that's the box, not the address), route (when you mean the IP)
+
+**In-flight sign-in**:
+A sign-in attempt for a login email that has started and not yet finished at
+Garmin — including one whose form already gave up waiting. At most one per
+login email; a second one is turned away, not queued.
+_Avoid_: pending login (that's the MFA step), lock
+
+**Post-connect hold**:
+A short pause on new sign-ins for a login email right after it became
+connected (signed in, or finished MFA) — so a double submit or a second device
+doesn't send Garmin a repeat sign-in. Not started by reaching MFA alone.
+_Avoid_: post-success cooldown (blurs it with the cooldown after a block)
+
+**Egress rest**:
+The time an egress is taken out of rotation after Garmin's edge blocked
+sign-ins from it for everyone; it lengthens if the egress keeps getting
+blocked, and shortens again once a sign-in gets through it.
+_Avoid_: ban, burn time

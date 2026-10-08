@@ -54,6 +54,19 @@ ACCOUNT_COOLDOWN_S = 300.0
 _EGRESS_BLOCK_WINDOW_S = 600.0
 _EGRESS_BLOCK_ACCOUNTS = 2
 
+# failing-logins map, "Choose the throttle policy" (2026-10-08):
+# - post-connect hold: a just-connected login email can't start another
+#   sign-in for 2 min (double submits / a second device sent Garmin a repeat
+#   sign-in; 12 % of blocks hit an email that had just got through);
+# - an egress also trips on >= 10 blocked in the last hour, staying under
+#   Cloudflare's stock login rule (~20 failures/h per IP -> 1-day block);
+# - egress rest escalates 30 min -> 1 h -> 2 h while an egress keeps getting
+#   tripped, back to the first step once a sign-in gets through it (burned
+#   egresses recovered in ~1-2 h; a 30 min rest re-tripped them).
+POST_CONNECT_HOLD_S = 120.0
+_EGRESS_HOURLY_BLOCKS = 10
+_EGRESS_REST_STEPS_S = (1800.0, 3600.0, 7200.0)
+
 
 class SsoBreaker:
     """Process-local circuit breaker for Garmin SSO sign-in through one egress.
@@ -73,9 +86,9 @@ class SsoBreaker:
         self._lock = threading.Lock()
         self._open_until = 0.0
 
-    def trip(self) -> None:
+    def trip(self, seconds: float | None = None) -> None:
         with self._lock:
-            self._open_until = self._clock() + self.cooldown
+            self._open_until = self._clock() + (self.cooldown if seconds is None else seconds)
 
     def remaining(self) -> float:
         with self._lock:
@@ -96,6 +109,7 @@ class Route:
     label: str             # log-safe: "direct" or host:port
     proxy: str | None      # None = the host's own egress
     breaker: SsoBreaker
+    rest_s: float = 0.0    # length of the latest egress rest (for logs)
     # The address Garmin actually sees, learned by the probe (cdn-cgi/trace).
     # The label shows the *proxy* host — every port on the box shares it,
     # while each port leaves through its own IP (ticket 12: that mix-up made
@@ -116,6 +130,11 @@ class EgressPool:
         self._account_until: dict[str, float] = {}
         # per egress label: account -> when it was last blocked there
         self._blocked: dict[str, dict[str, float]] = {r.label: {} for r in self.routes}
+        self._held_until: dict[str, float] = {}       # post-connect hold
+        self._in_flight: set[str] = set()              # one sign-in per email
+        self._hourly: dict[str, collections.deque] = {r.label: collections.deque()
+                                                      for r in self.routes}
+        self._rest_level: dict[str, int] = {r.label: 0 for r in self.routes}
         # per egress label: sign-in outcomes since the last take_stats()
         self._stats: dict[str, collections.Counter] = {
             r.label: collections.Counter() for r in self.routes}
@@ -142,6 +161,34 @@ class EgressPool:
         with self._lock:
             return max(0.0, self._account_until.get(account_key, 0.0) - self._clock())
 
+    def begin(self, account_key: str) -> bool:
+        """Claim the in-flight slot for this login email; False if a sign-in
+        for it is already running at Garmin (even one whose form timed out)."""
+        with self._lock:
+            if account_key in self._in_flight:
+                return False
+            self._in_flight.add(account_key)
+            return True
+
+    def end(self, account_key: str) -> None:
+        with self._lock:
+            self._in_flight.discard(account_key)
+
+    def mark_connected(self, account_key: str) -> None:
+        """Start the post-connect hold — only on a real connection (signed in
+        or MFA finished), never on reaching MFA: a wrong password lands there
+        and must be able to go back and retry at once."""
+        now = self._clock()
+        with self._lock:
+            for acct, until in list(self._held_until.items()):
+                if until <= now:
+                    del self._held_until[acct]
+            self._held_until[account_key] = now + POST_CONNECT_HOLD_S
+
+    def hold_remaining(self, account_key: str) -> float:
+        with self._lock:
+            return max(0.0, self._held_until.get(account_key, 0.0) - self._clock())
+
     def note(self, route: Route, outcome: str) -> None:
         """Count one sign-in outcome on this egress (for egress-health)."""
         with self._lock:
@@ -161,12 +208,15 @@ class EgressPool:
         egress trip and send everyone to direct for the whole cooldown."""
         with self._lock:
             self._blocked[route.label].clear()
+            self._rest_level[route.label] = 0
 
     def record_blocked(self, route: Route, account_key: str) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account
-        down; trips the route's breaker ("egress") only once enough distinct
+        down; trips the route's breaker ("egress") once enough distinct
         accounts were blocked on it within the window with no sign-in getting
-        through in between (see record_ok), else "account"."""
+        through in between (see record_ok), or once it collected
+        _EGRESS_HOURLY_BLOCKS blocks in the last hour; else "account". A trip
+        rests the egress for the next step of _EGRESS_REST_STEPS_S."""
         now = self._clock()
         with self._lock:
             for acct, until in list(self._account_until.items()):
@@ -178,11 +228,21 @@ class EgressPool:
                 if now - at > _EGRESS_BLOCK_WINDOW_S:
                     del recent[acct]
             recent[account_key] = now
-            tripped = len(recent) >= _EGRESS_BLOCK_ACCOUNTS
+            hourly = self._hourly[route.label]
+            hourly.append(now)
+            while hourly and now - hourly[0] > 3600:
+                hourly.popleft()
+            tripped = (len(recent) >= _EGRESS_BLOCK_ACCOUNTS
+                       or len(hourly) >= _EGRESS_HOURLY_BLOCKS)
             if tripped:
                 recent.clear()
+                hourly.clear()
+                level = self._rest_level[route.label]
+                rest = _EGRESS_REST_STEPS_S[min(level, len(_EGRESS_REST_STEPS_S) - 1)]
+                self._rest_level[route.label] = level + 1
         if tripped:
-            route.breaker.trip()
+            route.rest_s = rest
+            route.breaker.trip(rest)
             return "egress"
         return "account"
 

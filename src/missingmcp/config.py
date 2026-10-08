@@ -98,10 +98,12 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         # the connector. The sweep only bounds scanner-registration growth.
         orphan_client_ttl=30 * 86400,
         # Hardcoded wall-clock cap on a blocking adapter sign-in (garminconnect does
-        # synchronous network I/O). Long enough for a normal login + one transient
-        # retry, short enough that a rate-limited Garmin can't hang the request for
-        # minutes (observed: a 125s authorize POST before the client gave up).
-        login_timeout=30,
+        # synchronous network I/O, off the event loop). 75 s, not 30: a blocked
+        # Garmin attempt runs 30-90 s, and an earlier timeout sent users
+        # resubmitting while the first attempt kept going — overlapping sign-ins
+        # were the main avoidable traffic (failing-logins map). Still short of
+        # the ~2 min a rate-limited Garmin login can hang.
+        login_timeout=75,
         # Diagnostic for ticket 12 (egress-IP blocking): attempt-independent
         # timeline of Garmin SSO reachability. Off unless explicitly enabled.
         sso_probe_interval=int(env.get("SSO_PROBE_INTERVAL", "0")),

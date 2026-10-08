@@ -79,4 +79,25 @@ document.addEventListener("submit", function (e) {
   if (form.matches("[data-endpoint]")) { return; }
   if (form.dataset.busy) { e.preventDefault(); return; }
   form.dataset.busy = "1";
+  // Garmin sign-in can take up to a minute; say so, or people resubmit and
+  // start a second, overlapping sign-in (failing-logins map).
+  var btn = form.querySelector("button[data-busy-label]");
+  if (btn) {
+    btn.dataset.idleLabel = btn.textContent;
+    btn.textContent = btn.dataset.busyLabel;
+    btn.disabled = true;
+  }
+});
+
+// Back/forward cache restores the page as it was left — busy, button
+// disabled — so a user going back to fix a typo couldn't submit again.
+window.addEventListener("pageshow", function () {
+  document.querySelectorAll("form[data-busy]").forEach(function (form) {
+    delete form.dataset.busy;
+    var btn = form.querySelector("button[data-busy-label]");
+    if (btn) {
+      btn.disabled = false;
+      if (btn.dataset.idleLabel) { btn.textContent = btn.dataset.idleLabel; }
+    }
+  });
 });
