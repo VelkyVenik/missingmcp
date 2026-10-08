@@ -26,8 +26,14 @@ COPY campaigns ./campaigns
 # and the first image rebuild after the release crashed every worker spawn with
 # ModuleNotFoundError (2026-07-31 incident). The worker's other deps float too;
 # pin here, in the same resolve, whenever one of them breaks the same way.
+#
+# garmin-mcp pins garminconnect==0.3.2, which would otherwise *downgrade* the
+# gateway's pin and break SSO (no skip_strategies; email-MFA title misclassified).
+# Reinstall our pin last so the gateway process keeps 0.3.17; workers inherit
+# the same site-packages but only use token login, which is stable across these.
 RUN uv pip install --system . && \
-    uv pip install --system "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}" "mcp<2"
+    uv pip install --system "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}" "mcp<2" && \
+    uv pip install --system --reinstall "garminconnect==0.3.17"
 # -e 143: uvicorn (>=0.29) re-raises the SIGTERM it shut down on, so a clean
 # stop exits 143 and Railway mails "Deploy Crashed!" on every deploy. Only the
 # platform sends SIGTERM here; real crashes (OOM = SIGKILL, 137) still surface.
