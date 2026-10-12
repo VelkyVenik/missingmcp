@@ -51,16 +51,16 @@ class SecondFactorNeeded:
 class WorkerForward(Protocol):
     """Forward strategy B: per-account spawned HTTP worker.
 
-    Implementations may additionally provide the OPTIONAL hook
-    ``login_outcome(line: str) -> str | None``: classify one worker log line as
-    the upstream sign-in outcome — "ok", "failed", or None (not a sign-in
-    line). It is deliberately not part of the structural protocol: the manager
-    probes for it with getattr, and a worker that only serves after a
-    successful sign-in omits it entirely. It exists for workers that answer
-    their health check before the upstream sign-in has resolved (garmin_mcp's
-    background login): the first classified line is the manager's only startup
-    signal that the stored credentials still work, and ensure_worker blocks on
-    it ("failed" → WorkerCredentialsRejected → re-auth 401)."""
+    Implementations may additionally set the OPTIONAL attribute
+    ``readiness_path: str`` (e.g. ``"/readyz"``). It is deliberately not part
+    of the structural protocol: the manager probes for it with getattr, and a
+    worker that only serves after a successful sign-in omits it entirely. It
+    exists for workers that answer their liveness check (``/healthz``) before
+    the upstream sign-in has resolved (garmin_mcp's background login +
+    ``/readyz``): ``ensure_worker`` polls that path after ``/healthz`` and
+    maps ``failed`` → ``WorkerCredentialsRejected`` (re-auth 401). Worker
+    stderr is still pumped into the structured log for diagnostics, but is no
+    longer parsed for sign-in outcome."""
 
     def command(self) -> list[str]: ...
     def env(self, port: int, workdir: str) -> dict[str, str]: ...

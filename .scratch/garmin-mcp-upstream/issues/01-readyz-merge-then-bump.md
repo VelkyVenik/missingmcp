@@ -1,8 +1,8 @@
 # 01 — Land upstream /readyz, bump the pin, swap the login gate onto it
 
 Type: task
-Status: needs-info
-Blocked by: upstream Taxuspt/garmin_mcp#381 (issue #380) being applied to `main`
+Status: ready-for-human
+Blocked by: — (upstream Taxuspt/garmin_mcp#380 landed as merge commit `8e809d8` on 2026-10-12)
 
 ## Why
 
@@ -54,3 +54,11 @@ the re-auth self-heal. Upstream PR #381 (opened 2026-10-05 from
 - 2026-10-05: everything up to `cfc5d79` shipped in its own bump (listed
   above), ahead of #381 — the next bump only needs to reach the commit that
   applies /readyz.
+- 2026-10-12: upstream #380 landed as `8e809d8`. Pin bumped to tip-of-main
+  `e79df6f` (contains it). Gate swapped onto `/readyz` polling. Upstream
+  reports only `ready`|`pending`|`failed` — no MFA / password_reset / blocked
+  on the worker path (those stay on the gateway form-login). Unreachable
+  `/readyz` → timeout (`worker-login-timeout`), not stderr fallback. Stderr
+  pump kept for diagnostics. Also kept `garminconnect==0.3.17` reinstall
+  *after* garmin-mcp in the Dockerfile so the worker's `==0.3.2` pin cannot
+  downgrade the gateway.

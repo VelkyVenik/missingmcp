@@ -29,13 +29,13 @@ _WORKER_ERROR = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b")
 _WORKER_ROUTINE = "ASGI callable returned without completing response"
 
 
-def _pump_worker_output(stream, account: str, classify=None, gate=None) -> None:
+def _pump_worker_output(stream, account: str) -> None:
     """Forward a worker's merged stdout/stderr line-by-line into the structured
     log (event `worker-log`, filterable by account in Railway). Runs on a daemon
     thread until the pipe closes; replaces the old per-user worker.log files on
-    the volume (unbounded, only reachable over ssh). When the forward strategy
-    can classify sign-in log lines (`classify`), the first classified line fills
-    the spawn's LoginGate — ensure_worker's login gate blocks on it."""
+    the volume (unbounded, only reachable over ssh). Sign-in readiness is no
+    longer inferred from these lines — WorkerManager polls ``/readyz`` when the
+    forward advertises ``readiness_path``; stderr stays diagnostics-only."""
     try:
         for raw in stream:
             line = raw.rstrip()
@@ -44,10 +44,6 @@ def _pump_worker_output(stream, account: str, classify=None, gate=None) -> None:
             elevated = _WORKER_ERROR.search(line) and _WORKER_ROUTINE not in line
             emit = log_error if elevated else log
             emit("worker-log", account=account, line=line)
-            if gate is not None and gate.outcome is None:
-                outcome = classify(line)
-                if outcome is not None:
-                    gate.outcome = outcome
     except Exception:  # noqa: BLE001 - a logging pump must never take anything down
         pass
     finally:
@@ -73,26 +69,12 @@ class WorkerCredentialsRejected(WorkerStartError):
     Two signals mean this, matching two generations of `garmin_mcp`: a *clean*
     exit (rc 0) during startup — "OAuth tokens not found ... Exiting." before
     the worker logged in ahead of serving — and, since the login moved to a
-    background thread (garmin_mcp #255), a "failed to initialize" log line from
-    a worker that keeps running and answers /healthz regardless (the login gate,
-    `_wait_login`).
+    background thread (garmin_mcp #255) plus ``/readyz`` (garmin_mcp #380), a
+    ``{"status":"failed"}`` readiness response from a worker that keeps running
+    and answers /healthz regardless (`_wait_login`).
 
     A non-zero or signalled exit is deliberately NOT this — that's a crash, and
     it stays a plain WorkerStartError so it keeps reaching the ops alert."""
-
-
-class LoginGate:
-    """One-shot, per-spawn slot the output pump fills with the worker's sign-in
-    outcome ("ok"/"failed") when the forward strategy can classify its log lines
-    (`forward.login_outcome`). Needed because the worker answers /healthz before
-    its background Garmin sign-in has resolved (garmin_mcp #255) — health alone
-    no longer proves the account is serviceable, and without the gate a stale
-    token surfaces as a confusing per-call tool error instead of a re-auth 401."""
-
-    __slots__ = ("outcome",)
-
-    def __init__(self):
-        self.outcome: str | None = None
 
 
 @dataclass
@@ -180,9 +162,9 @@ class WorkerManager:
                 deadline = self._clock() + self._cfg.worker_startup_timeout
                 try:
                     outcome = await self._wait_healthy(port, proc, deadline)
-                    gate = getattr(proc, "login_gate", None)
-                    if outcome == "healthy" and gate is not None:
-                        login = await self._wait_login(gate, proc, deadline)
+                    path = getattr(proc, "readiness_path", None)
+                    if outcome == "healthy" and path is not None:
+                        login = await self._wait_login(port, proc, deadline, path)
                         if login == "failed":
                             self._stop_process(proc, port)
                             log("worker-login-rejected", port=port, account=key)
@@ -439,16 +421,13 @@ class WorkerManager:
         proc = subprocess.Popen(self._forward.command(), env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors="replace", bufsize=1)
-        # Arm the login gate only when the forward can classify sign-in lines
-        # AND a pump exists to feed it — an injected test spawn has neither, and
-        # ensure_worker skips the gate when the proc carries no `login_gate`.
-        classify = getattr(self._forward, "login_outcome", None)
-        gate = None
-        if classify is not None:
-            gate = LoginGate()
-            proc.login_gate = gate
+        # Arm readiness polling only when the forward advertises a path —
+        # injected test spawns omit it and ensure_worker skips the wait.
+        path = getattr(self._forward, "readiness_path", None)
+        if path is not None:
+            proc.readiness_path = path
         threading.Thread(target=_pump_worker_output,
-                         args=(proc.stdout, key, classify, gate),
+                         args=(proc.stdout, key),
                          name=f"worker-log-{key[:8]}", daemon=True).start()
         return proc
 
@@ -484,16 +463,46 @@ class WorkerManager:
             await asyncio.sleep(0.25)
         return "timeout"
 
-    async def _wait_login(self, gate: LoginGate, proc, deadline: float) -> str:
-        """Poll the pump-fed login gate until the sign-in outcome lands, the
-        worker dies, or the (shared) startup deadline passes. _wait_healthy one
-        boot stage later: same deadline, same reasons-out, plus the outcome
-        itself (`ok`/`failed`). The explicit outcome is checked before the
-        process, so a worker that reported and then exited keeps its verdict."""
+    async def _readyz(self, port: int, path: str) -> str | None:
+        """One /readyz probe. Returns upstream's ``status`` (``ready`` /
+        ``pending`` / ``failed``), or None when the endpoint is unreachable or
+        returns an unusable body — caller keeps polling until the shared
+        startup deadline (fallback: ``worker-login-timeout``)."""
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as c:
+                r = await c.get(f"http://127.0.0.1:{port}{path}")
+        except (httpx.HTTPError, OSError):
+            return None
+        try:
+            body = r.json()
+        except (ValueError, TypeError):
+            return None
+        status = body.get("status") if isinstance(body, dict) else None
+        if status in ("ready", "pending", "failed"):
+            return status
+        return None
+
+    async def _wait_login(self, port: int, proc, deadline: float,
+                          path: str = "/readyz") -> str:
+        """Poll the worker's readiness endpoint until login resolves, the
+        worker dies, or the (shared) startup deadline passes. ``_wait_healthy``
+        one boot stage later: same deadline, same reasons-out, plus the mapped
+        outcome (``ok`` / ``failed``). Upstream ``/readyz`` reports only
+        ready|pending|failed — finer form-login states (needs_mfa,
+        password_reset, blocked) never appear here. An unreachable /readyz is
+        treated like pending until timeout. A terminal status is checked before
+        process exit so a worker that reported and then exited keeps its
+        verdict."""
         while self._clock() < deadline:
-            if gate.outcome is not None:
-                return gate.outcome
+            state = await self._readyz(port, path)
+            if state == "ready":
+                return "ok"
+            if state == "failed":
+                return "failed"
+            # Terminal status is checked before poll so a worker that reported
+            # failed/ready and then exited keeps its verdict (same race the
+            # old log-line gate guarded).
             if proc.poll() is not None:
                 return "exited"
             await asyncio.sleep(0.25)
-        return gate.outcome or "timeout"
+        return "timeout"
