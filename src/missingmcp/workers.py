@@ -463,13 +463,17 @@ class WorkerManager:
             await asyncio.sleep(0.25)
         return "timeout"
 
-    async def _readyz(self, port: int, path: str) -> str | None:
+    async def _readyz(self, port: int, path: str, timeout: float = 2.0) -> str | None:
         """One /readyz probe. Returns upstream's ``status`` (``ready`` /
         ``pending`` / ``failed``), or None when the endpoint is unreachable or
         returns an unusable body — caller keeps polling until the shared
-        startup deadline (fallback: ``worker-login-timeout``)."""
+        startup deadline (fallback: ``worker-login-timeout``). ``timeout`` is
+        the per-request HTTP budget (capped by the caller to the remaining
+        startup time so a slow probe cannot overrun ``worker_startup_timeout``)."""
+        if timeout <= 0:
+            return None
         try:
-            async with httpx.AsyncClient(timeout=2.0) as c:
+            async with httpx.AsyncClient(timeout=timeout) as c:
                 r = await c.get(f"http://127.0.0.1:{port}{path}")
         except (httpx.HTTPError, OSError):
             return None
@@ -490,11 +494,21 @@ class WorkerManager:
         outcome (``ok`` / ``failed``). Upstream ``/readyz`` reports only
         ready|pending|failed — finer form-login states (needs_mfa,
         password_reset, blocked) never appear here. An unreachable /readyz is
-        treated like pending until timeout. A terminal status is checked before
-        process exit so a worker that reported and then exited keeps its
-        verdict."""
-        while self._clock() < deadline:
-            state = await self._readyz(port, path)
+        treated like pending until timeout. Each probe's HTTP timeout is capped
+        to the remaining budget, and the deadline is rechecked before accepting
+        a terminal status so a late response cannot admit the worker (or delay
+        ``worker-login-timeout``) past the shared SLA. A terminal status is
+        checked before poll so a worker that reported and then exited keeps
+        its verdict."""
+        while True:
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return "timeout"
+            state = await self._readyz(port, path, timeout=min(2.0, remaining))
+            # A probe that returned after the deadline must not admit (or
+            # reject) — treat as the shared startup timeout.
+            if self._clock() >= deadline:
+                return "timeout"
             if state == "ready":
                 return "ok"
             if state == "failed":
@@ -504,5 +518,9 @@ class WorkerManager:
             # old log-line gate guarded).
             if proc.poll() is not None:
                 return "exited"
-            await asyncio.sleep(0.25)
-        return "timeout"
+            # Don't sleep past the deadline — a 0.25s nap after a near-miss
+            # would only delay the timeout return.
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return "timeout"
+            await asyncio.sleep(min(0.25, remaining))

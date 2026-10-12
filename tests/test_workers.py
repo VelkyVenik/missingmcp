@@ -277,6 +277,46 @@ async def test_readyz_verdict_wins_over_a_simultaneous_process_exit(
         fake_worker.port, ExitedProc(), mgr._clock() + 1) == "failed"
 
 
+async def test_readyz_probe_caps_timeout_to_remaining_startup_budget(tmp_path):
+    # A fixed 2s HTTP timeout on /readyz would let a late ready admit the
+    # worker (or stall worker-login-timeout) after the shared deadline when
+    # /healthz already consumed most of worker_startup_timeout. Cap each probe
+    # to the remaining budget and recheck the deadline before accepting.
+    clock = [100.0]
+    probes: list[float] = []
+    cfg = _config(tmp_path)
+    mgr = workers.WorkerManager(cfg, GarminWorkerForward(cfg),
+                                clock=lambda: clock[0])
+
+    async def slow_readyz(port, path, timeout=2.0):
+        probes.append(timeout)
+        clock[0] += timeout                       # consume the whole probe budget
+        return "ready"                            # would admit without the recheck
+
+    class Alive:
+        def poll(self):
+            return None
+
+    mgr._readyz = slow_readyz
+    deadline = 100.5                              # only 0.5s left of the shared SLA
+    assert await mgr._wait_login(9000, Alive(), deadline) == "timeout"
+    assert probes == [0.5]                        # capped to remaining, not 2.0
+    assert clock[0] == 100.5                      # did not run past the deadline
+
+    # Plenty of budget left: full 2s probe timeout, ready admitted.
+    clock[0] = 200.0
+    probes.clear()
+
+    async def quick_readyz(port, path, timeout=2.0):
+        probes.append(timeout)
+        clock[0] += 0.1
+        return "ready"
+
+    mgr._readyz = quick_readyz
+    assert await mgr._wait_login(9000, Alive(), 207.0) == "ok"
+    assert probes == [2.0]
+
+
 async def test_cancelled_spawn_stops_the_orphan_worker(tmp_path, fake_worker):
     # A client disconnect cancels the request task mid-boot. The spawned process
     # is not yet registered and `finally` un-reserves its port — left running it
