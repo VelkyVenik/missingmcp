@@ -84,3 +84,5 @@ before/after numbers, and whether the destination is reached.
   strategies skipped through the proxy. From this deploy on, `blocked` means
   Garmin's edge really refused; compare blocked share only within the new
   series, and track `auth` separately (see ticket 05's comment).
+- 2026-10-12 — PR #47 deployed at 14:25 UTC (b154721). The "new series" for
+  the blocked share starts here.
