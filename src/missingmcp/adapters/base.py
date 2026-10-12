@@ -14,7 +14,7 @@ from typing import Mapping, Protocol
 
 class LoginError(Exception):
     """Login/verify failed. str(e) is user-facing (re-rendered on the form);
-    .reason feeds structured logs: "auth" | "blocked" | "unknown"."""
+    .reason feeds structured logs: "auth" | "password_reset" | "blocked" | "unknown"."""
 
     def __init__(self, message: str, reason: str = "unknown"):
         super().__init__(message)

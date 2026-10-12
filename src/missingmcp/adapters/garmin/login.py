@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass
@@ -12,9 +13,12 @@ from garminconnect import (
 
 
 class GarminLoginError(Exception):
-    def __init__(self, message: str, reason: str = "unknown"):
+    def __init__(self, message: str, reason: str = "unknown", page: str | None = None):
         super().__init__(message)
-        self.reason = reason   # "auth" (bad credentials) | "blocked" (429/403/exhausted) | "unknown"
+        # "auth" (bad credentials) | "password_reset" (Garmin demands a new
+        # password) | "blocked" (429/403/exhausted) | "unknown"
+        self.reason = reason
+        self.page = page       # title of the SSO page Garmin answered with, if any
 
 
 @dataclass
@@ -32,12 +36,34 @@ def _dump_tokens(client) -> str:
             return f.read()
 
 
-# Mobile SSO strategies 429 from datacenter fingerprints even on a clean
-# dedicated IP (verified 2026-10-04 on the Hetzner box; garminconnect attributes
-# it to the client fingerprint, not the IP). Running them first just burns ~10s
-# and Cloudflare budget before widget/portal — the strategies that actually
-# succeed through GARMIN_SSO_PROXY. Applied only when a proxy is in play.
-_SKIP_MOBILE_WHEN_PROXIED = frozenset({"mobile+cffi", "mobile+requests"})
+# Through GARMIN_SSO_PROXY only the widget strategy ever succeeds. Mobile 429s
+# from datacenter fingerprints even on a clean dedicated IP (garminconnect
+# attributes it to the client fingerprint, not the IP; 390 of 390 in the 30 h
+# before 2026-10-12), and portal hits a Cloudflare bot challenge (403, 80 of
+# 80) after 10-20 s anti-WAF waits each — pushing a failed sign-in past
+# login_timeout and only feeding Cloudflare more failures from our egress.
+# Applied only when a proxy is in play.
+_SKIP_WHEN_PROXIED = frozenset({"mobile+cffi", "mobile+requests",
+                                "portal+cffi", "portal+requests"})
+
+# garminconnect recognizes wrong credentials only by keywords in the widget
+# page's title, but Garmin re-renders the sign-in page itself ("GARMIN
+# Authentication Application") with the error in its body — the library then
+# reports an "unexpected title" connection error, and we used to call that
+# "blocked". 38 of 40 "blocked" sign-ins in the 30 h before 2026-10-12 were
+# this page, none a 429. MFA pages carry the same title but are recognized by
+# their mfaMethod vars first (garminconnect >= 0.3.17), so what's left is the
+# sign-in form coming back: Garmin didn't accept the email/password.
+_UNEXPECTED_TITLE = re.compile(r"unexpected title '([^']{0,80})'")
+_PAGE_REASONS = {
+    "GARMIN Authentication Application": "auth",
+    "Set Password": "password_reset",
+}
+
+
+def _page_title(err: Exception) -> str | None:
+    m = _UNEXPECTED_TITLE.search(str(err))
+    return m.group(1) if m else None
 
 
 def start_login(email: str, password: str, attempts: int = 2,
@@ -52,7 +78,9 @@ def start_login(email: str, password: str, attempts: int = 2,
     account cooldown / egress breaker decide what happens next. Wrong
     credentials ('auth') are never retried either.
 
-    Raises GarminLoginError with .reason in {auth, blocked, unknown}."""
+    Raises GarminLoginError with .reason in {auth, password_reset, blocked,
+    unknown}; .page carries the SSO page title when Garmin answered with a page
+    the library didn't expect."""
     last: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -74,7 +102,9 @@ def start_login(email: str, password: str, attempts: int = 2,
             sleep(backoff)
     reason = "blocked" if isinstance(
         last, (GarminConnectTooManyRequestsError, GarminConnectConnectionError)) else "unknown"
-    raise GarminLoginError(str(last) if last else "login failed", reason=reason)
+    page = _page_title(last) if last else None
+    reason = _PAGE_REASONS.get(page, reason)
+    raise GarminLoginError(str(last) if last else "login failed", reason=reason, page=page)
 
 
 def resume_login(pending, mfa_code: str) -> str:

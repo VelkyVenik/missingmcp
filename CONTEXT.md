@@ -85,15 +85,18 @@ connected device.
 
 **Sign-in attempt**:
 One try to sign a login email in to Garmin through one egress, ending
-**ok**, **needs MFA**, or **blocked**. Not yet an account — it becomes one
+**ok**, **needs MFA**, **wrong credentials** (Garmin hands its sign-in form
+back), **password reset** (Garmin demands a new password first), or
+**blocked** (Garmin's edge refused to answer). Not yet an account — it becomes one
 only when the sign-in completes.
 _Avoid_: login (blurs the attempt with the account), auth attempt
 
 **Failing login**:
-A login email whose sign-in attempts keep not getting through — blocked, or
-stuck at needs MFA with no code ever arriving (what a wrong password looks
-like: Garmin shows its code page for any password and only sends a code
-after a correct one) — and that has not become an account.
+A login email whose sign-in attempts keep not getting through — blocked,
+wrong credentials, or stuck at needs MFA with no code ever arriving (what a
+wrong password looks like on an MFA account: Garmin shows its code page for
+any password and only sends a code after a correct one) — and that has not
+become an account.
 _Avoid_: bad account, failed account (an account is a stored connection)
 
 **Egress**:
