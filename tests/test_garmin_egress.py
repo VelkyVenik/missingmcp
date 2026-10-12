@@ -119,7 +119,7 @@ def test_sign_in_runs_through_the_accounts_route_and_logs_it(capsys):
     assert rows[-1]["message"] == f"garmin login via {route.label}: ok"
 
 
-def test_proxied_sign_in_skips_mobile_strategies():
+def test_proxied_sign_in_skips_mobile_and_portal_strategies():
     a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
     seen = {}
 
@@ -128,7 +128,9 @@ def test_proxied_sign_in_skips_mobile_strategies():
         return login.LoginResult(status="ok", tokens_json='{"t":1}')
     with patch.object(login, "start_login", side_effect=fake):
         a.start_login(FORM)
-    assert seen["skip"] == login._SKIP_MOBILE_WHEN_PROXIED
+    assert seen["skip"] == login._SKIP_WHEN_PROXIED
+    assert {"mobile+cffi", "portal+requests"} <= seen["skip"]
+    assert "widget+cffi" not in seen["skip"]       # the one strategy that works
 
 
 def test_direct_sign_in_does_not_skip_mobile_strategies():
@@ -470,3 +472,23 @@ def test_egress_rest_escalates_and_resets_after_a_sign_in_gets_through():
     clock[0] += 7201
     pool.record_ok(route)                               # recovered: back to step one
     assert trip(6) == 1800
+
+
+def test_wrong_credentials_neither_cool_the_account_nor_count_against_the_egress(capsys):
+    # A re-rendered sign-in form is Garmin answering normally: the user fixes
+    # the typo and retries right away; the egress is evidently healthy.
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=P1))
+    route = a.pool.pick("me@x.cz")
+    err = login.GarminLoginError("x", reason="auth",
+                                 page="GARMIN Authentication Application")
+    with patch.object(a.pool, "record_ok", wraps=a.pool.record_ok) as ok, \
+            patch.object(login, "start_login", side_effect=err):
+        with pytest.raises(base.LoginError) as ei:
+            a.start_login(FORM)
+    assert ei.value.reason == "auth"
+    ok.assert_called_once_with(route)
+    assert a.pool.account_remaining("me@x.cz") == 0
+    rows = _rows(capsys)
+    assert not [r for r in rows if r.get("event") == "login-breaker-open"]
+    att = [r for r in rows if r.get("event") == "garmin-login-attempt"][-1]
+    assert att["outcome"] == "auth" and att["page"] == "GARMIN Authentication Application"

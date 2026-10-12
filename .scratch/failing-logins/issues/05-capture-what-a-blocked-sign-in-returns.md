@@ -13,3 +13,20 @@ is Cloudflare's rate-limit page (error 1015) or a CAS page. This tells
 "Choose the throttle policy" whether the limiter is Cloudflare or CAS and how
 long its block really lasts (sets the egress cooldown). Small code change via
 PR; garminconnect's exceptions may need their response inspected.
+
+## Comments
+
+- 2026-10-12 — **Partly answered from existing logs** (garminconnect's own
+  warning lines, 2026-10-11 08:35 → 10-12 14:03 UTC, 0.3.2 era). Of 40 sign-ins
+  reported `blocked`: **0** had a widget 429. 38 had the widget POST answered
+  with the sign-in page itself (title "GARMIN Authentication Application" — the
+  form handed back, i.e. Garmin didn't accept the credentials, or an email-MFA
+  page 0.3.2 couldn't recognize), 2 a "Set Password" page; in all 40 the
+  fallback portal strategies then hit a Cloudflare bot challenge (403) and the
+  library reported "exhausted" → we said `blocked`. Mobile strategies added 390
+  pointless 429s (skip ignored by 0.3.2). So most "blocked" was never Garmin's
+  edge limiting our egress. Fix (PR after #46): portal skipped when proxied;
+  the widget page title is logged as `page` on `garmin-login-attempt` and
+  mapped — sign-in form → `auth`, "Set Password" → `password_reset`; neither
+  cools the account nor counts against the egress. HTTP status / Retry-After
+  of a real widget 429 still unlogged — revisit only if real 429s show up.

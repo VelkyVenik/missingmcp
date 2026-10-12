@@ -99,7 +99,7 @@ def test_start_login_auth_error_maps_message():
                       side_effect=login.GarminLoginError("bad", reason="auth")):
         with pytest.raises(base.LoginError) as ei:
             _adapter().start_login({"garmin_email": "me@x.cz", "garmin_password": "pw"})
-    assert ei.value.reason == "auth" and "check your Garmin email" in str(ei.value)
+    assert ei.value.reason == "auth" and "check them" in str(ei.value)
 
 
 _FORM = {"garmin_email": "me@x.cz", "garmin_password": "pw"}
@@ -196,3 +196,11 @@ def test_registry_builds_all_adapters():
     assert set(adapters) == {"garmin"}
     assert adapters["garmin"].name == "garmin"
     assert adapters["garmin"].forward.command() == ["uvx", "garmin-mcp"]
+
+
+def test_start_login_password_reset_maps_message():
+    with patch.object(login, "start_login",
+                      side_effect=login.GarminLoginError("x", reason="password_reset")):
+        with pytest.raises(base.LoginError) as ei:
+            _adapter().start_login({"garmin_email": "me@x.cz", "garmin_password": "pw"})
+    assert ei.value.reason == "password_reset" and "connect.garmin.com" in str(ei.value)

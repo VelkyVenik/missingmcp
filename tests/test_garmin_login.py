@@ -160,3 +160,37 @@ def test_installed_garminconnect_honors_skip_strategies():
     g = Garmin(email="me@x.cz", password="pw", return_on_mfa=True)
     assert g.client.skip_strategies == set()
     assert "skip_strategies" in inspect.getsource(gc_client.Client.login)
+
+
+def _exhausted(title):
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectConnectionError(
+            f"All login strategies exhausted: Widget login: unexpected title '{title}'")
+        return g
+    return make
+
+
+def test_sign_in_page_coming_back_is_wrong_credentials_not_blocked():
+    # 38 of 40 "blocked" sign-ins (2026-10-11/12) were this: Garmin re-rendered
+    # the sign-in form, no 429 anywhere.
+    with patch.object(garmin_login, "Garmin",
+                      side_effect=_exhausted("GARMIN Authentication Application")):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "wrong", sleep=lambda s: None)
+    assert ei.value.reason == "auth"
+    assert ei.value.page == "GARMIN Authentication Application"
+
+
+def test_set_password_page_is_password_reset():
+    with patch.object(garmin_login, "Garmin", side_effect=_exhausted("Set Password")):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", sleep=lambda s: None)
+    assert ei.value.reason == "password_reset" and ei.value.page == "Set Password"
+
+
+def test_unknown_page_stays_blocked_with_its_title():
+    with patch.object(garmin_login, "Garmin", side_effect=_exhausted("Just a moment...")):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", sleep=lambda s: None)
+    assert ei.value.reason == "blocked" and ei.value.page == "Just a moment..."

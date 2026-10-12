@@ -76,3 +76,11 @@ before/after numbers, and whether the destination is reached.
   Authentication Application") fell through as "unexpected title" and could end
   as `blocked`. Fix: gateway pinned to 0.3.17, worker in its own venv. Days 1–4
   above are the 0.3.2 era; compare the days after the deploy separately.
+- 2026-10-12 — **0.3.17 deployed** at 14:14 UTC (PR #46, e2ab9f2; verified in
+  the container: gateway 0.3.17, worker venv 0.3.2). Days measured from here on
+  are the "after" series.
+- 2026-10-12 — **Second break (PR after #46):** sign-in form handed back is now
+  `auth` and "Set Password" is `password_reset` (were `blocked`), portal
+  strategies skipped through the proxy. From this deploy on, `blocked` means
+  Garmin's edge really refused; compare blocked share only within the new
+  series, and track `auth` separately (see ticket 05's comment).
