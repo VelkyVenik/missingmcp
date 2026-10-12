@@ -145,3 +145,18 @@ def test_verify_tokens_raises_when_login_fails():
     with patch.object(garmin_login, "Garmin", side_effect=make):
         with pytest.raises(garmin_login.GarminLoginError):
             garmin_login.verify_tokens('{"oauth":"tok"}')
+
+
+def test_installed_garminconnect_honors_skip_strategies():
+    """The real library, not a mock: login.start_login sets
+    client.skip_strategies, which garminconnect < 0.3.17 silently ignores (it
+    has no such attribute). Production ran 0.3.2 for weeks because the worker's
+    pin overwrote the gateway's in a shared site-packages — every proxied
+    sign-in then burned the mobile strategies' 429s on our egress."""
+    import inspect
+    from garminconnect import Garmin
+    from garminconnect import client as gc_client
+
+    g = Garmin(email="me@x.cz", password="pw", return_on_mfa=True)
+    assert g.client.skip_strategies == set()
+    assert "skip_strategies" in inspect.getsource(gc_client.Client.login)
