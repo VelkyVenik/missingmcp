@@ -166,17 +166,21 @@ manager-owned, credential files come from `forward.materialize` (`0600`).
 into the structured log (`event=worker-log`, `account` attr, ERROR/Traceback
 lines elevated) — no per-user `worker.log` files on the volume.
 
-**Login gate** (garmin_mcp ≥ `e8554bc`): the worker signs in to Garmin on a
-background thread and answers `/healthz` *before* the sign-in resolves, so
-health alone no longer proves the account's tokens work — a stale token would
-otherwise surface as a per-call "run garmin-mcp-auth" tool error the user can't
-act on. `_default_spawn` therefore attaches a one-shot `LoginGate` to the
-process; the output pump fills it from the first sign-in log line the forward
-classifies (`forward.login_outcome`, optional — probed with `getattr` like
-`read_back`), and `ensure_worker` blocks on it after `/healthz`, inside the
-same `worker_startup_timeout` budget: "failed" → `worker-login-rejected` +
-`WorkerCredentialsRejected` (re-auth, self-heal), silence → `worker-login-timeout`
-+ plain `WorkerStartError`. Injected test spawns carry no gate and skip the wait.
+**Login gate** (garmin_mcp ≥ `e8554bc`, `/readyz` since `8e809d8`): the worker
+signs in to Garmin on a background thread and answers `/healthz` *before* the
+sign-in resolves, so health alone no longer proves the account's tokens work —
+a stale token would otherwise surface as a per-call "run garmin-mcp-auth" tool
+error the user can't act on. `_default_spawn` therefore copies
+`forward.readiness_path` (optional — probed with `getattr` like `read_back`)
+onto the process, and `ensure_worker` polls that path after `/healthz`, inside
+the same `worker_startup_timeout` budget. Upstream `/readyz` reports only
+`ready` / `pending` / `failed` (HTTP 200 / 503 / 503): `failed` →
+`worker-login-rejected` + `WorkerCredentialsRejected` (re-auth, self-heal);
+still `pending` or unreachable at the deadline → `worker-login-timeout` + plain
+`WorkerStartError`. MFA / password-reset / rate-limit are form-login concerns
+on the gateway's OAuth path, not worker readiness. Worker stderr is still
+pumped into the structured log for diagnostics but is no longer parsed for
+sign-in outcome. Injected test spawns omit `readiness_path` and skip the wait.
 
 **Port hygiene** (reliability ticket 12): `_alloc_port` round-robins through
 the range (never lowest-free-first — that hands the next spawn exactly the
@@ -220,7 +224,7 @@ strategy dispatch via `is_remote` / `is_local`:
   two generations of `garmin_mcp`: a worker that exits **cleanly (rc 0)** during
   startup ("OAuth tokens not found … Exiting.", event `worker-exited-early`) and
   — since the worker's login moved to a background thread — a healthy worker
-  whose sign-in log line reports failure (the login gate, event
+  whose `/readyz` reports `failed` (the login gate, event
   `worker-login-rejected`). Everything else is a genuine fault that keeps
   `worker-start-failed` at error level: a spawn failure, an exhausted port
   range, a worker that stayed alive and never answered `/healthz`

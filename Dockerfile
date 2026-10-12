@@ -5,11 +5,13 @@ WORKDIR /app
 # Pin the unmodified garmin_mcp worker to a reviewed commit (override at build
 # time). Bumping this is a deliberate, reviewed action: the worker runs with each
 # user's decrypted Garmin tokens, so a floating ref would run unreviewed code.
-# e8554bc (2026-09-01): reviewed 2026-09-03 — no dependency additions, no new
-# network destinations; NOTE the worker now logs in on a background thread and
-# answers /healthz before the sign-in resolves, which is why WorkerManager gates
-# spawns on the sign-in log lines (forward.login_outcome).
-ARG GARMIN_MCP_REF=cfc5d799ab0f165e837f1188a1d093c65838aaf7
+# e8554bc (2026-09-01): the worker logs in on a background thread and answers
+# /healthz before the sign-in resolves. 8e809d8 (2026-10-12) adds GET /readyz
+# (ready|pending|failed), which WorkerManager polls (forward.readiness_path).
+# e79df6f (tip of main, contains 8e809d8): reviewed 2026-10-12 — no new
+# dependencies (lock bumps of anyio/pyjwt/urllib3 only), no new network
+# destinations; +1 tool (set_activity_exercise_sets).
+ARG GARMIN_MCP_REF=e79df6fc59b276d03c478398b91c7e40a791f46b
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
 # git: uv installs the pinned garmin_mcp worker from a git ref.

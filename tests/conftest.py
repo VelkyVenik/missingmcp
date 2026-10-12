@@ -49,7 +49,17 @@ class _FakeHttpServer:
 
 
 class FakeWorker(_FakeHttpServer):
-    """A minimal HTTP server mimicking garmin-mcp's /healthz and /mcp."""
+    """A minimal HTTP server mimicking garmin-mcp's /healthz, /readyz, and /mcp.
+
+    ``readyz_status`` knobs the readiness probe (garmin_mcp ≥ 8e809d8):
+      - ``"ready"`` (default): 200 ``{"status":"ready"}``
+      - ``"pending"`` / ``"failed"``: 503 with that status
+      - ``None``: 404 (endpoint missing / unreachable for timeout tests)
+    """
+
+    def __init__(self):
+        self.readyz_status = "ready"
+        super().__init__()
 
     def _handler(self) -> type:
         worker = self
@@ -61,6 +71,18 @@ class FakeWorker(_FakeHttpServer):
             def do_GET(self):
                 if self.path == "/healthz":
                     self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+                elif self.path == "/readyz":
+                    status = worker.readyz_status
+                    if status is None:
+                        self.send_response(404); self.end_headers()
+                        return
+                    code = 200 if status == "ready" else 503
+                    body = json.dumps({"status": status}).encode()
+                    self.send_response(code)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
                 else:
                     self.send_response(404); self.end_headers()
 
