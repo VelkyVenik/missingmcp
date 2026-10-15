@@ -2,6 +2,7 @@
 
 Label: wayfinder:map
 Created: 2026-10-06
+Status: closed (2026-10-15) — destination reached
 
 ## Destination
 
@@ -46,15 +47,19 @@ sign-in attempts we let through to Garmin at all — is **decided, deployed
 - [Profile failing logins in production](issues/01-profile-failing-logins.md): 42 % of 624 attempts blocked; the main controllable driver is overlapping/retried sign-ins of the same email (cooldown can't stop concurrent ones), then repeats right after a success; wrong passwords and abuse are not material.
 - [Choose the throttle policy](issues/03-choose-the-throttle-policy.md): one in-flight sign-in per email; 2 min post-connect hold (real connection only); 5 min account cooldown; egress trips on 2 accounts w/o success or 10 blocked/h, escalating rest 30m→1h→2h; form wait 75 s + disabled submit; memory only; new reject scopes in_flight / post_success.
 - [How Garmin's edge limits sign-ins](issues/02-how-garmin-edge-limits-sign-ins.md): POST-only rate limit (Cloudflare-style, ~1 h/1 day steps, ~20 failures/h per IP in the stock template) plus a plausible Garmin CAS failure throttle; mobile 429 is global; retries and failures — incl. invisible wrong passwords — are what count.
+- [Build, deploy and measure the throttle policy](issues/04-build-deploy-measure.md): shipped PR #44 + #46 (garminconnect 0.3.17, worker in its own venv) + #47 (wrong credentials ≠ blocked, portal skipped behind the proxy); 7 days: no egress dark > 60 min, 0 egress rejects, 0 % blocked since 2026-10-12 14:25 (pre-throttle 42 %), 96/104 typo-fixers in within 5 min — destination reached.
+- [Capture what a blocked sign-in returns](issues/05-capture-what-a-blocked-sign-in-returns.md): "blocked" was mostly the sign-in form handed back plus the portal's Cloudflare 403, not an egress limit; after the fix no real block remained to capture.
 
 ## Not yet specified
 
-- **Abuse response** — no abuse signature in the first 2 days (max 3 emails
-  per user IP); revisit only if the measurement after deploy shows one source
-  driving many emails.
+— (none; map closed)
 
 ## Out of scope
 
 - Official Garmin API — reliability ticket 13 (strategic, separate effort).
 - More / residential egress IPs and proxy operations — operator's infra track.
 - Changing garminconnect's login strategies beyond what we already configure.
+- Abuse response — never materialized over the measurement (no source driving
+  many emails); out of scope unless it shows up, then as a fresh effort.
+- Egress count and proxy password rotation — operator's infra track
+  (peak ≤ 16 sign-in attempts/hour per egress over the window).
