@@ -147,6 +147,11 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         # Stateless server (in-process, or a session-less worker): no SSE
         # listen stream, no sessions. Answered here so a GET never holds a
         # worker in flight (or spawns one) for a stream that can't carry data.
+        # Logged like every forwarded response, so scripts/session_loss.py
+        # sees these 405s replace the old GET 409s / 15-min streams.
+        ms = int((time.monotonic() - t0) * 1000)
+        log("mcp-response", adapter=adapter.name, account=key, tool=None,
+            status=405, ttfb_ms=ms, total_ms=ms, bytes=0)
         return JSONResponse({"error": "method_not_allowed"}, status_code=405,
                             headers={"Allow": "POST"})
 

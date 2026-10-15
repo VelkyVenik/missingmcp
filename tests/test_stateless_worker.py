@@ -6,7 +6,11 @@ tests/garmin_stub_worker.py on the real MCP SDK. The stateful run is the
 control: it reproduces the production failure, so the test can't pass by
 never replacing the worker.
 """
+import importlib.util
 import json
+import pathlib
+import random
+import socket
 import sys
 
 import pytest
@@ -14,7 +18,6 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from conftest import _free_port
 from missingmcp import proxy, security, store, workers
 from missingmcp.adapters.garmin import GarminAdapter
 from missingmcp.config import load_config
@@ -29,9 +32,25 @@ WHOAMI = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
           "params": {"name": "whoami", "arguments": {}}}
 
 
+def _free_port_range(n: int) -> int:
+    """Start of n consecutive bindable ports, below the OS's ephemeral range
+    (macOS 49152+, Linux 32768+) so the test's own outgoing connections can't
+    take one between the check and the worker's bind."""
+    for _ in range(50):
+        start = random.randrange(20000, 30000 - n)
+        try:
+            for port in range(start, start + n):
+                with socket.socket() as s:
+                    s.bind(("127.0.0.1", port))
+            return start
+        except OSError:
+            continue
+    raise RuntimeError("no free port range")
+
+
 class Gateway:
     def __init__(self, tmp_path, stateless: bool, max_workers: int):
-        start = _free_port()
+        start = _free_port_range(5)
         cfg = load_config({
             "GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://x",
             "DATA_DIR": str(tmp_path), "GARMIN_MCP_CMD": f"{sys.executable} {STUB}",
@@ -144,10 +163,22 @@ def test_accounts_stay_isolated_and_auth_is_enforced(gateway):
 
 
 @pytest.mark.parametrize("gateway", [(True, 1)], indirect=True)
-def test_get_and_delete_are_405_without_touching_a_worker(gateway):
+def test_get_and_delete_are_405_without_touching_a_worker(gateway, capsys):
     auth = {"Authorization": "Bearer tok-alice", "Mcp-Session-Id": LEGACY_SID}
     r = gateway.client.get("/garmin/mcp", headers={**auth, "Accept": "text/event-stream"})
     assert r.status_code == 405 and r.headers["allow"] == "POST"
     assert gateway.client.delete("/garmin/mcp", headers=auth).status_code == 405
     assert gateway.mgr._workers == {}            # nothing spawned for either
     assert gateway.client.get("/garmin/mcp").status_code == 401   # auth still first
+
+    # The 405s reach the before/after report through the log the gateway
+    # really writes (Railway adds the timestamp field).
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()
+            if line.startswith("{")]
+    for r in rows:
+        r["timestamp"] = "2026-10-15T10:00:00.000000000Z"
+    path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "session_loss.py"
+    spec = importlib.util.spec_from_file_location("session_loss", path)
+    session_loss = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(session_loss)
+    assert session_loss.report(rows)["get_delete_status"] == {405: 2}
