@@ -60,7 +60,13 @@ class WorkerForward(Protocol):
     ``/readyz``): ``ensure_worker`` polls that path after ``/healthz`` and
     maps ``failed`` → ``WorkerCredentialsRejected`` (re-auth 401). Worker
     stderr is still pumped into the structured log for diagnostics, but is no
-    longer parsed for sign-in outcome."""
+    longer parsed for sign-in outcome.
+
+    A second OPTIONAL attribute, ``stateless: bool``, says the worker serves
+    Streamable HTTP without MCP sessions. The proxy then answers GET/DELETE
+    with 405 itself, like the local strategy: a stateless worker has nothing to
+    push on a GET listen stream (it would only hold the worker busy until the
+    edge cuts it) and no session for DELETE to end."""
 
     def command(self) -> list[str]: ...
     def env(self, port: int, workdir: str) -> dict[str, str]: ...

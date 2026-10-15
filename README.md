@@ -147,6 +147,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `WORKER_IDLE_TTL` | no | `900` | Seconds before an idle worker is reaped. |
 | `WORKER_STARTUP_TIMEOUT` | no | `20` | Seconds to wait for a worker to become healthy. |
 | `MAX_WORKERS` | no | `10` | Max concurrent per-user workers. |
+| `GARMIN_MCP_STATELESS_HTTP` | no | `true` | Run garmin workers' Streamable HTTP without MCP sessions (passed to every worker explicitly). A replaced worker (eviction, idle reap, crash, deploy) then still serves the client's old `Mcp-Session-Id` instead of answering 404 "Session not found"; the gateway answers GET/DELETE on `/garmin/mcp` with 405 itself. `false` is the rollback switch (session-ful workers, GET/DELETE forwarded). Accepts `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off` (case-insensitive; empty = default); any other value stops the gateway at startup. |
 | `SSO_PROBE_INTERVAL` | no | `0` (off) | Seconds between browser-impersonated GET probes of Garmin's SSO embed widget, once per sign-in egress (event `sso-probe`, fields `via`, `egress_ip` — the egress's real outgoing IP via `cdn-cgi/trace`; plus `egress-health` per egress: real sign-in outcomes since the previous run, since the GET can't see a blocked credential POST; `egress-ip-changed` when an egress's IP changes, floor 60 s) — an attempt-independent block timeline for diagnosing egress-IP rate-limiting (reliability ticket 12). |
 | `GARMIN_SSO_PROXY` | no | — (direct) | Comma-separated proxy URLs (`http://user:pass@host:port`) on dedicated IPs for the gateway's own Garmin traffic — sign-in, MFA, token verify — instead of the shared host egress that Garmin's SSO rate-limits (ticket 12). Each account sticks to one proxy (by account hash). Sign-in throttling (failing-logins map): one in-flight sign-in per login email (a concurrent one is turned away); a 2 min post-connect hold after a real connection; a "blocked" sign-in cools down only that account for 5 min, without an in-call retry; an egress's breaker trips once ≥2 distinct accounts are blocked on it with no sign-in getting through between, or on ≥10 blocks in an hour, resting it 30 min → 1 h → 2 h on repeated trips (back to 30 min after a sign-in gets through). The direct path stays as the last resort (reached only when every proxy is cooling down). Mobile SSO strategies are skipped on proxied sign-ins (they 429 from datacenter fingerprints even on a clean IP). Workers and all other traffic stay direct. Events: `garmin-login-attempt` (`account`, `egress`, `egress_ip`, `outcome`, `message`), `login-breaker-open` / `login-breaker-reject` (`scope`: `account`|`egress`|`in_flight`|`post_success`, `egress`, `account`, `message`), `sso-probe` per egress (`via`, `message`). Logged as host:port only. |
 | `ACCESS_TOKEN_TTL_DAYS` | no | `90` | Bearer token lifetime; user re-authenticates after it. `0` disables expiry. |
@@ -243,6 +244,11 @@ python scripts/daily_report.py --post                 # + POST it to Slack ($SLA
 python scripts/add_beer.py --email <supporter>        # record a "buy me a beer" donation (1 beer, 5 EUR)
 python scripts/add_beer.py --email <supporter> --beers 3 --at 2026-07-20  # 3 beers, backdated
 ```
+
+`scripts/session_loss.py` works on Railway logs instead (`railway logs --json`
+output, see its docstring): the share of garmin calls failing on a lost MCP
+session (404), overall and within 5 s of a worker start — the before/after
+measure for `GARMIN_MCP_STATELESS_HTTP`.
 
 The gateway also posts this daily user-stats report to Slack on its own each
 morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when

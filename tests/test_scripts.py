@@ -248,3 +248,26 @@ def test_campaign_create_rejects_missing_subject(seeded_db, tmp_path, capsys, mo
     with pytest.raises(SystemExit):
         run_script("campaign", ["--db", seeded_db, "create", "bad", "--dir", str(d)],
                    capsys, monkeypatch)
+
+
+def test_session_loss_splits_404s_right_after_a_worker_start():
+    mod = load_script("session_loss")
+
+    def row(event, sec, **kw):
+        return {"event": event, "timestamp": f"2026-10-15T10:00:{sec:02d}.123456789Z", **kw}
+    rows = [
+        row("worker-started", 0, account="a"),
+        row("mcp-response", 2, account="a", tool="get_stats", status=404),   # just started
+        row("mcp-response", 3, account="a", tool="get_stats", status=200),
+        row("mcp-response", 30, account="a", tool="get_stats", status=404),  # long after
+        row("mcp-response", 31, account="b", tool="initialize", status=400),
+        row("mcp-response", 32, account="b", tool=None, status=405),         # GET/DELETE
+        row("mcp-response", 33, account="w", adapter="whoop", tool="x", status=404),
+    ]
+    r = mod.report(rows, after_start_s=5)
+    assert r["worker_starts"] == 1
+    assert (r["post"], r["404"], r["404_accounts"]) == (4, 2, 1)
+    assert r["404_share"] == "50.00%" and r["400_share"] == "25.00%"
+    assert r["post_within_5s_of_start"] == 2
+    assert r["404_share_within_5s"] == "50.00%" and r["404s_within_5s"] == "50.00%"
+    assert r["get_delete_status"] == {405: 1}

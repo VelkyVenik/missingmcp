@@ -35,7 +35,9 @@ Issues = "https://github.com/VelkyVenik/missingmcp/issues"
 missingmcp = "missingmcp.app:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+# mcp: the MCP SDK the garmin worker runs on (Dockerfile: "mcp<2"), only for
+# tests/test_stateless_worker.py's stub worker — never imported by the gateway.
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "mcp>=1.30,<2"]
 
 [build-system]
 requires = ["hatchling"]

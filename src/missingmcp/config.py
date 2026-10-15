@@ -22,6 +22,7 @@ class Config:
     login_timeout: int            # seconds; wall-clock cap on a synchronous adapter sign-in
     sso_probe_interval: int       # seconds between Garmin SSO reachability probes; 0 = off
     garmin_sso_proxy: str         # proxy URL for the gateway's Garmin sign-in traffic; "" = direct
+    garmin_stateless_http: bool   # garmin workers serve Streamable HTTP without MCP sessions
     operator_name: str
     operator_email: str
     operator_url: str             # optional homepage the operator name links to
@@ -63,6 +64,24 @@ def mail_daily_cap(env: Mapping[str, str]) -> int:
     without the full load_config (which demands GATEWAY_SECRET). A new
     Cloudflare account starts at 200/day; the default leaves headroom."""
     return int(env.get("MAIL_DAILY_CAP", "180"))
+
+
+_TRUE = ("1", "true", "yes", "on")
+_FALSE = ("0", "false", "no", "off")
+
+
+def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
+    """Strict boolean env var: a typo must stop the deploy, not reach the
+    worker — garmin_mcp exits on an unrecognized GARMIN_MCP_STATELESS_HTTP, so
+    a bad value passed through would fail every spawn (= re-auth 401 for all)."""
+    raw = env.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ValueError(f"{name} must be true or false, got {raw!r}")
 
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
@@ -110,6 +129,11 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         # Ticket 12: Garmin's SSO rate-limits our shared egress IP; sign-in
         # (and only sign-in) can leave through a dedicated IP instead.
         garmin_sso_proxy=env.get("GARMIN_SSO_PROXY", "").strip(),
+        # MCP sessions live inside a worker process, so every eviction/respawn
+        # turned the client's next call into 404 "Session not found" (~3,900/day
+        # at MAX_WORKERS=60). Stateless workers accept any or no Mcp-Session-Id;
+        # GARMIN_MCP_STATELESS_HTTP=false is the rollback switch.
+        garmin_stateless_http=_flag(env, "GARMIN_MCP_STATELESS_HTTP", True),
         operator_name=env.get("OPERATOR_NAME", "the operator"),
         operator_email=env.get("OPERATOR_EMAIL", ""),
         operator_url=env.get("OPERATOR_URL", "").strip(),

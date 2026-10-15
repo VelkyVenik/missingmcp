@@ -26,8 +26,9 @@ def test_second_factor_error_carries_state():
     assert str(e) == "wrong code" and e.state is state
 
 
-CFG = load_config({"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://x",
-                   "GARMIN_MCP_CMD": "uvx garmin-mcp"})
+_CFG_ENV = {"GATEWAY_SECRET": "z" * 40, "PUBLIC_URL": "https://x",
+            "GARMIN_MCP_CMD": "uvx garmin-mcp"}
+CFG = load_config(_CFG_ENV)
 
 
 def test_garmin_forward_command_comes_from_config():
@@ -41,7 +42,16 @@ def test_garmin_forward_env_is_the_documented_contract():
         "GARMIN_MCP_HOST": "127.0.0.1",
         "GARMIN_MCP_PORT": "9007",
         "GARMINTOKENS": "/data/users/me/tokens",
+        "GARMIN_MCP_STATELESS_HTTP": "true",
     }
+
+
+def test_garmin_forward_stateless_rollback_switch():
+    cfg = load_config({**_CFG_ENV, "GARMIN_MCP_STATELESS_HTTP": "false"})
+    fwd = GarminWorkerForward(cfg)
+    assert fwd.stateless is False
+    assert fwd.env(9007, "/w")["GARMIN_MCP_STATELESS_HTTP"] == "false"
+    assert GarminWorkerForward(CFG).stateless is True
 
 
 def test_garmin_forward_materialize_writes_0600_tokens_file(tmp_path):
