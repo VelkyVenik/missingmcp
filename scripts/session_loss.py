@@ -4,13 +4,15 @@ after a worker start — the before/after measure for GARMIN_MCP_STATELESS_HTTP.
 
 Reads `railway logs --json` output (JSON lines; other lines are skipped):
 
-    railway logs --service gateway --json --since 2026-10-14T18:30:00Z \\
-        --until 2026-10-15T18:30:00Z \\
-        --filter '@event:mcp-response OR @event:worker-started' > before.jsonl
+    railway logs --service gateway --json --lines 5000 \\
+        --since 2026-10-14T18:30:00Z --until 2026-10-14T19:00:00Z \\
+        --filter '@event:mcp-response OR @event:worker-started' >> before.jsonl
     python scripts/session_loss.py before.jsonl after.jsonl
 
-`--lines` caps at 5000 (~40 min of traffic in 2026-10), so fetch a long
-window in --since/--until slices and `cat` them into one file. A row per file. 404 is only ever a lost session on this path (auth failures
+Without `--lines` the CLI returns only 500 records, and it caps at 5000
+(~40 min of traffic in 2026-10): fetch a long window in 30-min slices,
+appending to one file, and redo a slice that returns exactly 5000 rows
+with a shorter span. A row per file. 404 is only ever a lost session on this path (auth failures
 are 401), and a request with a parsed tool/method is a POST — GET/DELETE carry
 no body. Stateless workers answer neither 404 nor 400 for a missing/stale
 session, so after the switch both should drop to ~0; the gateway answers
