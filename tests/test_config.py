@@ -58,3 +58,21 @@ def test_whoop_settings_and_base_override():
                      "WHOOP_API_BASE": "http://127.0.0.1:9999/"})
     assert c.whoop_client_id == "cid-1" and c.whoop_client_secret == "sec-1"
     assert c.whoop_api_base == "http://127.0.0.1:9999"   # trailing slash stripped
+
+
+def test_garmin_stateless_http_defaults_on():
+    assert load_config(BASE).garmin_stateless_http is True
+
+
+@pytest.mark.parametrize("raw,want", [("false", False), ("0", False), (" OFF ", False),
+                                      ("true", True), ("1", True), ("", True)])
+def test_garmin_stateless_http_parses(raw, want):
+    c = load_config({**BASE, "GARMIN_MCP_STATELESS_HTTP": raw})
+    assert c.garmin_stateless_http is want
+
+
+def test_garmin_stateless_http_typo_refuses_to_start():
+    # garmin_mcp exits on a value it doesn't know — passed through, a typo
+    # would fail every worker spawn; the gateway must refuse to boot instead.
+    with pytest.raises(ValueError, match="GARMIN_MCP_STATELESS_HTTP"):
+        load_config({**BASE, "GARMIN_MCP_STATELESS_HTTP": "ture"})

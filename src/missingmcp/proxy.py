@@ -142,9 +142,13 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         return auth
     key = auth
 
-    if is_local(adapter.forward) and method != "POST":
-        # stateless in-process server: no SSE listen stream, no sessions
-        return JSONResponse({"error": "method_not_allowed"}, status_code=405)
+    if method != "POST" and (is_local(adapter.forward)
+                             or getattr(adapter.forward, "stateless", False)):
+        # Stateless server (in-process, or a session-less worker): no SSE
+        # listen stream, no sessions. Answered here so a GET never holds a
+        # worker in flight (or spawns one) for a stream that can't carry data.
+        return JSONResponse({"error": "method_not_allowed"}, status_code=405,
+                            headers={"Allow": "POST"})
 
     body = await security.read_body_limited(request)
     if body is None:

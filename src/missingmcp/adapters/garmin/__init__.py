@@ -25,13 +25,19 @@ class GarminWorkerForward:
     (garmin_mcp ≥ 8e809d8) after ``/healthz``: upstream reports only
     ``ready`` / ``pending`` / ``failed`` — MFA, password-reset, and rate-limit
     outcomes belong to the gateway's interactive form-login path, not the
-    worker's token-based startup."""
+    worker's token-based startup.
+
+    ``stateless`` (GARMIN_MCP_STATELESS_HTTP, garmin_mcp ≥ e79df6f) runs the
+    worker without MCP sessions, so a replaced worker still serves the
+    client's old ``Mcp-Session-Id``. No garmin tool uses session state."""
 
     # Optional WorkerForward hook — probed with getattr like read_back.
     readiness_path = "/readyz"
 
     def __init__(self, config):
         self._cfg = config
+        # Optional WorkerForward hook — probed with getattr by the proxy.
+        self.stateless = config.garmin_stateless_http
 
     def command(self) -> list[str]:
         return self._cfg.garmin_mcp_cmd
@@ -42,6 +48,9 @@ class GarminWorkerForward:
             "GARMIN_MCP_HOST": "127.0.0.1",
             "GARMIN_MCP_PORT": str(port),
             "GARMINTOKENS": workdir,
+            # Always explicit: overrides whatever the gateway's own environment
+            # holds, so the gateway config stays the single switch.
+            "GARMIN_MCP_STATELESS_HTTP": "true" if self.stateless else "false",
         }
 
     def materialize(self, blob: str, workdir: str) -> None:
