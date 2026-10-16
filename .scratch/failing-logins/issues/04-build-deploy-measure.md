@@ -151,6 +151,20 @@ before/after numbers, and whether the destination is reached.
   emails) and can move to Out of scope. Follow-ups outside this map: egress
   count (peak ≤ 16 attempts/hour per egress — operator infra track) and the
   proxy password rotation.
+- 2026-10-16 — **Day 8, post-resolution check** (2026-10-15 07:37 → 2026-10-16
+  07:37 UTC): 145 attempts — 81 ok, 25 needs_mfa, 29 auth, **10 blocked
+  (6.9 %)**; day 7 was 0 %, pre-throttle 42 %. Per egress through-rate: 3128
+  87 %, 3129 69 %, 3130 68 %, 3131 73 %; direct unused; 96 tokens. All 10
+  blocks fall in the last hour (06:34–07:35 UTC, 6 accounts, no SSO page
+  title) — the first blocks since 2026-10-12 14:25. Egress breakers tripped at
+  the first rest step (1800 s): 3129 07:16, 3130 07:21, 3131 07:35 — **3 of 4
+  resting at once**, 3128 still taking sign-ins (ok at 07:03). Opens: account
+  7 × 300 s (3129 3, 3130 3, 3131 1), egress 3 × 1800 s. Rejects: account 11,
+  post_success 10, in_flight 0, **egress 0** (no full rejection). Longest
+  0-through run: 2 windows (≤ 60 min) on 3129 and 3130 — criterion (≤ 2 h)
+  still met. Episode still open at the time of writing; the gateway's
+  stateless-worker deploy (2026-10-15 19:46, PR #49) does not touch the
+  sign-in path.
 
 ## Answer
 
