@@ -538,3 +538,26 @@ def test_every_route_down_says_so_instead_of_blaming_garmin():
     assert len(seen) == 3                                   # both proxies, then direct
     assert a.pool.account_remaining("me@x.cz") == 0
     assert a.pool.begin("me@x.cz")                          # in-flight slot released
+
+
+def test_egress_down_never_shortens_a_running_garmin_block_rest():
+    # Review on 36eeae5: a concurrent sign-in that finished later with a proxy
+    # failure cut a 30-min Garmin-block rest down to 5 min.
+    pool = EgressPool(P1)
+    route = pool.routes[0]
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_blocked(route, "b@x.cz")                    # trips: 1800 s rest
+    assert route.breaker.remaining() == pytest.approx(1800, abs=5)
+    assert pool.record_down(route) == pytest.approx(1800, abs=5)
+    assert route.breaker.remaining() == pytest.approx(1800, abs=5)
+    assert route.rest_s == pytest.approx(1800, abs=5)
+
+
+def test_breaker_extend_only_lengthens():
+    t = [0.0]
+    b = SsoBreaker(clock=lambda: t[0])
+    assert b.extend(300) == 300
+    b.trip(1800)
+    assert b.extend(300) == 1800 and b.remaining() == 1800
+    t[0] = 1700
+    assert b.extend(300) == 300                             # longer than the 100 s left

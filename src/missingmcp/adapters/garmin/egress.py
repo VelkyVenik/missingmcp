@@ -100,6 +100,13 @@ class SsoBreaker:
         with self._lock:
             return max(0.0, self._open_until - self._clock())
 
+    def extend(self, seconds: float) -> float:
+        """Open for at least `seconds`, never shortening a longer open window
+        (atomic, unlike remaining()+trip()); returns the seconds it stays open."""
+        with self._lock:
+            self._open_until = max(self._open_until, self._clock() + seconds)
+            return self._open_until - self._clock()
+
 
 def describe(url: str | None) -> str:
     """Log-safe label of an egress: host:port of a proxy URL (the URL usually
@@ -219,10 +226,13 @@ class EgressPool:
     def record_down(self, route: Route) -> float:
         """The egress couldn't carry the sign-in (see EGRESS_DOWN_REST_S): rest
         it briefly. Leaves account cooldowns, block counts and the escalating
-        rest level alone — those track Garmin's limits, not our proxies."""
-        route.rest_s = EGRESS_DOWN_REST_S
-        route.breaker.trip(EGRESS_DOWN_REST_S)
-        return EGRESS_DOWN_REST_S
+        rest level alone — those track Garmin's limits, not our proxies — and
+        never shortens a Garmin-block rest already running: a concurrent sign-in
+        finishing later must not reopen a blocked IP after 5 min. Returns the
+        seconds the egress now stays closed."""
+        rest = route.breaker.extend(EGRESS_DOWN_REST_S)
+        route.rest_s = rest
+        return rest
 
     def record_blocked(self, route: Route, account_key: str) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account
