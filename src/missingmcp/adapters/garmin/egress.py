@@ -64,6 +64,12 @@ _EGRESS_BLOCK_ACCOUNTS = 2
 #   tripped, back to the first step once a sign-in gets through it (burned
 #   egresses recovered in ~1-2 h; a 30 min rest re-tripped them).
 POST_CONNECT_HOLD_S = 120.0
+# A proxy that can't carry traffic at all (port refused, CONNECT refused) is
+# not a Garmin limit: nothing reached Garmin, so the account isn't cooled and
+# the escalating rest doesn't apply. A failed attempt costs ~0 ms and the
+# sign-in fails over within the same call, so a short rest is enough to stop
+# re-trying a dead proxy on every sign-in while still noticing the repair soon.
+EGRESS_DOWN_REST_S = 300.0
 _EGRESS_HOURLY_BLOCKS = 10
 _EGRESS_REST_STEPS_S = (1800.0, 3600.0, 7200.0)
 
@@ -209,6 +215,14 @@ class EgressPool:
         with self._lock:
             self._blocked[route.label].clear()
             self._rest_level[route.label] = 0
+
+    def record_down(self, route: Route) -> float:
+        """The egress couldn't carry the sign-in (see EGRESS_DOWN_REST_S): rest
+        it briefly. Leaves account cooldowns, block counts and the escalating
+        rest level alone — those track Garmin's limits, not our proxies."""
+        route.rest_s = EGRESS_DOWN_REST_S
+        route.breaker.trip(EGRESS_DOWN_REST_S)
+        return EGRESS_DOWN_REST_S
 
     def record_blocked(self, route: Route, account_key: str) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account

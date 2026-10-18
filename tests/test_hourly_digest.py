@@ -242,3 +242,28 @@ def test_render_down_and_loud_ping_here():
                      v={"loud": True, "reasons": ["5xx:1"]},
                      window_min=60, gateway_url="https://missingmcp.com")
     assert "<!here>" in loud and "5xx:1" in loud
+
+
+def _probe(via, status=None, error=None):
+    a = [{"key": "event", "value": '"sso-probe"'}, {"key": "via", "value": f'"{via}"'},
+         {"key": "status", "value": "null" if status is None else str(status)}]
+    if error:
+        a.append({"key": "error", "value": f'"{error}"'})
+    return {"timestamp": "2026-10-17T12:00:00Z", "severity": "info", "message": "",
+            "attributes": a}
+
+
+def test_egress_down_needs_every_probe_failing_to_connect():
+    # 2026-10-16..18: three proxy ports refused every probe for 2.5 days.
+    rows = [_probe("h:3128", 200), _probe("h:3128", 200),
+            _probe("h:3129", error="ConnectionError"), _probe("h:3129", error="ConnectionError"),
+            _probe("h:3130", error="ProxyError"), _probe("h:3130", 200),       # recovered
+            _probe("h:3131", error="ConnectionError"),                         # one blip
+            _probe("direct", 403), _probe("direct", 403)]                      # Garmin's answer
+    assert hd.egress_down(rows) == ["h:3129"]
+
+
+def test_egress_down_is_a_loud_reason():
+    v = hd.verdict(hd.summarize([_entry(event="mcp-request")]), True, ["h:3129", "h:3130"])
+    assert v["loud"] and v["reasons"] == ["egress-down:h:3129,h:3130"]
+    assert hd.verdict(hd.summarize([_entry(event="mcp-request")]), True, [])["should_post"] is False
