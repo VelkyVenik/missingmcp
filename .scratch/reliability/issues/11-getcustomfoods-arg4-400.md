@@ -33,3 +33,8 @@ file it at github.com/Taxuspt/garmin_mcp with the traceback above.
 Daily triage aggregates elevated `worker-log` lines; grep Railway logs for
 `getCustomFoods.arg4` or `/nutrition-service/customFood`. Recurrence =
 promote to ready-for-human (file upstream).
+
+## Comments
+
+- 2026-10-18: still quiet — 0 `customFood` log lines over 2026-10-15 19:46 →
+  10-18 19:25 UTC (pin now `e79df6f`). Keep watching; nothing to file.

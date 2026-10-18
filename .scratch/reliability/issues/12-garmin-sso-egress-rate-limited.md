@@ -1,8 +1,43 @@
 # 12 — Garmin SSO rate-limits our Railway egress IP: fresh sign-ins ~25–75 % failing
 
 Type: incident (upstream/infra)
-Status: in-progress (reopened 2026-10-04 — wave returned; fix: dedicated
-egress via `GARMIN_SSO_PROXY`, see Reopened)
+Status: resolved (2026-10-18 — dedicated egress live on four Squid ports;
+real Garmin blocks ~0 % since 2026-10-12, measured in the failing-logins map;
+reopen criteria under "Resolution (2026-09-28)" still apply)
+
+## Proxy outage (2026-10-16 06:21 → 2026-10-18 18:55 UTC)
+
+Not a Garmin limit — our proxy box. An unattended `systemd` upgrade on
+`dragon` (46.224.200.91, no reboot) restarted `systemd-networkd`, which drops
+addresses missing from its config: the three floating IPs behind ports
+3129/3130/3131 (167.233.184.254 / .189.230 / .183.195) had been added by hand
+only. Squid kept listening but answered CONNECT with 503 (no outgoing
+address); curl reported `(7) CONNECT tunnel failed, response 503`, and
+`login.start_login` mapped it to `blocked`.
+
+Impact: ~76 sign-ins/day landed on the dead ports, 0 got through; each
+user read "Garmin is rate-limiting", got a 5-min account cooldown, and the
+dead egress re-attracted users after every rest. Port 3128 stayed healthy
+(10-17: 53 of 77 through, 6 real blocks). Existing connections were
+unaffected. `sso-probe` showed `ConnectionError` on the three ports the whole
+time; nothing paged (the hourly GHA pager is disabled since 2026-09-28) — the
+operator's Grok morning status surfaced it, misread as "blocked".
+
+Fixes:
+- **Server** (2026-10-18): IPs re-added and persisted in
+  `/etc/netplan/60-floating-ips.yaml` (verified in
+  `/run/systemd/network/10-netplan-eth0.network`), squid restarted; all four
+  probes 200 from 18:58.
+- **Gateway** (PR #50, deployed 2026-10-18 19:25): curl's proxy-transport
+  failures are outcome `egress`, not `blocked` — no account cooldown, the
+  egress rests 5 min (`EGRESS_DOWN_REST_S`, never shortening a running
+  Garmin-block rest), and the same sign-in fails over to the next route.
+  New log values: `garmin-login-attempt outcome=egress`,
+  `login-breaker-open scope=egress_down`, `login-start-failed reason=egress`
+  (only when every route is down).
+- **Alerting**: `hourly_digest.py` got an egress-down signal (dormant while
+  the workflow stays disabled); the operator's Grok bot now checks hourly,
+  with explicit rules separating our-proxy failures from Garmin blocks.
 
 ## Reopened (2026-10-04)
 

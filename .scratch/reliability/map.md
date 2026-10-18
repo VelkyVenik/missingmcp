@@ -141,6 +141,20 @@ Three things are true at the end of this map:
   operator's original ask — "message me only when there's an action" — is
   now the live behaviour.
 
+- [Garmin SSO egress](issues/12-garmin-sso-egress-rate-limited.md)
+  — resolved 2026-10-18: dedicated egress (four Squid ports on the
+  operator's box) + the failing-logins throttle took real blocks to ~0 %.
+  A 2.5-day proxy outage (floating IPs dropped by a systemd upgrade,
+  misreported as "blocked") led to PR #50: proxy-transport failures are
+  outcome `egress` and fail over within the call.
+
+- [Stream-teardown ASGI escape](issues/15-stream-teardown-asgi-escape.md)
+  — closed as moot (2026-10-18): 0 escapes in 3 days; vanished with 14.
+
+- [Operator notification channel](issues/13-operator-channel.md)
+  — resolved (2026-10-18): a Grok bot (morning status + hourly hard-signal
+  check); both GHA workflows disabled since 2026-09-28, kept as fallback.
+
 ## Not yet specified
 
 - **Mail infrastructure details** (provider, secrets, unsubscribe, copy) —

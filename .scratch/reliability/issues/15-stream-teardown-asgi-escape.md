@@ -1,7 +1,7 @@
 # 15 — Stream-teardown RemoteProtocolError still escapes as an ASGI error
 
 Type: task
-Status: open — likely MOOT, verify ~2026-08-22 and close if still clean
+Status: resolved (2026-10-18 — moot: the class vanished with ticket 14's fix)
 
 2026-08-20 post-deploy data (12.3 h since ticket 14's port-cooldown fix):
 **0** ASGI escapes AND **0** `mcp-stream-interrupted` warns (baselines: ~143
@@ -46,3 +46,12 @@ ticket 10 — warn, not silence); don't touch the stable `mcp-response` /
 `mcp-stream-interrupted` event schema; the existing CutStream-style fake
 worker test must keep passing, plus a new test reproducing the simultaneous
 client-disconnect + upstream-abort race if feasible.
+
+## Comments
+
+- 2026-10-18: closed without a code change. `Exception in ASGI application`
+  rows over the whole previous deployment (2026-10-15 19:46 → 2026-10-18
+  19:25 UTC, ~3 days): **0**. Since the stateless-worker switch (PR #49) the
+  remaining `mcp-stream-interrupted` warns are all `ReadTimeout` on long tool
+  calls (~110–190/day, concentrated on a few heavy accounts) — the separate,
+  known slow-Garmin-query class, not teardown.

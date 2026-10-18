@@ -31,3 +31,11 @@ close as not-needed.
   [13](13-operator-channel.md). Left open deliberately: if 13 lands on
   e-mail, an outbound mail path exists anyway and this ticket's main cost
   objection disappears — re-decide then, against the (tiny) measured volume.
+
+- 2026-10-18: both preconditions moved. An outbound mail path now exists
+  (`mailer.py`, Cloudflare Email Sending — operator campaigns, ~2,700 sent),
+  so the infra objection is gone; ticket 13 landed on a Grok bot, not mail.
+  Volume is still negligible: over 2026-10-15 19:46 → 10-18 19:25 UTC
+  (~3 days, 4,300 Garmin accounts) one account hit stale tokens
+  (`worker-login-rejected` + `worker-forward-auth-stale`, 1 each).
+  **Proposed: close as not-needed**; operator to confirm.

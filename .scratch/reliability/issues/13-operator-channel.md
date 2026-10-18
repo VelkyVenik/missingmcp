@@ -1,7 +1,7 @@
 # 13 — Operator notification channel: move off Slack?
 
 Type: grilling
-Status: open
+Status: resolved (2026-10-18 — operator channel is a Grok bot, not Slack)
 
 Operator ask (2026-08-19, queued for later): "ten Slack už mě nebaví a
 vlastně jediné, co mi tam chodí, jsou ty zprávy — hoď do fronty jiný kanál na
@@ -30,3 +30,16 @@ replacement channel and the migration:
    seam so this ticket's outcome is a config swap, not a rewrite.
 
 HITL — channel choice, provider account and credentials are the operator's.
+
+## Comments
+
+- 2026-10-18: decided by the operator in practice. Since 2026-09-28 both
+  GitHub Actions workflows (`hourly-digest.yml`, `daily-triage.yml`) are
+  **disabled_manually**; the operator gets a morning MissingMCP status from
+  a Grok bot (accounts, WAU, calls, SSO probes per egress, sign-in failures,
+  mail campaign stats) and, from 2026-10-18, an hourly Grok check that pages
+  only on hard signals (site down, dead proxy egress, real Garmin blocks,
+  5xx / worker-fault bursts). The scripts stay in the repo as a ready
+  fallback (`notify()` seam intact). Still on Slack: the in-app daily
+  `report.py` post (`SLACK_WEBHOOK_URL` is set on Railway) — retire or keep
+  is the operator's call.

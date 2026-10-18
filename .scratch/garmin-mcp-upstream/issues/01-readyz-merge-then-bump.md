@@ -1,7 +1,7 @@
 # 01 — Land upstream /readyz, bump the pin, swap the login gate onto it
 
 Type: task
-Status: ready-for-human
+Status: resolved (2026-10-12 — PR #48: pin e79df6f, gate on /readyz)
 Blocked by: — (upstream Taxuspt/garmin_mcp#380 landed as merge commit `8e809d8` on 2026-10-12)
 
 ## Why

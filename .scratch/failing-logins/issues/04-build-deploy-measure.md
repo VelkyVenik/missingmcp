@@ -165,6 +165,19 @@ before/after numbers, and whether the destination is reached.
   still met. Episode still open at the time of writing; the gateway's
   stateless-worker deploy (2026-10-15 19:46, PR #49) does not touch the
   sign-in path.
+- 2026-10-18 — **Correction to day 8: those 10 "blocked" were not Garmin.**
+  An unattended systemd upgrade on the proxy box (06:21 UTC 10-16) restarted
+  networkd, which dropped the three hand-added floating IPs behind 3129–3131.
+  Squid then answered CONNECT with 503, curl reported it as a connection
+  error, and `login.start_login` called it `blocked` — the egress trips above
+  are that outage starting, not an edge limit. It ran until 2026-10-18 18:55
+  UTC (≈ 76 sign-ins/day on the dead ports, 0 through; 3128 healthy: 53/77
+  through on 10-17, 6 real blocks). Server fixed (IPs re-added, persisted in
+  `/etc/netplan/60-floating-ips.yaml`, squid restarted); gateway fixed in
+  PR #50: a proxy-transport failure is outcome `egress` — no account
+  cooldown, 5-min egress rest, same-call failover. The 0 %-blocked
+  conclusion of this ticket stands. Tracked in
+  [reliability 12](../../reliability/issues/12-garmin-sso-egress-rate-limited.md).
 
 ## Answer
 
