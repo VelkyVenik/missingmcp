@@ -194,3 +194,34 @@ def test_unknown_page_stays_blocked_with_its_title():
         with pytest.raises(garmin_login.GarminLoginError) as ei:
             garmin_login.start_login("me@x.cz", "pw", sleep=lambda s: None)
     assert ei.value.reason == "blocked" and ei.value.page == "Just a moment..."
+
+
+def _exhausted_with(text):
+    def make(*a, **k):
+        g = MagicMock()
+        g.login.side_effect = garmin_login.GarminConnectConnectionError(
+            f"Login failed: All login strategies exhausted: {text}")
+        return g
+    return make
+
+
+@pytest.mark.parametrize("text", [
+    # prod 2026-10-17: squid without its floating IP answered CONNECT with 503
+    "ConnectionError: Failed to perform, curl: (7) CONNECT tunnel failed, response 503.",
+    "ProxyError: Failed to perform, curl: (56) CONNECT tunnel failed, response 407.",
+    "ConnectionError: Failed to perform, curl: (7) Failed to connect to 10.0.0.1 port 3129",
+    "ProxyError: Failed to perform, curl: (97) proxy handshake error",
+])
+def test_a_proxy_that_cannot_carry_the_sign_in_is_egress_not_blocked(text):
+    with patch.object(garmin_login, "Garmin", side_effect=_exhausted_with(text)):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", sleep=lambda s: None)
+    assert ei.value.reason == "egress"
+
+
+def test_garmin_answering_429_through_the_proxy_stays_blocked():
+    text = "GarminConnectTooManyRequestsError: Widget embed GET returned 429"
+    with patch.object(garmin_login, "Garmin", side_effect=_exhausted_with(text)):
+        with pytest.raises(garmin_login.GarminLoginError) as ei:
+            garmin_login.start_login("me@x.cz", "pw", sleep=lambda s: None)
+    assert ei.value.reason == "blocked"

@@ -492,3 +492,72 @@ def test_wrong_credentials_neither_cool_the_account_nor_count_against_the_egress
     assert not [r for r in rows if r.get("event") == "login-breaker-open"]
     att = [r for r in rows if r.get("event") == "garmin-login-attempt"][-1]
     assert att["outcome"] == "auth" and att["page"] == "GARMIN Authentication Application"
+
+
+def test_dead_proxy_fails_over_within_the_same_sign_in(capsys):
+    # 2026-10-16..18: three of four proxy ports lost their floating IPs; every
+    # sign-in on them read "Garmin is rate-limiting" and locked the account.
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    first, second, _direct = a.pool.order("me@x.cz")
+    seen = []
+
+    def fake(email, pw, **_kw):
+        seen.append(egress.current())
+        if egress.current() == first.proxy:
+            raise login.GarminLoginError("CONNECT tunnel failed", reason="egress")
+        return login.LoginResult(status="ok", tokens_json='{"t":1}')
+    with patch.object(login, "start_login", side_effect=fake):
+        assert isinstance(a.start_login(FORM), base.LoginOk)
+    assert seen == [first.proxy, second.proxy]
+    assert a.pool.account_remaining("me@x.cz") == 0         # account not locked
+    assert first.breaker.remaining() == pytest.approx(egress.EGRESS_DOWN_REST_S, abs=5)
+    assert a.pool.pick("someone@x.cz") is not first        # nobody else tries it
+    rows = _rows(capsys)
+    outcomes = [(r["egress"], r["outcome"]) for r in rows if r.get("event") == "garmin-login-attempt"]
+    assert outcomes == [(first.label, "egress"), (second.label, "ok")]
+    opened = [(r["scope"], r["egress"]) for r in rows if r.get("event") == "login-breaker-open"]
+    assert opened == [("egress_down", first.label)]
+
+
+def test_egress_down_leaves_the_garmin_block_accounting_alone():
+    pool = EgressPool(P1)
+    route = pool.routes[0]
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_down(route)
+    pool.record_blocked(route, "b@x.cz")       # second distinct account: trips as before
+    assert route.rest_s == egress._EGRESS_REST_STEPS_S[0]
+
+
+def test_every_route_down_says_so_instead_of_blaming_garmin():
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    seen, fake = _route_spy(login.GarminLoginError("curl: (7)", reason="egress"))
+    with patch.object(login, "start_login", side_effect=fake):
+        with pytest.raises(base.LoginError) as ei:
+            a.start_login(FORM)
+    assert ei.value.reason == "egress" and "not Garmin" in str(ei.value)
+    assert len(seen) == 3                                   # both proxies, then direct
+    assert a.pool.account_remaining("me@x.cz") == 0
+    assert a.pool.begin("me@x.cz")                          # in-flight slot released
+
+
+def test_egress_down_never_shortens_a_running_garmin_block_rest():
+    # Review on 36eeae5: a concurrent sign-in that finished later with a proxy
+    # failure cut a 30-min Garmin-block rest down to 5 min.
+    pool = EgressPool(P1)
+    route = pool.routes[0]
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_blocked(route, "b@x.cz")                    # trips: 1800 s rest
+    assert route.breaker.remaining() == pytest.approx(1800, abs=5)
+    assert pool.record_down(route) == pytest.approx(1800, abs=5)
+    assert route.breaker.remaining() == pytest.approx(1800, abs=5)
+    assert route.rest_s == pytest.approx(1800, abs=5)
+
+
+def test_breaker_extend_only_lengthens():
+    t = [0.0]
+    b = SsoBreaker(clock=lambda: t[0])
+    assert b.extend(300) == 300
+    b.trip(1800)
+    assert b.extend(300) == 1800 and b.remaining() == 1800
+    t[0] = 1700
+    assert b.extend(300) == 300                             # longer than the 100 s left

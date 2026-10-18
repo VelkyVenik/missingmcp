@@ -82,6 +82,10 @@ def _login_error_message(reason: str) -> str:
                 "Garmin's side, not your password). Please wait a couple of minutes and try again.")
     if reason == "auth":
         return "Garmin didn't accept that email and password — check them and try again."
+    if reason == "egress":
+        # Every route is down on our side; nothing reached Garmin.
+        return ("Sign-in is temporarily unavailable on our side (not your password, "
+                "and not Garmin). Please try again in a few minutes.")
     if reason == "password_reset":
         return ("Garmin wants you to set a new password first. Sign in once at "
                 "connect.garmin.com, then come back and try again.")
@@ -132,9 +136,9 @@ class GarminAdapter:
                 account=account,
                 message=f"garmin login rejected (account cooldown {int(remaining)}s)")
             raise LoginError(_login_error_message("blocked"), reason="blocked")
-        # One route (and so one breaker) for the whole call: an abandoned
-        # (timed-out) thread must trip the breaker of the egress its attempt
-        # actually used, never whatever is preferred by the time it finishes.
+        # One route (and so one breaker) per attempt: an abandoned (timed-out)
+        # thread must trip the breaker of the egress its attempt actually
+        # used, never whatever is preferred by the time it finishes.
         route = self.pool.pick(account)
         if route is None:
             # Every egress is cooling down: fail fast with the same message and
@@ -154,37 +158,54 @@ class GarminAdapter:
                 message="garmin login rejected (sign-in already in flight)")
             raise LoginError(_IN_FLIGHT_MESSAGE, reason="blocked")
         password = form.get("garmin_password", "")
-        skip = _SKIP_WHEN_PROXIED if route.proxy else None
         try:
-            # Runs on a to_thread worker to completion even when the form
-            # gives up: end() in the finally below frees the slot only once
-            # Garmin has really answered.
-            with egress.via(route.proxy):
-                result = login.start_login(email, password, skip_strategies=skip)
-        except login.GarminLoginError as e:
-            reason = getattr(e, "reason", "unknown")
-            self.pool.note(route, reason)
-            # `page`: the SSO page title Garmin answered with (a fixed Garmin
-            # string, never user input) — evidence for the auth/blocked split.
-            log("garmin-login-attempt", account=account, egress=route.label,
-                egress_ip=route.egress_ip, outcome=reason,
-                page=getattr(e, "page", None),
-                message=_attempt_message(route.label, reason))
-            if reason in ("auth", "password_reset"):
-                # Garmin answered with a real page: the egress is healthy.
-                self.pool.record_ok(route)
-            if reason == "blocked":
-                # The account always cools down; the egress only once several
-                # accounts are blocked on it (an IP-level limit) — then its
-                # accounts move to their next route.
-                scope = self.pool.record_blocked(route, account)
-                cooldown = (route.rest_s if scope == "egress"
-                            else egress.ACCOUNT_COOLDOWN_S)
-                log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
-                    egress=route.label, account=account,
-                    message=(f"garmin {scope} breaker open on {route.label} "
-                             f"for {int(cooldown)}s"))
-            raise LoginError(_login_error_message(reason), reason=reason) from e
+            while True:
+                skip = _SKIP_WHEN_PROXIED if route.proxy else None
+                try:
+                    # Runs on a to_thread worker to completion even when the
+                    # form gives up: end() in the finally below frees the slot
+                    # only once Garmin has really answered.
+                    with egress.via(route.proxy):
+                        result = login.start_login(email, password, skip_strategies=skip)
+                    break
+                except login.GarminLoginError as e:
+                    reason = getattr(e, "reason", "unknown")
+                    self.pool.note(route, reason)
+                    # `page`: the SSO page title Garmin answered with (a fixed
+                    # Garmin string, never user input) — evidence for the
+                    # auth/blocked split.
+                    log("garmin-login-attempt", account=account, egress=route.label,
+                        egress_ip=route.egress_ip, outcome=reason,
+                        page=getattr(e, "page", None),
+                        message=_attempt_message(route.label, reason))
+                    if reason == "egress":
+                        # Our proxy is down, Garmin never saw the request: rest
+                        # the egress, leave the account alone, and carry the
+                        # same sign-in to the next route right away.
+                        rest = self.pool.record_down(route)
+                        log("login-breaker-open", cooldown_s=int(rest), scope="egress_down",
+                            egress=route.label, account=account,
+                            message=(f"garmin egress {route.label} down, resting "
+                                     f"{int(rest)}s"))
+                        nxt = self.pool.pick(account)
+                        if nxt is not None:
+                            route = nxt
+                            continue
+                    if reason in ("auth", "password_reset"):
+                        # Garmin answered with a real page: the egress is healthy.
+                        self.pool.record_ok(route)
+                    if reason == "blocked":
+                        # The account always cools down; the egress only once
+                        # several accounts are blocked on it (an IP-level
+                        # limit) — then its accounts move to their next route.
+                        scope = self.pool.record_blocked(route, account)
+                        cooldown = (route.rest_s if scope == "egress"
+                                    else egress.ACCOUNT_COOLDOWN_S)
+                        log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
+                            egress=route.label, account=account,
+                            message=(f"garmin {scope} breaker open on {route.label} "
+                                     f"for {int(cooldown)}s"))
+                    raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call
             self.pool.end(account)

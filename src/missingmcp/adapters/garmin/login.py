@@ -16,7 +16,8 @@ class GarminLoginError(Exception):
     def __init__(self, message: str, reason: str = "unknown", page: str | None = None):
         super().__init__(message)
         # "auth" (bad credentials) | "password_reset" (Garmin demands a new
-        # password) | "blocked" (429/403/exhausted) | "unknown"
+        # password) | "blocked" (429/403/exhausted) | "egress" (our proxy
+        # couldn't carry the request — Garmin never saw it) | "unknown"
         self.reason = reason
         self.page = page       # title of the SSO page Garmin answered with, if any
 
@@ -61,6 +62,18 @@ _PAGE_REASONS = {
 }
 
 
+# A proxy that can't carry the sign-in fails before Garmin sees a byte: curl
+# reports an unreachable proxy as (5)/(7)/(97) and a refused CONNECT (squid
+# without its outgoing address: 503, wrong credentials: 407) as "CONNECT tunnel
+# failed" — named ConnectionError or ProxyError depending on the curl_cffi
+# build. 2026-10-16..18: three proxy ports lost their floating IPs and every
+# sign-in through them read "Garmin is rate-limiting" while Garmin let the
+# same accounts in through the fourth port (prod: "curl: (7) CONNECT tunnel
+# failed, response 503"). Only the widget+cffi strategy runs behind a proxy,
+# so its curl text is the last error.
+_EGRESS_FAILURE = re.compile(r"CONNECT tunnel failed|ProxyError|curl: \((?:5|7|97)\)")
+
+
 def _page_title(err: Exception) -> str | None:
     m = _UNEXPECTED_TITLE.search(str(err))
     return m.group(1) if m else None
@@ -79,7 +92,7 @@ def start_login(email: str, password: str, attempts: int = 2,
     credentials ('auth') are never retried either.
 
     Raises GarminLoginError with .reason in {auth, password_reset, blocked,
-    unknown}; .page carries the SSO page title when Garmin answered with a page
+    egress, unknown}; .page carries the SSO page title when Garmin answered with a page
     the library didn't expect."""
     last: Exception | None = None
     for attempt in range(attempts):
@@ -102,6 +115,8 @@ def start_login(email: str, password: str, attempts: int = 2,
             sleep(backoff)
     reason = "blocked" if isinstance(
         last, (GarminConnectTooManyRequestsError, GarminConnectConnectionError)) else "unknown"
+    if reason == "blocked" and _EGRESS_FAILURE.search(str(last)):
+        reason = "egress"
     page = _page_title(last) if last else None
     reason = _PAGE_REASONS.get(page, reason)
     raise GarminLoginError(str(last) if last else "login failed", reason=reason, page=page)

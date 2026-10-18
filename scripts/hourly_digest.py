@@ -13,7 +13,12 @@ Hard signals (any one → loud post; otherwise fully silent):
   * `worker-start-failed` across >= 2 distinct accounts in the hour (the
     validated 2026-07-31 broken-image signature; a single account's crash is
     the daily triage's business),
-  * any 5xx, or any `critical` row.
+  * any 5xx, or any `critical` row,
+  * a sign-in egress whose every SSO probe in the window failed to connect
+    (>= 2 probes; fetched separately with a log filter — the 5000-row window
+    above holds only a few minutes of traffic). Its egress IP vanished from
+    the proxy box on 2026-10-16 and nothing paged for 2.5 days; a probe that
+    gets an HTTP answer (even Garmin's 403/429) is not "down".
 Re-auth signals (*-forward-auth-stale) are the expected self-heal path and are
 never signals; worker-log traceback continuation lines are folded into their
 preceding ERROR row.
@@ -90,16 +95,27 @@ def resolve_deployment_id(token: str, service_id: str, environment_id: str) -> s
 
 
 def fetch_logs(token: str, deployment_id: str, start_iso: str, end_iso: str,
-               limit: int = 5000) -> list[dict]:
+               limit: int = 5000, filter_: str | None = None) -> list[dict]:
     data = railway_graphql(token,
-        "query($did:String!,$s:DateTime,$e:DateTime,$lim:Int){ "
-        "deploymentLogs(deploymentId:$did,startDate:$s,endDate:$e,limit:$lim){ "
+        "query($did:String!,$s:DateTime,$e:DateTime,$lim:Int,$f:String){ "
+        "deploymentLogs(deploymentId:$did,startDate:$s,endDate:$e,limit:$lim,filter:$f){ "
         "timestamp severity message attributes{key value} } }",
-        {"did": deployment_id, "s": start_iso, "e": end_iso, "lim": limit})
+        {"did": deployment_id, "s": start_iso, "e": end_iso, "lim": limit, "f": filter_})
     return data.get("deploymentLogs") or []
 
 
 # --- pure log processing (unit-tested) -------------------------------------
+
+def _dec(v):
+    """Railway returns each attribute `value` JSON-encoded — a string field
+    comes back WITH quotes (event -> '"mcp-request"'), a number bare (status ->
+    "200"). Decode so `event`/`account` are clean and status is an int; fall
+    back to the raw value when it isn't valid JSON."""
+    try:
+        return json.loads(v)
+    except (ValueError, TypeError):
+        return v
+
 
 def parse_row(entry: dict) -> dict:
     """Normalize a Railway Log entry into {level, event, account, status}. Reads
@@ -109,15 +125,6 @@ def parse_row(entry: dict) -> dict:
     is unconfirmed — ticket 01 watch-out; and Railway may inject its own
     platform attributes, so `attrs` being non-empty does NOT mean our fields
     are there)."""
-    # Railway returns each attribute `value` JSON-encoded — a string field comes
-    # back WITH quotes (event -> '"mcp-request"'), a number bare (status -> "200").
-    # Decode so `event`/`account` are clean and status is an int; fall back to the
-    # raw value when it isn't valid JSON.
-    def _dec(v):
-        try:
-            return json.loads(v)
-        except (ValueError, TypeError):
-            return v
     attrs = {a["key"]: _dec(a["value"]) for a in (entry.get("attributes") or [])}
     level = str(entry.get("severity") or attrs.get("level") or "").lower()
     event = attrs.get("event")
@@ -186,7 +193,21 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
-def verdict(summary: dict, probe_ok: bool) -> dict:
+def egress_down(rows: list[dict], min_probes: int = 2) -> list[str]:
+    """Egress labels (`via`) whose every `sso-probe` row failed without an HTTP
+    answer (status null + error) — the proxy can't carry traffic at all. Needs
+    min_probes so a single blip at the window edge never pages."""
+    seen: dict[str, list[bool]] = {}
+    for entry in rows:
+        attrs = {a["key"]: _dec(a["value"]) for a in (entry.get("attributes") or [])}
+        if attrs.get("event") != "sso-probe" or not attrs.get("via"):
+            continue
+        failed = attrs.get("status") in (None, "", "null") and bool(attrs.get("error"))
+        seen.setdefault(str(attrs["via"]), []).append(failed)
+    return sorted(v for v, fails in seen.items() if len(fails) >= min_probes and all(fails))
+
+
+def verdict(summary: dict, probe_ok: bool, down: list[str] | None = None) -> dict:
     """Hard signals only — everything below this bar is the daily triage's
     business (design: .scratch/reliability/issues/08). No minor tier, no
     heartbeat: this workflow either pages or says nothing."""
@@ -199,6 +220,8 @@ def verdict(summary: dict, probe_ok: bool) -> dict:
         reasons.append(f"5xx:{summary['http_5xx']}")
     if summary["critical"] > 0:
         reasons.append(f"critical:{summary['critical']}")
+    if down:
+        reasons.append(f"egress-down:{','.join(down)}")
     loud = bool(reasons)
     return {"should_post": loud, "loud": loud, "reasons": reasons}
 
@@ -256,8 +279,15 @@ def main():
     deployment_id = resolve_deployment_id(token, service_id, environment_id)
     rows = fetch_logs(token, deployment_id, start_iso, end_iso)
     summary = summarize(rows)
+    try:
+        probes = fetch_logs(token, deployment_id, start_iso, end_iso, limit=500,
+                            filter_="@event:sso-probe")
+        down = egress_down(probes)
+    except Exception as e:  # noqa: BLE001 - a failed extra query must never page
+        print(f"[warn] sso-probe fetch failed: {e}")
+        down = []
     probe_ok = probe(gateway_url)
-    v = verdict(summary, probe_ok)
+    v = verdict(summary, probe_ok, down)
     print(f"[verdict] {v}")
     if not v["should_post"]:
         print("[silent] no hard signal — nothing posted (the daily triage covers the rest).")
