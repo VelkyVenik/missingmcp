@@ -958,3 +958,42 @@ async def test_spawn_not_validated_against_dying_predecessors_listener(tmp_path,
     finally:
         for s in servers:
             s.shutdown()
+
+
+def _pumped(capsys, lines):
+    import json as jsonlib
+    workers._pump_worker_output(iter(l + "\n" for l in lines), "me@x.cz")
+    return [jsonlib.loads(x)["line"] for x in capsys.readouterr().out.splitlines()
+            if x.strip() and jsonlib.loads(x)["event"] == "worker-log"]
+
+
+def test_pump_drops_the_workers_uvicorn_access_lines(capsys):
+    # ~30 % of all log lines (2026-10-19); mcp-response records each forward.
+    kept = _pumped(capsys, [
+        'INFO:     127.0.0.1:38640 - "GET /healthz HTTP/1.1" 200 OK',
+        'INFO:     127.0.0.1:38648 - "GET /readyz HTTP/1.1" 503 Service Unavailable',
+        'INFO:     127.0.0.1:37698 - "POST /mcp HTTP/1.1" 200 OK',
+        'INFO:     127.0.0.1:37698 - "DELETE /mcp HTTP/1.1" 405 Method Not Allowed',
+        "Garmin Connect client initialized successfully.",
+        'INFO:     127.0.0.1:1 - "GET /other HTTP/1.1" 200 OK',
+    ])
+    assert kept == ["Garmin Connect client initialized successfully.",
+                    'INFO:     127.0.0.1:1 - "GET /other HTTP/1.1" 200 OK']
+
+
+def test_pump_keeps_only_the_summary_of_a_pydantic_validation_dump(capsys):
+    # A client probing "server/discover" (newer MCP spec) made the worker's
+    # SDK print ~90 lines per probe.
+    kept = _pumped(capsys, [
+        "Failed to validate request: 31 validation errors for ClientRequest",
+        "PingRequest.method",
+        "  Input should be 'ping' [type=literal_error, input_value='server/discover', input_type=str]",
+        "    For further information visit https://errors.pydantic.dev/2.14/v/literal_error",
+        "CallToolRequest.params.name",
+        "  Field required [type=missing, input_value={'_meta': {}}, input_type=dict]",
+        "    For further information visit https://errors.pydantic.dev/2.14/v/missing",
+        "Traceback (most recent call last):",
+        "PingRequest.method",                       # outside a dump: kept
+    ])
+    assert kept == ["Failed to validate request: 31 validation errors for ClientRequest",
+                    "Traceback (most recent call last):", "PingRequest.method"]

@@ -188,10 +188,12 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         extra_headers = adapter.forward.headers(tokens)
     else:
         try:
-            log("worker-ensure-start", account=key)
             port = await manager.ensure_worker(key, tokens)
-            log("worker-ensure-ok", port=port, account=key,
-                ms=int((time.monotonic() - t0) * 1000))
+            # Only a slow ensure is news (a spawn + sign-in); the fast reuse
+            # path was two lines per request (2026-10-19 log-noise cut).
+            ensure_ms = int((time.monotonic() - t0) * 1000)
+            if ensure_ms >= 1000:
+                log("worker-ensure-ok", port=port, account=key, ms=ensure_ms)
         except WorkerCredentialsRejected as e:
             # The stored tokens went stale — same self-heal path as the local and
             # remote strategies (`*-forward-auth-stale`), so it's logged like them:
