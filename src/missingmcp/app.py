@@ -490,6 +490,7 @@ def build_app(config: Config) -> Starlette:
                     rate.gc()
                     for manager in managers.values():
                         manager.write_snapshot()  # refresh idle_seconds periodically
+                    telemetry.flush_mcp_rollup()   # finished hours of MCP usage counts
                     stats = {**store.stats_counts(conn),
                              "active_workers": sum(m.active_count()
                                                    for m in managers.values())}
