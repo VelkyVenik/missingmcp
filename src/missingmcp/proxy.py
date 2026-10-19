@@ -74,7 +74,10 @@ def _capture_mcp(event, key: str, status: int, ttfb_ms: int, total_ms: int,
              "status": status, "ttfb_ms": ttfb_ms, "bytes": nbytes}
     if status >= 400:
         props["$mcp_error_status"] = status
-    telemetry.capture(name, distinct_id=key, properties=props)
+    # Personless (anonymous pricing, up to 4x cheaper): one event per MCP call
+    # is the bulk of the bill, and per-call analytics need the distinct_id on
+    # the event, not a person profile. Funnel events stay identified.
+    telemetry.capture(name, distinct_id=key, properties=props, anonymous=True)
 
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":

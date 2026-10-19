@@ -44,10 +44,11 @@ class Config:
     daily_report_hour: int        # local hour (0-23) to post the daily report
     daily_report_tz: str          # IANA tz the report hour + "yesterday" are computed in
     # PostHog telemetry (telemetry.py); disabled when the key is unset.
-    posthog_api_key: str          # public phc_ project key — gates events AND the log tee
+    posthog_api_key: str          # public phc_ project key — gates events (and, with posthog_logs, the log tee)
     posthog_host: str             # server-side ingestion host (EU cloud by default)
     posthog_web_host: str         # posthog-js api_host — the managed reverse proxy
     posthog_ui_host: str          # PostHog app host; posthog-js needs it behind a proxy
+    posthog_logs: bool            # tee the stdout log stream to PostHog Logs (off by default)
     # Mail campaigns via Cloudflare Email Sending (mailer.py); disabled unless
     # the API token, account id and from-address are all set.
     mail_api_token: str           # Cloudflare token — Account → Email Sending → Edit only
@@ -158,6 +159,10 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         posthog_web_host=env.get("POSTHOG_WEB_HOST",
                                  env.get("POSTHOG_HOST", "https://eu.i.posthog.com")).rstrip("/"),
         posthog_ui_host=env.get("POSTHOG_UI_HOST", "https://eu.posthog.com").rstrip("/"),
+        # Off by default (2026-10-19): the tee shipped every stdout line —
+        # 43M+ lines / ~9 GB a month at 2,500 WAU — and PostHog billing hit
+        # $120 with a $250 projection. Railway keeps the logs regardless.
+        posthog_logs=_flag(env, "POSTHOG_LOGS", False),
         mail_api_token=env.get("MAIL_API_TOKEN", "").strip(),
         mail_account_id=env.get("MAIL_ACCOUNT_ID", "").strip(),
         mail_api_base=env.get("MAIL_API_BASE",

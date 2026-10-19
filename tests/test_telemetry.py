@@ -294,3 +294,27 @@ def test_returning_account_status(conn, recorder):
     assert r.status_code == 302
     by_name = {e: p for e, _, p in recorder.events}
     assert by_name["account_connected"]["connect_status"] == "returning"
+
+
+def test_mcp_events_are_personless(recorder):
+    # One event per MCP call is the bulk of the PostHog bill; personless
+    # events are billed at the (up to 4x cheaper) anonymous rate.
+    proxy._capture_mcp(("$mcp_tool_call", {"$mcp_tool_name": "t", "adapter": "garmin"}),
+                       "me@x.cz", 200, 10, 20, 33)
+    event, did, props = recorder.events[0]
+    assert did == "me@x.cz" and props["$process_person_profile"] is False
+
+
+@pytest.mark.parametrize("logs,attached", [(None, False), ("false", False), ("true", True)])
+def test_log_tee_only_with_posthog_logs(monkeypatch, logs, attached):
+    env = {"GATEWAY_SECRET": "s" * 40, "POSTHOG_API_KEY": "phc_test"}
+    if logs is not None:
+        env["POSTHOG_LOGS"] = logs
+    calls = []
+    monkeypatch.setattr(telemetry, "_attach_log_tee", lambda cfg: calls.append(cfg))
+    try:
+        telemetry.init(load_config(env))
+        assert telemetry.enabled()
+        assert bool(calls) is attached
+    finally:
+        telemetry.shutdown()
