@@ -160,6 +160,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
 | `BACKUP_INTERVAL_HOURS` | no | `6` | Hours between backup uploads. First backup runs right after startup. |
 | `POSTHOG_API_KEY` | no | — | Public `phc_` project key. Unset ⇒ **all** PostHog telemetry (events, log tee, web analytics) is off. |
+| `POSTHOG_LOGS` | no | `false` | `true` tees every structured stdout line to PostHog Logs over OTLP. Off by default since 2026-10-19: at 2,500 WAU that was 43M+ lines (~9 GB) a month on the PostHog bill, and Railway keeps the logs anyway. Strict `true`/`false`. |
 | `POSTHOG_HOST` | no | `https://eu.i.posthog.com` | Server-side ingestion host (SDK events + OTLP log tee). |
 | `POSTHOG_WEB_HOST` | no | `$POSTHOG_HOST` | posthog-js `api_host` — set it to the managed reverse proxy (e.g. `https://j.missingmcp.com`) for ad-blocker resilience. |
 | `POSTHOG_UI_HOST` | no | `https://eu.posthog.com` | PostHog app host; posthog-js needs it when `POSTHOG_WEB_HOST` is a proxy. |
@@ -328,7 +329,7 @@ gateway also ships analytics to PostHog (EU cloud; design:
 `docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md`):
 per-request `$mcp_*` events (PostHog's built-in MCP analytics), a lean
 connect-funnel/conversion event set, an OTLP tee of the structured log stream
-(PostHog Logs, beta — Railway stays the durable archive), and posthog-js on the
+(PostHog Logs, only with `POSTHOG_LOGS=true` — Railway stays the durable archive), and posthog-js on the
 site (UTM campaign attribution; autocapture disabled on OAuth pages). Egress
 rule: identity + metadata only — never MCP bodies, credentials, or form
 contents; the account email travels only as `distinct_id`. Everything is

@@ -38,7 +38,12 @@ def _mcp_event(body, adapter_name: str) -> "tuple[str, dict] | None":
     """Map the JSON-RPC request to PostHog's canonical $mcp_* event + the
     property keys the built-in MCP analytics expects (the @posthog/mcp wire
     contract, docs/mcp-analytics/events). Only metadata leaves: tool name and
-    clientInfo — never params/arguments (egress rule, spec ticket 03)."""
+    clientInfo — never params/arguments (egress rule, spec ticket 03).
+
+    Only tools/call is sent (2026-10-19, PostHog cost): the operator needs DAU,
+    WAU and per-tool counts, all of which $mcp_tool_call carries;
+    $mcp_initialize / $mcp_tools_list were 39 % of the events and ~1 % of
+    active accounts never made a tool call."""
     if not body:
         return None
     try:
@@ -54,16 +59,6 @@ def _mcp_event(body, adapter_name: str) -> "tuple[str, dict] | None":
         if not isinstance(name, str):
             name = "tools/call"
         return "$mcp_tool_call", {"$mcp_tool_name": name, **server}
-    if method == "initialize":
-        info = ((d.get("params") or {}).get("clientInfo") or {})
-        props = dict(server)
-        if isinstance(info.get("name"), str):
-            props["$mcp_client_name"] = info["name"]
-        if isinstance(info.get("version"), str):
-            props["$mcp_client_version"] = info["version"]
-        return "$mcp_initialize", props
-    if method == "tools/list":
-        return "$mcp_tools_list", server
     return None
 
 
@@ -74,7 +69,10 @@ def _capture_mcp(event, key: str, status: int, ttfb_ms: int, total_ms: int,
              "status": status, "ttfb_ms": ttfb_ms, "bytes": nbytes}
     if status >= 400:
         props["$mcp_error_status"] = status
-    telemetry.capture(name, distinct_id=key, properties=props)
+    # Personless (anonymous pricing, up to 4x cheaper): one event per MCP call
+    # is the bulk of the bill, and per-call analytics need the distinct_id on
+    # the event, not a person profile. Funnel events stay identified.
+    telemetry.capture(name, distinct_id=key, properties=props, anonymous=True)
 
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":

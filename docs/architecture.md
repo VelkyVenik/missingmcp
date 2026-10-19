@@ -148,8 +148,8 @@ cleared.
 PostHog telemetry (design:
 `docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md`): the official
 `posthog` SDK client (module-level, like `log.py`), `capture` / `identify`
-wrappers, the posthog-js head/bootstrap for pages, and an OTLP tee of the
-structured log stream into PostHog Logs (hooked into `log._emit` via
+wrappers, the posthog-js head/bootstrap for pages, and an optional OTLP tee
+(`POSTHOG_LOGS`, off by default) of the structured log stream into PostHog Logs (hooked into `log._emit` via
 `log.set_sink` — NOT the root logger; export-path loggers are excluded to
 prevent feedback loops). Env-gated by `POSTHOG_API_KEY` (unset ⇒ every function
 is a no-op) and fire-and-forget throughout — telemetry must never block a

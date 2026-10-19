@@ -41,7 +41,8 @@ def enabled() -> bool:
 
 
 def init(config) -> None:
-    """Create the SDK client and attach the OTLP log tee. No-op without a key.
+    """Create the SDK client and, with POSTHOG_LOGS, the OTLP log tee. No-op
+    without a key.
     Imports are deferred so the (heavy) SDK/OTel stacks load only when used."""
     global _client, _api_key
     if not config.posthog_api_key or _client is not None:
@@ -49,7 +50,8 @@ def init(config) -> None:
     from posthog import Posthog
     _api_key = config.posthog_api_key
     _client = Posthog(config.posthog_api_key, host=config.posthog_host)
-    _attach_log_tee(config)
+    if config.posthog_logs:
+        _attach_log_tee(config)
     _log.log("telemetry-enabled", host=config.posthog_host)
 
 
