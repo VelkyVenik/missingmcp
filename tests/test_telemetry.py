@@ -27,8 +27,9 @@ class Recorder:
     def __init__(self):
         self.events = []
 
-    def capture(self, event, distinct_id=None, properties=None):
+    def capture(self, event, distinct_id=None, properties=None, **kw):
         self.events.append((event, distinct_id, properties))
+        self.kw = getattr(self, "kw", []) + [kw]
 
 
 @pytest.fixture
@@ -212,15 +213,6 @@ def test_mcp_event_ignores_other_bodies(body):
     assert proxy._mcp_event(body, "garmin") is None
 
 
-def test_capture_mcp_error_props(recorder):
-    proxy._capture_mcp(("$mcp_tool_call", {"$mcp_tool_name": "t", "adapter": "garmin"}),
-                       "me@x.cz", 502, 10, 20, 33)
-    event, did, props = recorder.events[0]
-    assert (event, did) == ("$mcp_tool_call", "me@x.cz")
-    assert props["$mcp_is_error"] is True and props["$mcp_error_status"] == 502
-    assert props["$mcp_duration_ms"] == 20 and props["ttfb_ms"] == 10 and props["bytes"] == 33
-
-
 # --- oauth funnel events (flow-level) -----------------------------------------
 
 def _authz_app(conn):
@@ -294,15 +286,6 @@ def test_returning_account_status(conn, recorder):
     assert by_name["account_connected"]["connect_status"] == "returning"
 
 
-def test_mcp_events_are_personless(recorder):
-    # One event per MCP call is the bulk of the PostHog bill; personless
-    # events are billed at the (up to 4x cheaper) anonymous rate.
-    proxy._capture_mcp(("$mcp_tool_call", {"$mcp_tool_name": "t", "adapter": "garmin"}),
-                       "me@x.cz", 200, 10, 20, 33)
-    event, did, props = recorder.events[0]
-    assert did == "me@x.cz" and props["$process_person_profile"] is False
-
-
 @pytest.mark.parametrize("logs,attached", [(None, False), ("false", False), ("true", True)])
 def test_log_tee_only_with_posthog_logs(monkeypatch, logs, attached):
     env = {"GATEWAY_SECRET": "s" * 40, "POSTHOG_API_KEY": "phc_test"}
@@ -316,3 +299,54 @@ def test_log_tee_only_with_posthog_logs(monkeypatch, logs, attached):
         assert bool(calls) is attached
     finally:
         telemetry.shutdown()
+
+
+def _at(h, m=0, d=19):
+    from datetime import datetime, timezone
+    return datetime(2026, 10, d, h, m, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def rollup(recorder, monkeypatch):
+    import collections
+    monkeypatch.setattr(telemetry, "_active_day", "")
+    monkeypatch.setattr(telemetry, "_active_seen", set())
+    monkeypatch.setattr(telemetry, "_calls", collections.Counter())
+    monkeypatch.setattr(telemetry, "_errors", collections.Counter())
+    return recorder
+
+
+def test_mcp_active_once_per_account_and_day(rollup):
+    for h in (8, 9, 23):
+        telemetry.mcp_call("garmin", "a@x.cz", "get_stats", False, now=_at(h))
+    telemetry.mcp_call("garmin", "b@x.cz", "get_stats", False, now=_at(9))
+    telemetry.mcp_call("garmin", "a@x.cz", "get_stats", False, now=_at(0, d=20))
+    active = [(did, p["day"]) for e, did, p in rollup.events if e == "mcp_active"]
+    assert active == [("a@x.cz", "2026-10-19"), ("b@x.cz", "2026-10-19"),
+                      ("a@x.cz", "2026-10-20")]
+    assert all(p["$process_person_profile"] is False for _, _, p in rollup.events)
+
+
+def test_tool_calls_roll_up_per_finished_hour(rollup):
+    telemetry.mcp_call("garmin", "a@x.cz", "get_stats", False, now=_at(8, 1))
+    telemetry.mcp_call("garmin", "b@x.cz", "get_stats", True, now=_at(8, 59))
+    telemetry.mcp_call("garmin", "a@x.cz", "get_sleep_data", False, now=_at(8, 30))
+    telemetry.mcp_call("garmin", "a@x.cz", "get_stats", False, now=_at(9, 5))
+    assert telemetry.flush_mcp_rollup(now=_at(8, 59)) == 0       # hour not over
+    assert telemetry.flush_mcp_rollup(now=_at(9, 10)) == 2       # 08:00 only
+    rows = {p["tool"]: p for e, _, p in rollup.events if e == "mcp_tool_calls"}
+    assert rows["get_stats"]["calls"] == 2 and rows["get_stats"]["errors"] == 1
+    assert rows["get_stats"]["hour"] == "2026-10-19T08:00:00Z"
+    assert rows["get_sleep_data"]["calls"] == 1
+    assert rollup.kw[-1]["timestamp"].hour == 8
+    assert telemetry.flush_mcp_rollup(now=_at(9, 10)) == 0       # nothing twice
+    assert telemetry.flush_mcp_rollup(now=_at(9, 10), force=True) == 1   # shutdown
+
+
+def test_proxy_counts_tool_calls_instead_of_per_call_events(rollup):
+    proxy._capture_mcp(("$mcp_tool_call", {"$mcp_tool_name": "t", "adapter": "garmin"}),
+                       "me@x.cz", 502, 10, 20, 33)
+    assert [e for e, _, _ in rollup.events] == ["mcp_active"]    # no $mcp_tool_call
+    telemetry.flush_mcp_rollup(force=True)
+    _, did, p = rollup.events[-1]
+    assert (p["tool"], p["calls"], p["errors"]) == ("t", 1, 1)

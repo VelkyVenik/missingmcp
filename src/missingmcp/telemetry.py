@@ -14,10 +14,13 @@ form contents. The account email travels only as distinct_id.
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import logging
+import threading
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from . import log as _log
@@ -58,6 +61,7 @@ def init(config) -> None:
 def shutdown() -> None:
     """Best-effort flush of both queues. Blocking — call via asyncio.to_thread."""
     global _client, _logger_provider, _api_key
+    flush_mcp_rollup(force=True)   # the running hour's counts, before the SDK closes
     _log.set_sink(None)
     if _client is not None:
         try:
@@ -187,6 +191,73 @@ def web_bootstrap_js(config) -> str:
 }})();
 """
     return _PH_LOADER + init
+
+
+# --- MCP usage rollup --------------------------------------------------------
+# One PostHog event per MCP call was ~2.5M events a month at 2,500 WAU (PostHog
+# invoiced $120 by 2026-10-18). The operator needs DAU, WAU and per-tool counts
+# only, so usage leaves as aggregates (~150k events a month, inside the free
+# tier):
+#   mcp_active      once per (adapter, account) per UTC day, on its first tool
+#                   call — distinct_id = account → DAU/WAU = distinct accounts
+#   mcp_tool_calls  per (adapter, tool) per UTC hour: calls, errors, hour —
+#                   flushed by the lifespan loop once the hour is over, and on
+#                   shutdown (a crash loses at most the running hour)
+# Both personless. Process-local: after a restart an account can send a second
+# mcp_active the same day, which a distinct count absorbs.
+
+_rollup_lock = threading.Lock()
+_active_day = ""
+_active_seen: set[tuple[str, str]] = set()            # (adapter, account) today
+_calls: collections.Counter = collections.Counter()   # (hour, adapter, tool)
+_errors: collections.Counter = collections.Counter()
+
+
+def _hour_key(now: datetime) -> str:
+    return now.strftime("%Y-%m-%dT%H:00:00Z")
+
+
+def mcp_call(adapter: str, account: str, tool: str, is_error: bool,
+             now: datetime | None = None) -> None:
+    """Count one MCP tool call. Never raises, never blocks."""
+    global _active_day
+    if _client is None:
+        return
+    now = now or datetime.now(timezone.utc)
+    day = now.strftime("%Y-%m-%d")
+    first = False
+    with _rollup_lock:
+        if day != _active_day:
+            _active_day = day
+            _active_seen.clear()
+        if (adapter, account) not in _active_seen:
+            _active_seen.add((adapter, account))
+            first = True
+        bucket = (_hour_key(now), adapter, tool)
+        _calls[bucket] += 1
+        if is_error:
+            _errors[bucket] += 1
+    if first:
+        capture("mcp_active", distinct_id=account, anonymous=True,
+                properties={"adapter": adapter, "day": day})
+
+
+def flush_mcp_rollup(now: datetime | None = None, force: bool = False) -> int:
+    """Send every finished hour's counts (all of them with force); returns the
+    number of events queued."""
+    if _client is None:
+        return 0
+    current = _hour_key(now or datetime.now(timezone.utc))
+    with _rollup_lock:
+        due = [k for k in _calls if force or k[0] < current]
+        batch = [(k, _calls.pop(k), _errors.pop(k, 0)) for k in due]
+    for (hour, adapter, tool), calls, errors in batch:
+        capture("mcp_tool_calls", distinct_id=f"missingmcp-{adapter}", anonymous=True,
+                timestamp=datetime.strptime(hour, "%Y-%m-%dT%H:00:00Z").replace(
+                    tzinfo=timezone.utc),
+                properties={"adapter": adapter, "tool": tool, "calls": calls,
+                            "errors": errors, "hour": hour})
+    return len(batch)
 
 
 # --- OTLP log tee ------------------------------------------------------------

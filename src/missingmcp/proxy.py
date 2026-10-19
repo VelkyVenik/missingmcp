@@ -64,15 +64,10 @@ def _mcp_event(body, adapter_name: str) -> "tuple[str, dict] | None":
 
 def _capture_mcp(event, key: str, status: int, ttfb_ms: int, total_ms: int,
                  nbytes: int) -> None:
-    name, props = event
-    props = {**props, "$mcp_duration_ms": total_ms, "$mcp_is_error": status >= 400,
-             "status": status, "ttfb_ms": ttfb_ms, "bytes": nbytes}
-    if status >= 400:
-        props["$mcp_error_status"] = status
-    # Personless (anonymous pricing, up to 4x cheaper): one event per MCP call
-    # is the bulk of the bill, and per-call analytics need the distinct_id on
-    # the event, not a person profile. Funnel events stay identified.
-    telemetry.capture(name, distinct_id=key, properties=props, anonymous=True)
+    """Count one tool call into the hourly/daily usage rollup (telemetry.mcp_call)
+    — no per-call PostHog event any more (2026-10-19, cost)."""
+    _name, props = event
+    telemetry.mcp_call(props["adapter"], key, props["$mcp_tool_name"], status >= 400)
 
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
