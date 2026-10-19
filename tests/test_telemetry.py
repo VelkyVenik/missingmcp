@@ -198,14 +198,12 @@ def test_mcp_event_tools_call():
     assert "arguments" not in json.dumps(props)      # content never leaves
 
 
-def test_mcp_event_initialize_and_list():
+def test_mcp_event_only_tool_calls_are_sent():
+    # PostHog cost (2026-10-19): DAU/WAU/tool counts need tools/call only.
     body = json.dumps({"method": "initialize", "params": {
         "clientInfo": {"name": "claude-ai", "version": "0.1"}}}).encode()
-    name, props = proxy._mcp_event(body, "whoop")
-    assert name == "$mcp_initialize"
-    assert props["$mcp_client_name"] == "claude-ai"
-    assert props["$mcp_client_version"] == "0.1"
-    assert proxy._mcp_event(json.dumps({"method": "tools/list"}).encode(), "whoop")[0] == "$mcp_tools_list"
+    assert proxy._mcp_event(body, "whoop") is None
+    assert proxy._mcp_event(json.dumps({"method": "tools/list"}).encode(), "whoop") is None
 
 
 @pytest.mark.parametrize("body", [b"", b"junk", b"[]",
