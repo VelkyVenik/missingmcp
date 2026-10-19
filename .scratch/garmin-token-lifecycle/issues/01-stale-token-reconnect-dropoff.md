@@ -1,7 +1,7 @@
 # 01 — Half the users hitting stale Garmin tokens never reconnect
 
 Type: task
-Status: ready-for-human
+Status: resolved (2026-07-30 — superseded by the reliability map: tickets 02, 03, 06, 07)
 
 Triaged 2026-07-27 — see "## Triage" at the bottom for the seven-day numbers,
 which correct the first measurement and narrow the options down to one.

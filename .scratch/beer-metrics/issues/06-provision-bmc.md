@@ -40,3 +40,11 @@ Resolution records: where the token lives (an env var, secret handling per CLAUD
 is a secret, never logged), the confirmed supporter field names, and the private-payment email
 behavior — the facts tickets 02 (already resolved) and 05 build on. Source:
 `.scratch/beer-metrics/assets/bmc-capabilities.md` §Confidence & gaps.
+
+## Comments
+
+- 2026-10-18: still parked; manual entry carries the load. Batch of 22
+  supporters (2026-10-04 … 10-16, 45 beers) recorded via `add_beer.record_beer`
+  in one run (idempotent on email); the `beers` table holds 60 donations /
+  112 beers. Dedup check before a batch: `~/.config/missingmcp/prod-read/beers.sh`.
+  BMC dashboard not re-tested.

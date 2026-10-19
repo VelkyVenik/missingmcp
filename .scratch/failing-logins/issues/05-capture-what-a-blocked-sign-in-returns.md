@@ -1,7 +1,7 @@
 # Capture what a blocked sign-in returns
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -30,3 +30,14 @@ PR; garminconnect's exceptions may need their response inspected.
   mapped — sign-in form → `auth`, "Set Password" → `password_reset`; neither
   cools the account nor counts against the egress. HTTP status / Retry-After
   of a real widget 429 still unlogged — revisit only if real 429s show up.
+
+## Answer
+
+Answered from garminconnect's own log lines (comment 2026-10-12): what we
+called "blocked" was almost never Garmin's edge limiting an egress — it was
+the sign-in form handed back (wrong credentials or an email-MFA page 0.3.2
+misread), a "Set Password" page, and the portal fallback's Cloudflare 403.
+After PR #47 (page title logged as `page`, mapped to `auth` /
+`password_reset`) the measurement saw **0** real blocks in ~700 attempts, so
+there was no 429 left to capture. HTTP status / Retry-After of a real widget
+429 stays unlogged; revisit only if `blocked` reappears.
