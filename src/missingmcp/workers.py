@@ -27,6 +27,20 @@ _WORKER_ERROR = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b")
 # open listen stream, the gateway stopped reading) — not a fault, and at
 # production volume it alone kept the pager loud (reliability ticket 10).
 _WORKER_ROUTINE = "ASGI callable returned without completing response"
+# Dropped by the pump (2026-10-19, ~30 % of all log lines): the worker's own
+# uvicorn access line for every probe and forward — the gateway's mcp-response
+# already records each forward with status and latency.
+_WORKER_ACCESS = re.compile(
+    r'^INFO:\s+127\.0\.0\.1:\d+ - "(?:GET|POST|DELETE) /(?:healthz|readyz|mcp)\b[^"]*" \d{3}\b')
+# A request the worker's MCP SDK can't parse (e.g. a newer client probing
+# "server/discover") dumps one pydantic line pair per request type — ~90 lines
+# per probe. Only the summary line ("Failed to validate request: N validation
+# errors for ClientRequest") is kept; the detail lines after it are dropped.
+_VALIDATION_HEAD = "Failed to validate request"
+_VALIDATION_DETAIL = re.compile(
+    r"^(?:\w+(?:Request|Notification|Params|Result)\.[\w.\[\]-]+"
+    r"|\s+(?:Input should be|Field required|Extra inputs|Value error|Input tag"
+    r"|For further information visit https://errors\.pydantic\.dev).*)$")
 
 
 def _pump_worker_output(stream, account: str) -> None:
@@ -36,11 +50,15 @@ def _pump_worker_output(stream, account: str) -> None:
     the volume (unbounded, only reachable over ssh). Sign-in readiness is no
     longer inferred from these lines — WorkerManager polls ``/readyz`` when the
     forward advertises ``readiness_path``; stderr stays diagnostics-only."""
+    in_validation = False
     try:
         for raw in stream:
             line = raw.rstrip()
-            if not line:
+            if not line or _WORKER_ACCESS.match(line):
                 continue
+            if in_validation and _VALIDATION_DETAIL.match(line):
+                continue
+            in_validation = line.startswith(_VALIDATION_HEAD)
             elevated = _WORKER_ERROR.search(line) and _WORKER_ROUTINE not in line
             emit = log_error if elevated else log
             emit("worker-log", account=account, line=line)

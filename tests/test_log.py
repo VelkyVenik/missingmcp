@@ -85,3 +85,16 @@ def test_worker_pump_emits_structured_lines_with_severity(capsys):
     assert events[0]["level"] == "info"
     assert events[1]["level"] == "error"      # ERROR heuristic elevates severity
     assert events[2]["level"] == "info"
+
+
+def test_httpx_request_lines_are_quiet_unless_debug(monkeypatch):
+    # One "HTTP Request: ..." INFO line per worker probe/forward was ~16 % of
+    # all log lines (2026-10-19).
+    monkeypatch.delenv("GATEWAY_LOG_LEVEL", raising=False)
+    mlog.setup_logging(path=None)
+    assert logging.getLogger("httpx").level == logging.WARNING
+    monkeypatch.setenv("GATEWAY_LOG_LEVEL", "debug")
+    mlog.setup_logging(path=None)
+    assert logging.getLogger("httpx").level == logging.DEBUG
+    monkeypatch.delenv("GATEWAY_LOG_LEVEL")
+    mlog.setup_logging(path=None)

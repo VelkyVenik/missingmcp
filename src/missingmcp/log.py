@@ -69,6 +69,10 @@ def setup_logging(path: str | None = None) -> None:
         if isinstance(h, _StructuredHandler):
             root.removeHandler(h)
     root.addHandler(_StructuredHandler())
+    # httpx logs every request at INFO ("HTTP Request: GET http://127.0.0.1:…")
+    # — one line per worker probe/forward, ~16 % of all lines and redundant
+    # with mcp-response. Kept when GATEWAY_LOG_LEVEL asks for DEBUG.
+    logging.getLogger("httpx").setLevel(level if level <= logging.DEBUG else logging.WARNING)
     logging.captureWarnings(True)
     if path:
         # Tee JSON once: _emit writes to _file, and _StructuredHandler bridges
