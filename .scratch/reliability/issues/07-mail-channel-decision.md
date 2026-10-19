@@ -1,7 +1,7 @@
 # 07 — Proactive user notification: do we need a mail channel at all?
 
 Type: grilling
-Status: open
+Status: resolved (2026-10-19 — closed as not-needed by the operator)
 Blocked by: 06
 
 ## Question
@@ -39,3 +39,5 @@ close as not-needed.
   (~3 days, 4,300 Garmin accounts) one account hit stale tokens
   (`worker-login-rejected` + `worker-forward-auth-stale`, 1 each).
   **Proposed: close as not-needed**; operator to confirm.
+- 2026-10-19: operator agreed — closed as not-needed. The re-auth 401 stays
+  the only user-facing path for stale tokens.

@@ -155,11 +155,12 @@ Three things are true at the end of this map:
   — resolved (2026-10-18): a Grok bot (morning status + hourly hard-signal
   check); both GHA workflows disabled since 2026-09-28, kept as fallback.
 
+- [Proactive user mail](issues/07-mail-channel-decision.md)
+  — closed as not-needed (2026-10-19): ~1 stale-token account per 3 days.
+
 ## Not yet specified
 
-- **Mail infrastructure details** (provider, secrets, unsubscribe, copy) —
-  only if ticket 07 decides mail is needed (ticket 06's verdict: not
-  justified).
+— (none)
 
 ## Out of scope
 

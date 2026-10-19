@@ -40,6 +40,6 @@ HITL — channel choice, provider account and credentials are the operator's.
   mail campaign stats) and, from 2026-10-18, an hourly Grok check that pages
   only on hard signals (site down, dead proxy egress, real Garmin blocks,
   5xx / worker-fault bursts). The scripts stay in the repo as a ready
-  fallback (`notify()` seam intact). Still on Slack: the in-app daily
-  `report.py` post (`SLACK_WEBHOOK_URL` is set on Railway) — retire or keep
-  is the operator's call.
+  fallback (`notify()` seam intact). Nothing posts to Slack any more:
+  `SLACK_WEBHOOK_URL` on Railway is empty (checked 2026-10-19), which keeps
+  the in-app daily `report.py` off — the operator confirmed Slack is retired.
