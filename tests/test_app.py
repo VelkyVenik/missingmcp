@@ -168,8 +168,7 @@ def test_garmin_pages_disclose_unofficial_access(tmp_path):
     page = c.get("/garmin").text
     assert 'id="faq"' in page
     assert page.index('id="tips"') < page.index('id="faq"') < page.index('id="under-the-hood"')
-    assert "Strictly speaking, no" in page
-    assert "Use it at your own risk" in page
+    assert "Not officially" in page and "Terms of Use" in page
     assert page.index('href="#faq"') < page.index('id="tips"')
     assert 'href="/garmin#faq"' in c.get("/garmin/chatgpt").text
 
