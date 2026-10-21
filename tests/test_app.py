@@ -161,6 +161,19 @@ def test_garmin_page(tmp_path):
     assert "unmodified" in r.text
 
 
+def test_garmin_pages_disclose_unofficial_access(tmp_path):
+    # Signing in shares Garmin credentials with a third party, which Garmin's
+    # Terms of Use forbid. Say so plainly, and point to it at the sign-in moment.
+    c = _client(tmp_path)
+    page = c.get("/garmin").text
+    assert 'id="faq"' in page
+    assert page.index('id="tips"') < page.index('id="faq"') < page.index('id="under-the-hood"')
+    assert "Strictly speaking, no" in page
+    assert "Use it at your own risk" in page
+    assert page.index('href="#faq"') < page.index('id="tips"')
+    assert 'href="/garmin#faq"' in c.get("/garmin/chatgpt").text
+
+
 def test_static_logo_assets_served(tmp_path):
     c = _client(tmp_path)
     for path in ("/static/icon.png", "/static/favicon-32.png",
