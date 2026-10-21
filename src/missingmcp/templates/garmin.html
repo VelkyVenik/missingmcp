@@ -1,7 +1,9 @@
 <!-- Connector page template — every adapter's landing follows this section
      order, so the site reads the same everywhere. Copy this skeleton for new
      connectors: hero → what is this → what Claude can see → how to connect
-     → tips & tricks → under the hood → all tools. -->
+     → tips & tricks → under the hood → all tools. Garmin additionally carries
+     a plain-spoken FAQ (unofficial access, Garmin's Terms of Use) between tips
+     and under the hood. -->
   <div class="page-hero">
     <div class="wrap">
       <span class="pill live">Live</span>{USAGE_METER_GARMIN}
@@ -82,7 +84,7 @@
         </div>
       </div>
       <div class="note warn">
-        <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
+        <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>. Not affiliated with Garmin &mdash; see the <a href="#faq">FAQ</a>.
       </div>
       <p class="quiet">Using ChatGPT instead of Claude? Same URL, different menus &mdash; follow the <a href="/garmin/chatgpt">Connect Garmin to ChatGPT guide</a>.</p>
       <p class="beer"><span>Free to use &mdash; if it earns a spot in your routine, <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">buy me a beer</a> to keep it running.</span></p>
@@ -110,6 +112,57 @@
           <h3>Sleep detective</h3>
           <p>&ldquo;Look at the last month: which habits correlate with my worst sleep scores &mdash; late workouts, stress peaks, anything else?&rdquo;</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2 class="sec-h">Questions &amp; answers</h2>
+      <div class="faq">
+        <details>
+          <summary>Is this an official Garmin product?</summary>
+          <div class="a">
+            <p>No. missingmcp is an independent, open-source project, not affiliated with or endorsed by Garmin. It connects through the same unofficial access that open-source tools like <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> and <a href="https://github.com/cyberjunky/python-garminconnect">python-garminconnect</a> use &mdash; the sign-in and data endpoints of Garmin&rsquo;s own apps.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why not use Garmin&rsquo;s official API?</summary>
+          <div class="a">
+            <p>In October 2026 Garmin relaunched its <a href="https://developer.garmin.com/gc-developer-program/overview/" target="_blank" rel="noopener noreferrer">Connect Developer Program</a> with three tiers. None of them could replace this connector:</p>
+            <ul>
+              <li><strong>Much less data.</strong> All three cover activities and the core health summaries &mdash; but not training readiness, training status, race predictions, or most of the tools listed below.</li>
+              <li><strong>Little or no writing.</strong> Personal is read-only; the business tiers can send workouts and courses to your watch, but none can log food, weigh-ins or gear, or edit activities.</li>
+              <li><strong>Personal</strong> &mdash; free access to <em>your own</em> data with a key you create in Garmin Connect. Its terms say the key may be used only by you, in tools you run yourself, and must not be shared with any third party &mdash; so a hosted service can&rsquo;t accept it.</li>
+              <li><strong>Starter</strong> &mdash; for organizations, with limited user capacity (this connector already has more users than that). Data is pushed to the app, which has to store it &mdash; and we don&rsquo;t want to keep a copy of your health data.</li>
+              <li><strong>Enterprise</strong> &mdash; paid per active user.</li>
+            </ul>
+          </div>
+        </details>
+        <details>
+          <summary>Is this allowed by Garmin&rsquo;s Terms of Use?</summary>
+          <div class="a">
+            <p>Not officially. Garmin&rsquo;s <a href="https://www.garmin.com/en-US/legal/terms-of-use/" target="_blank" rel="noopener noreferrer">Terms of Use</a> ask you not to share your account credentials with third parties or use access methods Garmin hasn&rsquo;t made available &mdash; and signing in here does both. In theory Garmin could suspend an account over that; we&rsquo;re not aware of it ever doing so to users of open-source tools like this one, which thousands of people use. Still, it&rsquo;s your call.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Can it stop working?</summary>
+          <div class="a">
+            <p>It&rsquo;s been running reliably since summer 2026, but yes, it could at any time &mdash; if Garmin changes its sign-in, blocks this kind of access, or asks us to stop. And if Garmin ships its own MCP server, we&rsquo;ll point you to it, just as we did when Rohl&iacute;k launched theirs.</p>
+          </div>
+        </details>
+        <details>
+          <summary>What do you do to keep the footprint small?</summary>
+          <div class="a">
+            <p>Your data is fetched only when you ask Claude something &mdash; no background polling, no copy of your health data kept. Sign-ins are rate-limited and never retried in a loop. Your password is used once and never stored (see <a href="/#security">Security &amp; trust</a>).</p>
+          </div>
+        </details>
+        <details>
+          <summary>Is there an official alternative?</summary>
+          <div class="a">
+            <p>If you&rsquo;re a developer, Garmin&rsquo;s free Personal API gives you sanctioned, read-only access to your own data for tools you build and run yourself.</p>
+          </div>
+        </details>
       </div>
     </div>
   </section>
