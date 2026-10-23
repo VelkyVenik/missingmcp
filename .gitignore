@@ -14,3 +14,9 @@ data/
 
 # marketing drafts — kept local, not published to the public repo
 .scratch/promotion/
+
+# Machine-specific Claude permissions
+.claude/settings.json
+
+# Internal Garmin API research and operator communication decisions
+.scratch/garmin-official-api/
