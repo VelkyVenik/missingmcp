@@ -73,7 +73,11 @@ Still to do before the cutover:
    add to `~venik/.ssh/authorized_keys` as
    `command="/opt/missingmcp/deploy.sh",restrict ssh-ed25519 AAAA… github-deploy`;
    store the private key as repo secret `HYDRA_DEPLOY_KEY`; delete the local copy.
-6. **Dry run** (DNS still on Railway): run the workflow manually, then point a
+6. **Dry run** (DNS still on Railway). `gateway.env` is production config, so
+   first switch off everything with an outside effect — an empty-DB backup
+   would overwrite the day's prod snapshot in the bucket:
+   `printf 'services:\n  gateway:\n    environment:\n      BACKUP_S3_BUCKET: ""\n      SLACK_WEBHOOK_URL: ""\n      MAIL_API_TOKEN: ""\n      POSTHOG_API_KEY: ""\n' > docker-compose.override.yml`
+   (delete it before the cutover). Run the workflow manually, then point a
    real client at hydra with `curl --resolve missingmcp.com:443:178.105.209.44 -k`
    (`/healthz`, `/.well-known/oauth-authorization-server/garmin`, `/`). Check
    in `docker compose logs` that the client IP is the real one, not 172.30.0.1
@@ -82,13 +86,24 @@ Still to do before the cutover:
 
 ## Cutover (~10–15 min downtime)
 
-1. Railway → gateway → Settings → **Custom Start Command** = `sleep infinity`.
-   The redeploy SIGTERMs the gateway, which persists rotated Garmin tokens to
-   the DB; the replacement container just sleeps on the same volume.
-2. From the repo root: `sh deploy/pull_railway_db.sh` — consistent snapshot,
-   checksum + `integrity_check` verified, lands in `./gateway.db`.
-3. `scp gateway.db venik@hydra.venik.org:/opt/missingmcp/data/gateway.db`, then
-   on hydra `./deploy.sh <sha of main>`. Delete the local `gateway.db`.
+Only one gateway may ever own the DB: both WHOOP and Garmin rotate refresh
+tokens on use, so a token rotated by one copy is dead for the other. Every
+hand-over is therefore *stop with persist → consistent snapshot → start the
+other side* — never two live gateways, never an old snapshot.
+
+1. **Park Railway.** Railway → gateway → Settings → **Custom Start Command** =
+   `python3 scripts/railway_park.py`. The redeploy SIGTERMs the gateway (it
+   persists rotated tokens — `worker-tokens-persisted trigger=shutdown` in the
+   logs) and replaces it with a stub on the same volume that answers
+   railway.json's `/healthz` check and 503s everything else. (`sleep infinity`
+   would fail that healthcheck.) Wait until `railway deployment list` shows the
+   new deployment `SUCCESS` and the previous one gone.
+2. From the repo root: `sh deploy/pull_railway_db.sh` — refuses unless the
+   container runs `railway_park.py` and no gateway process is left; consistent
+   snapshot, checksum + `integrity_check` verified, lands in `./gateway.db`.
+3. `scp gateway.db venik@hydra.venik.org:/opt/missingmcp/data/gateway.db`
+   (hydra's `data/` empty, its gateway stopped), then on hydra
+   `./deploy.sh <sha of main>`. Delete the local `gateway.db`.
 4. Smoke test via `--resolve` (as in the dry run).
 5. Cloudflare DNS: change the `missingmcp.com` record from the Railway CNAME to
    proxied **A 178.105.209.44** + **AAAA 2a01:4f8:c014:ef0c::1**. Proxied, so it
@@ -96,10 +111,25 @@ Still to do before the cutover:
 6. Verify in Claude: a Garmin and a WHOOP call on your own connectors (no
    reconnect needed — tokens, clients and Bearer hashes all came with the DB).
 7. Set repo variable `HYDRA_AUTODEPLOY=true`; disconnect the Railway service
-   from GitHub so pushes stop deploying there.
+   from GitHub so pushes stop deploying there. Leave Railway parked.
 
-**Rollback** (while Railway still exists): DNS back to the Railway CNAME and
-clear its Custom Start Command. Sign-ins made on hydra in between are lost.
+## Rollback to Railway
+
+The same hand-over in reverse — the Railway volume still holds the
+pre-cutover DB, whose rotated-away tokens are already dead:
+
+1. Repo variable `HYDRA_AUTODEPLOY=false` (no deploy may restart hydra midway).
+2. On hydra: `cd /opt/missingmcp && docker compose stop gateway` (graceful —
+   persists rotated tokens), then
+   `sqlite3 data/gateway.db ".backup /tmp/gateway.db"` and copy it to the repo
+   root: `scp venik@hydra.venik.org:/tmp/gateway.db .`
+3. Railway must still be parked: `sh deploy/push_db_to_railway.sh` — refuses
+   unless parked, uploads, verifies the checksum, swaps the file in atomically
+   and drops the stale WAL.
+4. Railway → clear the Custom Start Command (the gateway starts on the pushed
+   DB); wait for the deployment `SUCCESS`.
+5. Cloudflare DNS back to the Railway CNAME; reconnect the service to GitHub.
+   Keep hydra's gateway stopped.
 
 ## After a few quiet days
 
