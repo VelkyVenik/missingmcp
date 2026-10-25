@@ -14,7 +14,7 @@ usage: sudo mmcp <command>
   logs [SINCE] [--grep TEXT]  gateway log, structured JSON, one event per line
                               SINCE: 30m, 6h, 1d, 7d (default 1h) — rotated logs keep ~250 MB
   status                      container state, memory/CPU, /healthz, account/token/worker counts
-  metrics [PERIOD]            host CPU / RAM / network / load from sysstat (1-min samples, 28 days kept)
+  metrics [PERIOD]            host CPU / RAM / swap / network / load from sysstat (1-min samples, 28 days kept)
                               PERIOD: 1d (default, per hour) or 2d..28d (per day), times in UTC
   workers                     running garmin workers (workers.json)
   usage                       tool/method leaderboard (aggregate)
@@ -87,11 +87,13 @@ def rows(opt):
                 yield r
 
 key = (lambda t: t.strftime("%m-%d %H:00")) if days == 1 else (lambda t: t.strftime("%Y-%m-%d"))
-b = defaultdict(lambda: {"cpu": [], "mem": [], "load": [], "rx": 0.0, "tx": 0.0})
+b = defaultdict(lambda: {"cpu": [], "mem": [], "swap": [], "load": [], "rx": 0.0, "tx": 0.0})
 for r in rows("-u"):
     b[key(r["_ts"])]["cpu"].append(100 - float(r["%idle"]))
 for r in rows("-r"):
     b[key(r["_ts"])]["mem"].append((mem_total_kb - int(r["kbavail"])) / 1048576)
+for r in rows("-S"):
+    b[key(r["_ts"])]["swap"].append(int(r["kbswpused"]) / 1048576)
 for r in rows("-q"):
     b[key(r["_ts"])]["load"].append(float(r["ldavg-1"]))
 for r in rows("-n DEV"):
@@ -105,16 +107,16 @@ if not b:
     sys.exit("no sysstat samples in range yet")
 avg = lambda v: sum(v) / len(v) if v else 0.0
 print(f"hydra: 4 vCPU, {mem_total_kb / 1048576:.1f} GB RAM (used = total - available); last {days}d, UTC")
-print(f"{'period':<16}{'cpu avg':>8}{'cpu max':>8}{'ram avg':>9}{'ram max':>9}{'load max':>9}{'net in':>9}{'net out':>9}")
-tot = {"cpu": [], "mem": [], "load": [], "rx": 0.0, "tx": 0.0}
+print(f"{'period':<16}{'cpu avg':>8}{'cpu max':>8}{'ram avg':>9}{'ram max':>9}{'swap max':>9}{'load max':>9}{'net in':>9}{'net out':>9}")
+tot = {"cpu": [], "mem": [], "swap": [], "load": [], "rx": 0.0, "tx": 0.0}
 for k in sorted(b):
     v = b[k]
-    for f in ("cpu", "mem", "load"):
+    for f in ("cpu", "mem", "swap", "load"):
         tot[f] += v[f]
     tot["rx"] += v["rx"]; tot["tx"] += v["tx"]
-    print(f"{k:<16}{avg(v['cpu']):>7.0f}%{max(v['cpu'], default=0):>7.0f}%{avg(v['mem']):>7.2f}GB{max(v['mem'], default=0):>7.2f}GB"
+    print(f"{k:<16}{avg(v['cpu']):>7.0f}%{max(v['cpu'], default=0):>7.0f}%{avg(v['mem']):>7.2f}GB{max(v['mem'], default=0):>7.2f}GB{max(v['swap'], default=0):>7.2f}GB"
           f"{max(v['load'], default=0):>9.2f}{v['rx']:>7.2f}GB{v['tx']:>7.2f}GB")
-print(f"{'total':<16}{avg(tot['cpu']):>7.0f}%{max(tot['cpu'], default=0):>7.0f}%{avg(tot['mem']):>7.2f}GB{max(tot['mem'], default=0):>7.2f}GB"
+print(f"{'total':<16}{avg(tot['cpu']):>7.0f}%{max(tot['cpu'], default=0):>7.0f}%{avg(tot['mem']):>7.2f}GB{max(tot['mem'], default=0):>7.2f}GB{max(tot['swap'], default=0):>7.2f}GB"
       f"{max(tot['load'], default=0):>9.2f}{tot['rx']:>7.2f}GB{tot['tx']:>7.2f}GB")
 PY
 		;;

@@ -67,6 +67,10 @@ need a manual `sudo reboot` (`/var/run/reboot-required`).
   (`/etc/ssh/sshd_config.d/00-hardening.conf`). Hetzner Cloud Firewall: 22, 80, 443.
 - Docker CE + compose plugin and Caddy from their upstream apt repos (Ubuntu's
   Caddy is 2.6), `sqlite3`, docker log rotation, Hetzner Backups on.
+- 4 GB `/swapfile` (fstab), `vm.swappiness=10` (`/etc/sysctl.d/90-swappiness.conf`):
+  a cushion, not capacity — the container may swap up to its 6 GB limit
+  (`memory.swap.max`), so sustained swap use in `mmcp metrics` means it's time
+  to lower `MAX_WORKERS` or move to a CAX31.
 
 Still to do before the cutover:
 
