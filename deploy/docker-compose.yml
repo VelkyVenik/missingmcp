@@ -1,0 +1,48 @@
+# Production stack on hydra (Hetzner CAX21, arm64) — see deploy/README.md.
+# Lives at /opt/missingmcp/ on the server next to:
+#   gateway.env  app secrets/config (0600, never in git) — `railway variables` minus PORT
+#   .env         IMAGE_TAG=<commit sha>, written by deploy.sh (compose interpolation only)
+#   data/        the /data volume: gateway.db + worker token dirs
+name: missingmcp
+
+services:
+  gateway:
+    image: ghcr.io/velkyvenik/missingmcp:${IMAGE_TAG:?IMAGE_TAG unset - run deploy.sh <sha>}
+    restart: unless-stopped
+    env_file: gateway.env
+    # These win over gateway.env, so a copied Railway variable can't break them.
+    environment:
+      PORT: "8080"
+      DATA_DIR: /data
+      # Host Caddy reaches the container through the bridge gateway, so that is
+      # the one hop uvicorn may trust X-Forwarded-For from. Caddy overwrites the
+      # header with the Cloudflare-verified client IP (see Caddyfile); trusting
+      # "*" here would be equally safe today but silently breaks if the port is
+      # ever published beyond loopback.
+      FORWARDED_ALLOW_IPS: 172.30.0.1
+    # Loopback only: the sole way in is Caddy on the host.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+    networks:
+      - edge
+    # Same cap as on Railway; MAX_WORKERS (gateway.env) is sized against it
+    # (~75 MB per garmin worker). Leaves ~1.5 GB for the host on a CAX21.
+    mem_limit: 6g
+    # SIGTERM → the gateway persists rotated Garmin tokens and stops its
+    # workers; give that more than Docker's default 10s before SIGKILL.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+
+networks:
+  edge:
+    ipam:
+      config:
+        # Pinned so FORWARDED_ALLOW_IPS above stays correct across recreates.
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
