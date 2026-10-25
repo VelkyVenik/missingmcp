@@ -63,6 +63,23 @@ agent on a unix socket shared only with the hub, `docker.sock` read-only).
 Host + per-container CPU/RAM/swap/network history and alerts. Login
 `admin@venik.org`, password in `/opt/beszel/hub.env`.
 
+### Alerts (ntfy push to the phone)
+
+All alerts go to one ntfy.sh topic (app: ntfy). The topic name works like a
+password — it is **not** in this public repo: see `TOPIC` in
+`~/uptime/check.sh` on dragon (also the Beszel notification URL).
+
+- **Uptime** — `~/uptime/check.sh` on **dragon** (cron, every minute; another
+  host and location, so it still fires when hydra is down): `GET
+  https://missingmcp.com/healthz`, DOWN push (urgent) after 2 consecutive
+  failures, UP push on recovery; failed checks in `~/uptime/failures.log`.
+- **Beszel** (Settings → Notifications, shoutrrr `ntfy://ntfy.sh/<topic>`):
+  hydra down / RAM > 85 % 5 min / CPU > 80 % 10 min / disk > 80 %; dragon down /
+  RAM > 90 % 10 min / disk > 85 %. Beszel has no swap alert — swap shows in
+  `mmcp metrics`.
+- Blind spot: each host watches the other, so a Hetzner-wide outage taking
+  both down sends nothing.
+
 The gateway logs to the host's **persistent journal** (compose `logging:
 journald`, tag `missingmcp-gateway`), not to a per-container file: `docker
 logs` history dies with the container on every deploy, the journal spans
