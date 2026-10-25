@@ -1,0 +1,71 @@
+#!/bin/bash
+# Read-only ops entrypoint on hydra for monitoring accounts (the Grok bot):
+# installed as /usr/local/bin/mmcp, root-owned, the ONLY command such users may
+# sudo (/etc/sudoers.d/91-mmcp). They are deliberately not in the docker group
+# (= root). Every subcommand is fixed and read-only; arguments are validated
+# here, never handed to a shell. See deploy/README.md → Monitoring access.
+set -euo pipefail
+
+C=missingmcp-gateway-1
+
+usage() {
+	cat >&2 <<'EOF'
+usage: sudo mmcp <command>
+  logs [SINCE] [--grep TEXT]  gateway log, structured JSON, one event per line
+                              SINCE: 30m, 6h, 1d, 7d (default 1h) — rotated logs keep ~250 MB
+  status                      container state, memory/CPU, /healthz, account/token/worker counts
+  workers                     running garmin workers (workers.json)
+  usage                       tool/method leaderboard (aggregate)
+  report                      yesterday's new/active/total users per connector
+  sql                         ONE read-only SQL statement from stdin, tab-separated output
+                              (DB opened ?mode=ro + query_only; schema: SELECT sql FROM sqlite_master)
+EOF
+	exit 2
+}
+
+py() { docker exec -i "$C" python3 "$@"; }
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+	logs)
+		since="1h"; grep_for=""
+		while [ $# -gt 0 ]; do
+			case "$1" in
+				--grep) [ $# -ge 2 ] || usage; grep_for="$2"; shift 2 ;;
+				*) since="$1"; shift ;;
+			esac
+		done
+		[[ "$since" =~ ^[0-9]{1,4}[smhd]$ ]] || { echo "bad SINCE: $since" >&2; exit 2; }
+		# docker has no "d" unit
+		[[ "$since" == *d ]] && since="$(( ${since%d} * 24 ))h"
+		if [ -n "$grep_for" ]; then
+			docker logs --since "$since" "$C" 2>&1 | grep -F -- "$grep_for" || true
+		else
+			docker logs --since "$since" "$C" 2>&1
+		fi
+		;;
+	status)
+		docker ps --filter "name=^${C}$" --format 'container: {{.Status}}'
+		docker stats --no-stream --format 'memory: {{.MemUsage}}  cpu: {{.CPUPerc}}' "$C"
+		echo "healthz: $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/healthz)"
+		echo "disk: $(df -h / | awk 'NR==2 {print $3 " used of " $2 " (" $5 ")"}')"
+		py /app/scripts/status.py
+		;;
+	workers) docker exec "$C" cat /data/workers.json; echo ;;
+	usage) py /app/scripts/usage.py --tools ;;
+	report) py /app/scripts/daily_report.py ;;
+	sql)
+		py -c '
+import sqlite3, sys
+q = sys.stdin.read()
+c = sqlite3.connect("file:/data/gateway.db?mode=ro", uri=True)
+c.execute("pragma query_only = 1")
+cur = c.execute(q)
+if cur.description:
+    print("\t".join(d[0] for d in cur.description))
+    for row in cur:
+        print("\t".join("" if v is None else str(v) for v in row))
+'
+		;;
+	*) usage ;;
+esac

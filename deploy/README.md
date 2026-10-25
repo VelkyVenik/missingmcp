@@ -43,6 +43,15 @@ docker compose exec gateway python3 -c "..."                  # replaces `railwa
 sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod DB
 ```
 
+### Monitoring access (Grok bot)
+
+User `grok` (key-only SSH, not in the docker group) may sudo exactly one
+command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
+`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `workers`, `usage`,
+`report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
+`query_only`). After editing `deploy/mmcp`:
+`scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.
+
 Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
 updates install automatically (`unattended-upgrades`); kernel updates still
 need a manual `sudo reboot` (`/var/run/reboot-required`).
