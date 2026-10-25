@@ -7,6 +7,12 @@ name: Deploy to hydra
 on:
   push:
     branches: [main]
+    # Every deploy restarts the single-node gateway (a few seconds down) —
+    # don't do that for changes that can't affect the image or the host.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".scratch/**"
   workflow_dispatch:
 
 permissions:
@@ -58,3 +64,33 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "hydra.venik.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKtgl4URVjqFAvPaTiufkDkfPCEmYWEzQwvsKS5r+qId" > ~/.ssh/known_hosts
           ssh venik@hydra.venik.org "${{ github.sha }}"
+
+  # Push the outcome to the operator's phone (ntfy). Skipped when nothing was
+  # deployed (HYDRA_AUTODEPLOY off) and the build was fine. The topic name
+  # works like a password, hence a secret.
+  notify:
+    needs: [build, deploy]
+    if: always() && (needs.build.result == 'failure' || needs.deploy.result == 'success' || needs.deploy.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: ntfy
+        env:
+          TOPIC: ${{ secrets.NTFY_TOPIC }}
+          BUILD: ${{ needs.build.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+          SHA: ${{ github.sha }}
+          # Untrusted text: only ever expanded as a quoted shell variable.
+          MSG: ${{ github.event.head_commit.message }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$TOPIC" ] || { echo "NTFY_TOPIC not set"; exit 0; }
+          subject=$(printf '%s' "$MSG" | head -n1 | cut -c1-120)
+          if [ "$DEPLOY" = success ]; then
+            curl -fsS -o /dev/null -H "Title: Deployed to hydra" -H "Tags: rocket" -H "Priority: low" \
+              -H "Click: $RUN" -d "${SHA:0:7} ${subject}" "https://ntfy.sh/$TOPIC"
+          else
+            what=$([ "$BUILD" = failure ] && echo "build failed, nothing deployed" || echo "deploy failed; deploy.sh rolled back to the previous image if it could")
+            curl -fsS -o /dev/null -H "Title: Deploy FAILED" -H "Tags: rotating_light" -H "Priority: high" \
+              -H "Click: $RUN" -d "${SHA:0:7} ${subject} — ${what}" "https://ntfy.sh/$TOPIC"
+          fi
