@@ -30,6 +30,14 @@ services:
     # Same cap as on Railway; MAX_WORKERS (gateway.env) is sized against it
     # (~75 MB per garmin worker). Leaves ~1.5 GB for the host on a CAX21.
     mem_limit: 6g
+    # The log is the operator record (mmcp logs, the Grok status) — keep weeks
+    # of it, not the daemon default's ~250 MB: 50 × 200 MB, rotated files gzipped.
+    logging:
+      driver: json-file
+      options:
+        max-size: "200m"
+        max-file: "50"
+        compress: "true"
     # SIGTERM → the gateway persists rotated Garmin tokens and stops its
     # workers; give that more than Docker's default 10s before SIGKILL.
     stop_grace_period: 30s

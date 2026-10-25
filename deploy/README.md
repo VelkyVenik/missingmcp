@@ -14,7 +14,7 @@ Claude ─TLS─▶ Cloudflare (proxied) ─TLS, Origin CA cert─▶ Caddy :443
 |---|---|
 | `docker-compose.yml` | `/opt/missingmcp/docker-compose.yml` |
 | `deploy.sh` | `/opt/missingmcp/deploy.sh` (forced command of the CI deploy key) |
-| `Caddyfile` | `/etc/caddy/Caddyfile` |
+| `Caddyfile` | `/etc/caddy/Caddyfile` (missingmcp.com answers Cloudflare IPs only — direct hits get 403) |
 | — | `/opt/missingmcp/gateway.env` — app config + secrets, 0600, never in git |
 | — | `/opt/missingmcp/data/` — the `/data` volume (`gateway.db`) |
 
@@ -63,9 +63,14 @@ agent on a unix socket shared only with the hub, `docker.sock` read-only).
 Host + per-container CPU/RAM/swap/network history and alerts. Login
 `admin@venik.org`, password in `/opt/beszel/hub.env`.
 
-Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
-updates install automatically (`unattended-upgrades`); kernel updates still
-need a manual `sudo reboot` (`/var/run/reboot-required`).
+The gateway's log keeps 50 × 200 MB, rotated files gzipped (compose
+`logging`; ~10 GB, weeks to months of history); other containers use the
+daemon default of 50 MB × 5 (`/etc/docker/daemon.json`). OS security updates
+install daily 06:00–07:00 UTC (`unattended-upgrades`); when one needs a reboot
+(kernel, libc, systemd) the host reboots at the next **03:30 UTC**
+(`/etc/apt/apt.conf.d/52-auto-reboot`) — ~1 min down, the gateway gets 30 s to
+persist tokens, containers come back via `restart: unless-stopped`. Cancel a
+pending one with `sudo shutdown -c`.
 
 ## Server setup (done 2026-10-25)
 
