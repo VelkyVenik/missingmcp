@@ -57,6 +57,12 @@ network and load every minute (`sysstat-collect.timer.d/every-minute.conf`)
 and keeps 28 days (`HISTORY=28` in `/etc/sysstat/sysstat`); `mmcp metrics`
 summarizes them per hour (1d) or per day.
 
+Dashboard: **Beszel** at https://hydra.venik.org (`/opt/beszel`, not in this
+repo — hub 0.21.0 on `127.0.0.1:8090` behind Caddy with a Let's Encrypt cert,
+agent on a unix socket shared only with the hub, `docker.sock` read-only).
+Host + per-container CPU/RAM/swap/network history and alerts. Login
+`admin@venik.org`, password in `/opt/beszel/hub.env`.
+
 Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
 updates install automatically (`unattended-upgrades`); kernel updates still
 need a manual `sudo reboot` (`/var/run/reboot-required`).
