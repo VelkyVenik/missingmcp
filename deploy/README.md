@@ -47,10 +47,15 @@ sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod D
 
 User `grok` (key-only SSH, not in the docker group) may sudo exactly one
 command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
-`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `workers`, `usage`,
-`report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
+`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `metrics [1d..28d]`,
+`workers`, `usage`, `report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
 `query_only`). After editing `deploy/mmcp`:
 `scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.
+
+Host metrics (the Railway graphs' replacement): sysstat samples CPU, RAM,
+network and load every minute (`sysstat-collect.timer.d/every-minute.conf`)
+and keeps 28 days (`HISTORY=28` in `/etc/sysstat/sysstat`); `mmcp metrics`
+summarizes them per hour (1d) or per day.
 
 Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
 updates install automatically (`unattended-upgrades`); kernel updates still
