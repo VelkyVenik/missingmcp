@@ -14,7 +14,7 @@ Claude ─TLS─▶ Cloudflare (proxied) ─TLS, Origin CA cert─▶ Caddy :443
 |---|---|
 | `docker-compose.yml` | `/opt/missingmcp/docker-compose.yml` |
 | `deploy.sh` | `/opt/missingmcp/deploy.sh` (forced command of the CI deploy key) |
-| `Caddyfile` | `/etc/caddy/Caddyfile` |
+| `Caddyfile` | `/etc/caddy/Caddyfile` (missingmcp.com answers Cloudflare IPs only — direct hits get 403) |
 | — | `/opt/missingmcp/gateway.env` — app config + secrets, 0600, never in git |
 | — | `/opt/missingmcp/data/` — the `/data` volume (`gateway.db`) |
 
@@ -37,8 +37,8 @@ workers respawn lazily.
 ssh venik@hydra.venik.org
 cd /opt/missingmcp
 docker compose ps
-docker compose logs -f --since 1h gateway                     # structured JSON
-docker compose logs --since 24h gateway | grep '"event": "worker-login-rejected"'
+journalctl -t missingmcp-gateway -f -o cat                    # structured JSON, live
+journalctl -t missingmcp-gateway --since -24h -o cat | grep '"event": "worker-login-rejected"'
 docker compose exec gateway python3 -c "..."                  # replaces `railway ssh`
 sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod DB
 ```
@@ -63,9 +63,18 @@ agent on a unix socket shared only with the hub, `docker.sock` read-only).
 Host + per-container CPU/RAM/swap/network history and alerts. Login
 `admin@venik.org`, password in `/opt/beszel/hub.env`.
 
-Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
-updates install automatically (`unattended-upgrades`); kernel updates still
-need a manual `sudo reboot` (`/var/run/reboot-required`).
+The gateway logs to the host's **persistent journal** (compose `logging:
+journald`, tag `missingmcp-gateway`), not to a per-container file: `docker
+logs` history dies with the container on every deploy, the journal spans
+them. Capped at 10 GB, compressed, 5 GB disk always kept free, rate limit
+raised for bursts (`/etc/systemd/journald.conf.d/50-missingmcp.conf`) — weeks
+to months of history. Other containers keep the daemon default of
+50 MB × 5 (`/etc/docker/daemon.json`). OS security updates
+install daily 06:00–07:00 UTC (`unattended-upgrades`); when one needs a reboot
+(kernel, libc, systemd) the host reboots at the next **03:30 UTC**
+(`/etc/apt/apt.conf.d/52-auto-reboot`) — ~1 min down, the gateway gets 30 s to
+persist tokens, containers come back via `restart: unless-stopped`. Cancel a
+pending one with `sudo shutdown -c`.
 
 ## Server setup (done 2026-10-25)
 
@@ -102,11 +111,14 @@ Still to do before the cutover:
    first switch off everything with an outside effect — an empty-DB backup
    would overwrite the day's prod snapshot in the bucket:
    `printf 'services:\n  gateway:\n    environment:\n      BACKUP_S3_BUCKET: ""\n      SLACK_WEBHOOK_URL: ""\n      MAIL_API_TOKEN: ""\n      POSTHOG_API_KEY: ""\n' > docker-compose.override.yml`
-   (delete it before the cutover). Run the workflow manually, then point a
-   real client at hydra with `curl --resolve missingmcp.com:443:178.105.209.44 -k`
-   (`/healthz`, `/.well-known/oauth-authorization-server/garmin`, `/`). Check
-   in `docker compose logs` that the client IP is the real one, not 172.30.0.1
-   or a Cloudflare IP. Before the cutover, `docker compose down` and empty `data/`
+   (delete it before the cutover). Run the workflow manually, then check the
+   backend over SSH — the origin answers only Cloudflare, so a
+   `curl --resolve …:178.105.209.44` from outside gets **403 by design**:
+   `ssh venik@hydra.venik.org 'for p in /healthz /.well-known/oauth-authorization-server/garmin /; do curl -s -o /dev/null -w "%{http_code} $p\n" http://127.0.0.1:8080$p; done'`.
+   TLS + the Cloudflare path can only be tested once DNS points here: right
+   after the switch, `curl https://missingmcp.com/healthz` and the per-IP rate
+   limit check (30 unauthenticated `POST /garmin/mcp` from one IP → 429, a
+   second IP still 401; spoofed `X-Forwarded-For` must not help). Before the cutover, `docker compose down` and empty `data/`
    so the real DB lands on a clean volume.
 
 ## Cutover (~10–15 min downtime)
@@ -129,11 +141,14 @@ other side* — never two live gateways, never an old snapshot.
 3. `scp gateway.db venik@hydra.venik.org:/opt/missingmcp/data/gateway.db`
    (hydra's `data/` empty, its gateway stopped), then on hydra
    `./deploy.sh <sha of main>`. Delete the local `gateway.db`.
-4. Smoke test via `--resolve` (as in the dry run).
+4. Smoke test the backend over SSH (as in the dry run; `--resolve` from
+   outside gets 403). Check the stats line shows the real account count:
+   `sudo mmcp logs 5m --grep '"event": "stats"'`.
 5. Cloudflare DNS: change the `missingmcp.com` record from the Railway CNAME to
    proxied **A 178.105.209.44** + **AAAA 2a01:4f8:c014:ef0c::1**. Proxied, so it
    switches at Cloudflare's edge within seconds — no TTL wait.
-6. Verify in Claude: a Garmin and a WHOOP call on your own connectors (no
+6. Through Cloudflare: `/healthz` 200, the per-IP rate limit check (see dry
+   run), no `x-railway-*` response headers left. Verify in Claude: a Garmin and a WHOOP call on your own connectors (no
    reconnect needed — tokens, clients and Bearer hashes all came with the DB).
 7. Set repo variable `HYDRA_AUTODEPLOY=true`; disconnect the Railway service
    from GitHub so pushes stop deploying there. Leave Railway parked.
