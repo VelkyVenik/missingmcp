@@ -15,7 +15,7 @@ usage() {
 	cat >&2 <<'EOF'
 usage: sudo mmcp <command>
   logs [SINCE] [--grep TEXT]  gateway log, structured JSON, one event per line
-                              SINCE: 30m, 6h, 1d, 7d (default 1h) — rotated logs keep ~250 MB
+                              SINCE: 30m, 6h, 1d, 7d (default 1h) — journal keeps up to 10 GB, across deploys
   status                      container state, memory/CPU, /healthz, account/token/worker counts
   metrics [PERIOD]            host CPU / RAM / swap / network / load from sysstat (1-min samples, 28 days kept)
                               PERIOD: 1d (default, per hour) or 2d..28d (per day), times in UTC
@@ -41,12 +41,12 @@ case "$cmd" in
 			esac
 		done
 		[[ "$since" =~ ^[0-9]{1,4}[smhd]$ ]] || { echo "bad SINCE: $since" >&2; exit 2; }
-		# docker has no "d" unit
-		[[ "$since" == *d ]] && since="$(( ${since%d} * 24 ))h"
+		# The journal, not `docker logs`: it spans container recreations (deploys).
+		logs() { journalctl -t missingmcp-gateway --since "-$since" -o cat --no-pager -q; }
 		if [ -n "$grep_for" ]; then
-			docker logs --since "$since" "$C" 2>&1 | grep -F -- "$grep_for" || true
+			logs | grep -F -- "$grep_for" || true
 		else
-			docker logs --since "$since" "$C" 2>&1
+			logs
 		fi
 		;;
 	status)
