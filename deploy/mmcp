@@ -5,6 +5,9 @@
 # (= root). Every subcommand is fixed and read-only; arguments are validated
 # here, never handed to a shell. See deploy/README.md → Monitoring access.
 set -euo pipefail
+# Run as root from the caller's directory: never let it shadow a module or a
+# relative path (python3 -I below drops cwd/user site from sys.path too).
+cd /
 
 C=missingmcp-gateway-1
 
@@ -56,7 +59,7 @@ case "$cmd" in
 	metrics)
 		period="${1:-1d}"
 		[[ "$period" =~ ^([1-9]|1[0-9]|2[0-8])d$ ]] || { echo "bad PERIOD: $period (1d..28d)" >&2; exit 2; }
-		python3 - "${period%d}" <<'PY'
+		python3 -I - "${period%d}" <<'PY'
 import datetime as dt, glob, os, subprocess, sys
 from collections import defaultdict
 
