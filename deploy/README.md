@@ -43,6 +43,26 @@ docker compose exec gateway python3 -c "..."                  # replaces `railwa
 sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod DB
 ```
 
+### Monitoring access (Grok bot)
+
+User `grok` (key-only SSH, not in the docker group) may sudo exactly one
+command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
+`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `metrics [1d..28d]`,
+`workers`, `usage`, `report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
+`query_only`). After editing `deploy/mmcp`:
+`scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.
+
+Host metrics (the Railway graphs' replacement): sysstat samples CPU, RAM,
+network and load every minute (`sysstat-collect.timer.d/every-minute.conf`)
+and keeps 28 days (`HISTORY=28` in `/etc/sysstat/sysstat`); `mmcp metrics`
+summarizes them per hour (1d) or per day.
+
+Dashboard: **Beszel** at https://hydra.venik.org (`/opt/beszel`, not in this
+repo — hub 0.21.0 on `127.0.0.1:8090` behind Caddy with a Let's Encrypt cert,
+agent on a unix socket shared only with the hub, `docker.sock` read-only).
+Host + per-container CPU/RAM/swap/network history and alerts. Login
+`admin@venik.org`, password in `/opt/beszel/hub.env`.
+
 Logs rotate at 50 MB × 5 per container (`/etc/docker/daemon.json`). OS security
 updates install automatically (`unattended-upgrades`); kernel updates still
 need a manual `sudo reboot` (`/var/run/reboot-required`).
@@ -53,6 +73,10 @@ need a manual `sudo reboot` (`/var/run/reboot-required`).
   (`/etc/ssh/sshd_config.d/00-hardening.conf`). Hetzner Cloud Firewall: 22, 80, 443.
 - Docker CE + compose plugin and Caddy from their upstream apt repos (Ubuntu's
   Caddy is 2.6), `sqlite3`, docker log rotation, Hetzner Backups on.
+- 4 GB `/swapfile` (fstab), `vm.swappiness=10` (`/etc/sysctl.d/90-swappiness.conf`):
+  a cushion, not capacity — the container may swap up to its 6 GB limit
+  (`memory.swap.max`), so sustained swap use in `mmcp metrics` means it's time
+  to lower `MAX_WORKERS` or move to a CAX31.
 
 Still to do before the cutover:
 

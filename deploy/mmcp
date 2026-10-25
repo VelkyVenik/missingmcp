@@ -1,0 +1,143 @@
+#!/bin/bash
+# Read-only ops entrypoint on hydra for monitoring accounts (the Grok bot):
+# installed as /usr/local/bin/mmcp, root-owned, the ONLY command such users may
+# sudo (/etc/sudoers.d/91-mmcp). They are deliberately not in the docker group
+# (= root). Every subcommand is fixed and read-only; arguments are validated
+# here, never handed to a shell. See deploy/README.md → Monitoring access.
+set -euo pipefail
+# Run as root from the caller's directory: never let it shadow a module or a
+# relative path (python3 -I below drops cwd/user site from sys.path too).
+cd /
+
+C=missingmcp-gateway-1
+
+usage() {
+	cat >&2 <<'EOF'
+usage: sudo mmcp <command>
+  logs [SINCE] [--grep TEXT]  gateway log, structured JSON, one event per line
+                              SINCE: 30m, 6h, 1d, 7d (default 1h) — rotated logs keep ~250 MB
+  status                      container state, memory/CPU, /healthz, account/token/worker counts
+  metrics [PERIOD]            host CPU / RAM / swap / network / load from sysstat (1-min samples, 28 days kept)
+                              PERIOD: 1d (default, per hour) or 2d..28d (per day), times in UTC
+  workers                     running garmin workers (workers.json)
+  usage                       tool/method leaderboard (aggregate)
+  report                      yesterday's new/active/total users per connector
+  sql                         ONE read-only SQL statement from stdin, tab-separated output
+                              (DB opened ?mode=ro + query_only; schema: SELECT sql FROM sqlite_master)
+EOF
+	exit 2
+}
+
+py() { docker exec -i "$C" python3 "$@"; }
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+	logs)
+		since="1h"; grep_for=""
+		while [ $# -gt 0 ]; do
+			case "$1" in
+				--grep) [ $# -ge 2 ] || usage; grep_for="$2"; shift 2 ;;
+				*) since="$1"; shift ;;
+			esac
+		done
+		[[ "$since" =~ ^[0-9]{1,4}[smhd]$ ]] || { echo "bad SINCE: $since" >&2; exit 2; }
+		# docker has no "d" unit
+		[[ "$since" == *d ]] && since="$(( ${since%d} * 24 ))h"
+		if [ -n "$grep_for" ]; then
+			docker logs --since "$since" "$C" 2>&1 | grep -F -- "$grep_for" || true
+		else
+			docker logs --since "$since" "$C" 2>&1
+		fi
+		;;
+	status)
+		docker ps --filter "name=^${C}$" --format 'container: {{.Status}}'
+		docker stats --no-stream --format 'memory: {{.MemUsage}}  cpu: {{.CPUPerc}}' "$C"
+		echo "healthz: $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/healthz)"
+		echo "disk: $(df -h / | awk 'NR==2 {print $3 " used of " $2 " (" $5 ")"}')"
+		py /app/scripts/status.py
+		;;
+	metrics)
+		period="${1:-1d}"
+		[[ "$period" =~ ^([1-9]|1[0-9]|2[0-8])d$ ]] || { echo "bad PERIOD: $period (1d..28d)" >&2; exit 2; }
+		python3 -I - "${period%d}" <<'PY'
+import datetime as dt, glob, os, subprocess, sys
+from collections import defaultdict
+
+days = int(sys.argv[1])
+now = dt.datetime.now(dt.timezone.utc)
+start = now - dt.timedelta(days=days)
+mem_total_kb = next(int(l.split()[1]) for l in open("/proc/meminfo") if l.startswith("MemTotal:"))
+
+files = [f for f in glob.glob("/var/log/sysstat/sa[0-9]*")
+         if os.path.getsize(f) and dt.datetime.fromtimestamp(os.path.getmtime(f), dt.timezone.utc) >= start]
+
+def rows(opt):
+    """Yield dict rows of `sadf -d` for one sar option across all files in range."""
+    for f in files:
+        out = subprocess.run(["sadf", "-d", f, "--", *opt.split()], capture_output=True, text=True).stdout
+        cols = None
+        for line in out.splitlines():
+            if line.startswith("# hostname"):
+                cols = line[2:].split(";")
+                continue
+            parts = line.split(";")
+            if not cols or len(parts) != len(cols) or parts[1] == "-1":
+                continue
+            r = dict(zip(cols, parts))
+            ts = dt.datetime.strptime(r["timestamp"].replace(" UTC", ""), "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.timezone.utc)
+            if ts >= start:
+                r["_ts"] = ts
+                yield r
+
+key = (lambda t: t.strftime("%m-%d %H:00")) if days == 1 else (lambda t: t.strftime("%Y-%m-%d"))
+b = defaultdict(lambda: {"cpu": [], "mem": [], "swap": [], "load": [], "rx": 0.0, "tx": 0.0})
+for r in rows("-u"):
+    b[key(r["_ts"])]["cpu"].append(100 - float(r["%idle"]))
+for r in rows("-r"):
+    b[key(r["_ts"])]["mem"].append((mem_total_kb - int(r["kbavail"])) / 1048576)
+for r in rows("-S"):
+    b[key(r["_ts"])]["swap"].append(int(r["kbswpused"]) / 1048576)
+for r in rows("-q"):
+    b[key(r["_ts"])]["load"].append(float(r["ldavg-1"]))
+for r in rows("-n DEV"):
+    if r["IFACE"] == "lo" or r["IFACE"].startswith(("docker", "veth", "br-")):
+        continue
+    k = key(r["_ts"]); iv = int(r["interval"])
+    b[k]["rx"] += float(r["rxkB/s"]) * iv / 1048576
+    b[k]["tx"] += float(r["txkB/s"]) * iv / 1048576
+
+if not b:
+    sys.exit("no sysstat samples in range yet")
+avg = lambda v: sum(v) / len(v) if v else 0.0
+print(f"hydra: 4 vCPU, {mem_total_kb / 1048576:.1f} GB RAM (used = total - available); last {days}d, UTC")
+print(f"{'period':<16}{'cpu avg':>8}{'cpu max':>8}{'ram avg':>9}{'ram max':>9}{'swap max':>9}{'load max':>9}{'net in':>9}{'net out':>9}")
+tot = {"cpu": [], "mem": [], "swap": [], "load": [], "rx": 0.0, "tx": 0.0}
+for k in sorted(b):
+    v = b[k]
+    for f in ("cpu", "mem", "swap", "load"):
+        tot[f] += v[f]
+    tot["rx"] += v["rx"]; tot["tx"] += v["tx"]
+    print(f"{k:<16}{avg(v['cpu']):>7.0f}%{max(v['cpu'], default=0):>7.0f}%{avg(v['mem']):>7.2f}GB{max(v['mem'], default=0):>7.2f}GB{max(v['swap'], default=0):>7.2f}GB"
+          f"{max(v['load'], default=0):>9.2f}{v['rx']:>7.2f}GB{v['tx']:>7.2f}GB")
+print(f"{'total':<16}{avg(tot['cpu']):>7.0f}%{max(tot['cpu'], default=0):>7.0f}%{avg(tot['mem']):>7.2f}GB{max(tot['mem'], default=0):>7.2f}GB{max(tot['swap'], default=0):>7.2f}GB"
+      f"{max(tot['load'], default=0):>9.2f}{tot['rx']:>7.2f}GB{tot['tx']:>7.2f}GB")
+PY
+		;;
+	workers) docker exec "$C" cat /data/workers.json; echo ;;
+	usage) py /app/scripts/usage.py --tools ;;
+	report) py /app/scripts/daily_report.py ;;
+	sql)
+		py -c '
+import sqlite3, sys
+q = sys.stdin.read()
+c = sqlite3.connect("file:/data/gateway.db?mode=ro", uri=True)
+c.execute("pragma query_only = 1")
+cur = c.execute(q)
+if cur.description:
+    print("\t".join(d[0] for d in cur.description))
+    for row in cur:
+        print("\t".join("" if v is None else str(v) for v in row))
+'
+		;;
+	*) usage ;;
+esac
