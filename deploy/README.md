@@ -1,8 +1,9 @@
 # Production on hydra (Hetzner)
 
 missingmcp.com moves from Railway to **hydra.venik.org** — a Hetzner CAX21
-(4 vCPU Ampere arm64, 8 GB, Ubuntu 26.04), ~€16/mo instead of ~$55–60 on
-Railway for the same load (avg 3.6 GB RAM, 0.3 vCPU, ~275 GB egress/mo).
+(4 vCPU Ampere arm64, 8 GB, Ubuntu 26.04), ~€16/mo flat instead of ~$42–45 on
+Railway (Oct 2026, rising with usage) for the same load (avg 3.6 GB RAM,
+0.3 vCPU, ~150–275 GB egress/mo).
 
 ```
 Claude ─TLS─▶ Cloudflare (proxied) ─TLS, Origin CA cert─▶ Caddy :443 on hydra
