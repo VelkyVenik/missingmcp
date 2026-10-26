@@ -163,6 +163,8 @@ class EgressPool:
         self._wall = wall
         self._save = None
         self._lock = threading.Lock()
+        # Serializes snapshot + write (see _persist); never taken under _lock.
+        self._persist_lock = threading.Lock()
         self._account_until: dict[str, float] = {}
         # per egress label: account -> when it was last blocked there
         self._blocked: dict[str, dict[str, float]] = {r.label: {} for r in self.routes}
@@ -209,20 +211,26 @@ class EgressPool:
 
     def _persist(self, route: Route) -> None:
         """Hand the route's current state to the store. Never raises: losing
-        one write only costs what a restart cost before persistence."""
+        one write only costs what a restart cost before persistence.
+
+        Snapshot and write happen under one persistence lock, so the snapshot
+        is taken when it's this call's turn to write: two concurrent sign-ins
+        can't land their writes out of order and leave an older state (e.g.
+        "not tripped") over a newer one (review on PR #62)."""
         if self._save is None:
             return
-        with self._lock:
-            row = {"label": route.label, "egress_ip": route.egress_ip,
-                   "rest_level": self._rest_level[route.label],
-                   "rest_until": self._rest_until[route.label],
-                   "last_ok_at": self._last_ok[route.label],
-                   "last_blocked_at": self._last_blocked[route.label]}
-        try:
-            self._save(row)
-        except Exception as e:  # noqa: BLE001 - persistence must never fail a sign-in
-            log("egress-state-save-failed", egress=route.label, error=type(e).__name__,
-                message=f"egress {route.label} state not saved: {type(e).__name__}")
+        with self._persist_lock:
+            with self._lock:
+                row = {"label": route.label, "egress_ip": route.egress_ip,
+                       "rest_level": self._rest_level[route.label],
+                       "rest_until": self._rest_until[route.label],
+                       "last_ok_at": self._last_ok[route.label],
+                       "last_blocked_at": self._last_blocked[route.label]}
+            try:
+                self._save(row)
+            except Exception as e:  # noqa: BLE001 - persistence must never fail a sign-in
+                log("egress-state-save-failed", egress=route.label, error=type(e).__name__,
+                    message=f"egress {route.label} state not saved: {type(e).__name__}")
 
     def ip_learned(self, route: Route, previous: str | None) -> None:
         """The probe learned the route's egress IP (`previous` = what it

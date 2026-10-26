@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -720,3 +721,32 @@ def test_egress_state_round_trips_through_the_store(tmp_path):
     store.save_egress_state(conn, row)
     store.save_egress_state(conn, {**row, "rest_level": 3})
     assert store.load_egress_state(conn) == {"10.0.0.1:3128": {**row, "rest_level": 3}}
+
+
+def test_concurrent_saves_never_leave_an_older_state_behind():
+    # Review on PR #62: a slow write of "one account blocked" landed after the
+    # trip's write and un-tripped the egress in the DB (a restart reopened it).
+    pool = EgressPool(P1)
+    route = pool.routes[0]
+    saved, first_call, release = {}, threading.Event(), threading.Event()
+
+    def save(row):
+        if not first_call.is_set():
+            first_call.set()
+            release.wait(5)                             # the first write stalls
+        saved[row["label"]] = dict(row)
+    pool.attach({}, save)
+    a = threading.Thread(target=pool.record_blocked, args=(route, "a@x.cz"))
+    a.start()
+    assert first_call.wait(5)
+    b = threading.Thread(target=pool.record_blocked, args=(route, "b@x.cz"))
+    b.start()                                           # trips while a's write hangs
+    for _ in range(500):
+        if pool.suspect(route):
+            break
+        time.sleep(0.01)
+    release.set()
+    a.join(5)
+    b.join(5)
+    assert saved[route.label]["rest_level"] == 1
+    assert saved[route.label]["rest_until"] is not None
