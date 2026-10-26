@@ -97,11 +97,15 @@ class SsoProbe:
         if route is None:
             return ip
         if ip and ip != route.egress_ip:
-            if route.egress_ip:
+            previous = route.egress_ip
+            if previous:
                 log("egress-ip-changed", via=route.label, egress_ip=ip,
-                    previous=route.egress_ip,
-                    message=f"egress {route.label} now leaves from {ip} (was {route.egress_ip})")
+                    previous=previous,
+                    message=f"egress {route.label} now leaves from {ip} (was {previous})")
             route.egress_ip = ip
+            if self._pool is not None:
+                # A new IP is a new egress to Garmin: its rest starts over.
+                self._pool.ip_learned(route, previous)
         return route.egress_ip
 
 

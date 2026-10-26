@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 from garminconnect import client as _gc_client
 
+from ...log import log
+
 # Reliability ticket 12: Cloudflare in front of Garmin's SSO rate-limits the
 # gateway's shared Railway egress IP, while the same request from a clean IP
 # gets through. GARMIN_SSO_PROXY lists proxies on dedicated IPs; each account
@@ -60,9 +62,9 @@ _EGRESS_BLOCK_ACCOUNTS = 2
 #   sign-in; 12 % of blocks hit an email that had just got through);
 # - an egress also trips on >= 10 blocked in the last hour, staying under
 #   Cloudflare's stock login rule (~20 failures/h per IP -> 1-day block);
-# - egress rest escalates 30 min -> 1 h -> 2 h while an egress keeps getting
-#   tripped, back to the first step once a sign-in gets through it (burned
-#   egresses recovered in ~1-2 h; a 30 min rest re-tripped them).
+# - egress rest escalates while an egress keeps getting tripped, back to the
+#   first step once a sign-in gets through it (burned egresses recovered in
+#   ~1-2 h; a 30 min rest re-tripped them).
 POST_CONNECT_HOLD_S = 120.0
 # A proxy that can't carry traffic at all (port refused, CONNECT refused) is
 # not a Garmin limit: nothing reached Garmin, so the account isn't cooled and
@@ -71,7 +73,14 @@ POST_CONNECT_HOLD_S = 120.0
 # re-trying a dead proxy on every sign-in while still noticing the repair soon.
 EGRESS_DOWN_REST_S = 300.0
 _EGRESS_HOURLY_BLOCKS = 10
-_EGRESS_REST_STEPS_S = (1800.0, 3600.0, 7200.0)
+# hydra-ops 02 (night 2026-10-25/26): one floating IP went 0 ok / 11 blocked
+# for 12 h while the 30 min -> 1 h -> 2 h ladder handed it back to users every
+# couple of hours. Cloudflare's stock login rule blocks for ~1 day, so the
+# ladder now climbs to 24 h. An egress that was tripped and has let nobody
+# through since is *suspect*: a single "blocked" on it trips the next step
+# (no need for 2 accounts) and the sign-in fails over to the next route, so
+# re-testing a burned IP costs one attempt, not a user.
+_EGRESS_REST_STEPS_S = (1800.0, 7200.0, 21600.0, 86400.0)
 
 
 class SsoBreaker:
@@ -99,6 +108,10 @@ class SsoBreaker:
     def remaining(self) -> float:
         with self._lock:
             return max(0.0, self._open_until - self._clock())
+
+    def reset(self) -> None:
+        with self._lock:
+            self._open_until = 0.0
 
     def extend(self, seconds: float) -> float:
         """Open for at least `seconds`, never shortening a longer open window
@@ -131,14 +144,24 @@ class Route:
 
 
 class EgressPool:
-    """The sign-in egresses: each GARMIN_SSO_PROXY entry, then direct."""
+    """The sign-in egresses: each GARMIN_SSO_PROXY entry, then direct.
 
-    def __init__(self, spec: str = "", breaker=SsoBreaker, clock=time.monotonic):
+    The escalating rest of each egress (level, rest end, egress IP) outlives
+    the process when `attach()` gives it a store: before that, every deploy
+    reset a burned IP to "fresh, 30 min" and sent its users back to it
+    (hydra-ops 02). The rest is persisted by wall clock; everything else here
+    (account cooldowns, block windows, in-flight slots) stays process-local —
+    it only matters for minutes."""
+
+    def __init__(self, spec: str = "", breaker=SsoBreaker, clock=time.monotonic,
+                 wall=time.time):
         proxies = [p.strip() for p in spec.split(",") if p.strip()]
         self.proxied = proxies
         self.routes = [Route(describe(p), p, breaker()) for p in proxies]
         self.routes.append(Route("direct", None, breaker()))
         self._clock = clock
+        self._wall = wall
+        self._save = None
         self._lock = threading.Lock()
         self._account_until: dict[str, float] = {}
         # per egress label: account -> when it was last blocked there
@@ -148,9 +171,80 @@ class EgressPool:
         self._hourly: dict[str, collections.deque] = {r.label: collections.deque()
                                                       for r in self.routes}
         self._rest_level: dict[str, int] = {r.label: 0 for r in self.routes}
+        # wall-clock facts, persisted with the rest level (see attach)
+        self._rest_until: dict[str, float | None] = {r.label: None for r in self.routes}
+        self._last_ok: dict[str, float | None] = {r.label: None for r in self.routes}
+        self._last_blocked: dict[str, float | None] = {r.label: None for r in self.routes}
         # per egress label: sign-in outcomes since the last take_stats()
         self._stats: dict[str, collections.Counter] = {
             r.label: collections.Counter() for r in self.routes}
+
+    def attach(self, rows: dict[str, dict], save) -> None:
+        """Restore persisted egress state (`rows` by label, as
+        store.load_egress_state returns them) and persist every later change
+        through `save(row)`. A rest still running resumes for what is left of
+        it; rows of labels no longer configured are ignored. The restored
+        egress IP is what the probe compares against: if the label now leaves
+        from another IP, the state belonged to the old one (`ip_learned`)."""
+        now = self._wall()
+        for r in self.routes:
+            row = rows.get(r.label)
+            if not row:
+                continue
+            with self._lock:
+                r.egress_ip = row.get("egress_ip")
+                self._rest_level[r.label] = int(row.get("rest_level") or 0)
+                self._rest_until[r.label] = row.get("rest_until")
+                self._last_ok[r.label] = row.get("last_ok_at")
+                self._last_blocked[r.label] = row.get("last_blocked_at")
+            left = (row.get("rest_until") or 0) - now
+            if left > 0:
+                r.breaker.extend(left)
+                r.rest_s = left
+            log("egress-state-restored", egress=r.label, egress_ip=r.egress_ip,
+                rest_level=self._rest_level[r.label], remaining_s=max(0, int(left)),
+                message=(f"egress {r.label} restored: rest level "
+                         f"{self._rest_level[r.label]}, {max(0, int(left))}s left"))
+        self._save = save
+
+    def _persist(self, route: Route) -> None:
+        """Hand the route's current state to the store. Never raises: losing
+        one write only costs what a restart cost before persistence."""
+        if self._save is None:
+            return
+        with self._lock:
+            row = {"label": route.label, "egress_ip": route.egress_ip,
+                   "rest_level": self._rest_level[route.label],
+                   "rest_until": self._rest_until[route.label],
+                   "last_ok_at": self._last_ok[route.label],
+                   "last_blocked_at": self._last_blocked[route.label]}
+        try:
+            self._save(row)
+        except Exception as e:  # noqa: BLE001 - persistence must never fail a sign-in
+            log("egress-state-save-failed", egress=route.label, error=type(e).__name__,
+                message=f"egress {route.label} state not saved: {type(e).__name__}")
+
+    def ip_learned(self, route: Route, previous: str | None) -> None:
+        """The probe learned the route's egress IP (`previous` = what it
+        knew before). A *different* IP is a different egress as far as
+        Garmin is concerned — e.g. a burned floating IP swapped for a fresh
+        one behind the same proxy port — so its rest and level start over."""
+        if previous and previous != route.egress_ip:
+            with self._lock:
+                self._rest_level[route.label] = 0
+                self._rest_until[route.label] = None
+                self._last_ok[route.label] = None
+                self._last_blocked[route.label] = None
+                self._blocked[route.label].clear()
+                self._hourly[route.label].clear()
+            route.breaker.reset()
+            route.rest_s = 0.0
+        self._persist(route)
+
+    def suspect(self, route: Route) -> bool:
+        """Tripped before, and nobody got through it since."""
+        with self._lock:
+            return self._rest_level[route.label] > 0
 
     def order(self, account_key: str) -> list[Route]:
         """Every route in this account's preference order: its sticky proxy
@@ -222,6 +316,9 @@ class EgressPool:
         with self._lock:
             self._blocked[route.label].clear()
             self._rest_level[route.label] = 0
+            self._rest_until[route.label] = None
+            self._last_ok[route.label] = self._wall()
+        self._persist(route)
 
     def record_down(self, route: Route) -> float:
         """The egress couldn't carry the sign-in (see EGRESS_DOWN_REST_S): rest
@@ -234,19 +331,28 @@ class EgressPool:
         route.rest_s = rest
         return rest
 
-    def record_blocked(self, route: Route, account_key: str) -> str:
+    def record_blocked(self, route: Route, account_key: str, *,
+                       failover: bool = False) -> str:
         """Note a "blocked" sign-in; return its scope. Always cools the account
         down; trips the route's breaker ("egress") once enough distinct
         accounts were blocked on it within the window with no sign-in getting
-        through in between (see record_ok), or once it collected
-        _EGRESS_HOURLY_BLOCKS blocks in the last hour; else "account". A trip
-        rests the egress for the next step of _EGRESS_REST_STEPS_S."""
+        through in between (see record_ok), once it collected
+        _EGRESS_HOURLY_BLOCKS blocks in the last hour, or on any block while
+        it is suspect; else "account". A trip rests the egress for the next
+        step of _EGRESS_REST_STEPS_S.
+
+        `failover`: the account was already blocked on another egress within
+        this very sign-in. A second block is evidence against the account, not
+        against this IP, so it never counts toward tripping a healthy egress."""
         now = self._clock()
         with self._lock:
             for acct, until in list(self._account_until.items()):
                 if until <= now:
                     del self._account_until[acct]
             self._account_until[account_key] = now + ACCOUNT_COOLDOWN_S
+            if failover and self._rest_level[route.label] == 0:
+                return "account"
+            self._last_blocked[route.label] = self._wall()
             recent = self._blocked[route.label]
             for acct, at in list(recent.items()):
                 if now - at > _EGRESS_BLOCK_WINDOW_S:
@@ -257,13 +363,16 @@ class EgressPool:
             while hourly and now - hourly[0] > 3600:
                 hourly.popleft()
             tripped = (len(recent) >= _EGRESS_BLOCK_ACCOUNTS
-                       or len(hourly) >= _EGRESS_HOURLY_BLOCKS)
+                       or len(hourly) >= _EGRESS_HOURLY_BLOCKS
+                       or self._rest_level[route.label] > 0)
             if tripped:
                 recent.clear()
                 hourly.clear()
                 level = self._rest_level[route.label]
                 rest = _EGRESS_REST_STEPS_S[min(level, len(_EGRESS_REST_STEPS_S) - 1)]
                 self._rest_level[route.label] = level + 1
+                self._rest_until[route.label] = self._wall() + rest
+        self._persist(route)
         if tripped:
             route.rest_s = rest
             route.breaker.trip(rest)

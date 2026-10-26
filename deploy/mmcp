@@ -20,6 +20,8 @@ usage: sudo mmcp <command>
   metrics [PERIOD]            host CPU / RAM / swap / network / load from sysstat (1-min samples, 28 days kept)
                               PERIOD: 1d (default, per hour) or 2d..28d (per day), times in UTC
   workers                     running garmin workers (workers.json)
+  egress                      Garmin sign-in egresses: persisted rest (level, time left), last ok/blocked,
+                              and real sign-in outcomes over 24 h / 7 d (egress-health events)
   usage                       tool/method leaderboard (aggregate)
   report                      yesterday's new/active/total users per connector
   sql                         ONE read-only SQL statement from stdin, tab-separated output
@@ -124,6 +126,67 @@ print(f"{'total':<16}{avg(tot['cpu']):>7.0f}%{max(tot['cpu'], default=0):>7.0f}%
 PY
 		;;
 	workers) docker exec "$C" cat /data/workers.json; echo ;;
+	egress)
+		state=$(py -c '
+import json, sqlite3
+c = sqlite3.connect("file:/data/gateway.db?mode=ro", uri=True)
+c.row_factory = sqlite3.Row
+try:
+    print(json.dumps([dict(r) for r in c.execute("SELECT * FROM egress_state")]))
+except sqlite3.OperationalError:   # gateway older than the table
+    print("[]")
+')
+		# The journal goes in on stdin (7 days of it is too big for argv/env).
+		script=$(cat <<'EOF'
+import collections, json, sys, time
+
+now = time.time()
+state = {r["label"]: r for r in json.loads(sys.argv[1])}
+win = {"24h": 86400, "7d": 7 * 86400}
+agg = {w: collections.defaultdict(collections.Counter) for w in win}
+ips = {}
+for line in sys.stdin:
+    try:
+        j = json.loads(line)
+        e = json.loads(j["MESSAGE"])
+    except (ValueError, KeyError, TypeError):
+        continue
+    if e.get("event") != "egress-health":
+        continue
+    age = now - int(j["__REALTIME_TIMESTAMP"]) / 1e6
+    ips[e["via"]] = e.get("egress_ip") or ips.get(e["via"])
+    for w, lim in win.items():
+        if age <= lim:
+            agg[w][e["via"]].update({k: e.get(k, 0) for k in ("attempts", "ok", "needs_mfa", "blocked")})
+
+
+def ago(t):
+    if not t:
+        return "-"
+    s = now - t
+    return f"{s / 3600:.1f}h ago" if s >= 3600 else f"{s / 60:.0f}m ago"
+
+
+def outcome(c):
+    return f"{c['ok'] + c['needs_mfa']}/{c['blocked']}/{c['attempts']}" if c["attempts"] else "-"
+
+
+labels = sorted(set(state) | set(agg["7d"]), key=lambda l: (l == "direct", l))
+print("rest = time left of the current rest; level = trips since a sign-in last got through;")
+print("24h / 7d = got through (ok+mfa) / blocked / attempts")
+print(f"{'egress':<22}{'ip':<17}{'rest':>7}{'level':>6}{'last ok':>11}{'last blocked':>14}{'24h':>12}{'7d':>12}")
+for l in labels:
+    st = state.get(l, {})
+    left = (st.get("rest_until") or 0) - now
+    rest = f"{left / 3600:.1f}h" if left > 0 else "-"
+    print(f"{l:<22}{(st.get('egress_ip') or ips.get(l) or '?'):<17}{rest:>7}{st.get('rest_level', 0):>6}"
+          f"{ago(st.get('last_ok_at')):>11}{ago(st.get('last_blocked_at')):>14}"
+          f"{outcome(agg['24h'][l]):>12}{outcome(agg['7d'][l]):>12}")
+EOF
+)
+		journalctl -t missingmcp-gateway --since -7d -o json --no-pager -q | grep -F egress-health \
+			| python3 -I -c "$script" "$state"
+		;;
 	usage) py /app/scripts/usage.py --tools ;;
 	report) py /app/scripts/daily_report.py ;;
 	sql)

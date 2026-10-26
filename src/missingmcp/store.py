@@ -130,6 +130,17 @@ CREATE TABLE IF NOT EXISTS unsubscribes (
     source     TEXT NOT NULL,               -- link | one-click | manual
     created_at TEXT DEFAULT (datetime('now'))
 );
+-- Garmin sign-in egresses (adapters/garmin/egress.EgressPool): the escalating
+-- rest survives restarts. Times are unix seconds (wall clock).
+CREATE TABLE IF NOT EXISTS egress_state (
+    label           TEXT PRIMARY KEY,       -- host:port of the proxy, or "direct"
+    egress_ip       TEXT,                   -- the IP Garmin sees (learned by the probe)
+    rest_level      INTEGER NOT NULL DEFAULT 0,
+    rest_until      REAL,
+    last_ok_at      REAL,
+    last_blocked_at REAL,
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
 """
 
 # One-time transform from the pre-adapter (v0) schema. Ciphertext moves verbatim.
@@ -784,3 +795,26 @@ def email_for_unsub_token(conn, token: str) -> str | None:
     row = conn.execute("SELECT email FROM campaign_sends WHERE unsub_token=?",
                        (token,)).fetchone()
     return row[0] if row else None
+
+
+# --- garmin sign-in egress state --------------------------------------------
+
+def load_egress_state(conn) -> dict[str, dict]:
+    rows = conn.execute(
+        "SELECT label, egress_ip, rest_level, rest_until, last_ok_at, last_blocked_at "
+        "FROM egress_state").fetchall()
+    return {r["label"]: dict(r) for r in rows}
+
+
+def save_egress_state(conn, row: dict) -> None:
+    conn.execute(
+        """INSERT INTO egress_state (label, egress_ip, rest_level, rest_until,
+                                     last_ok_at, last_blocked_at)
+           VALUES (:label, :egress_ip, :rest_level, :rest_until, :last_ok_at, :last_blocked_at)
+           ON CONFLICT(label) DO UPDATE SET
+               egress_ip=excluded.egress_ip, rest_level=excluded.rest_level,
+               rest_until=excluded.rest_until, last_ok_at=excluded.last_ok_at,
+               last_blocked_at=excluded.last_blocked_at, updated_at=datetime('now')""",
+        row,
+    )
+    conn.commit()

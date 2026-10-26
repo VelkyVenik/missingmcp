@@ -190,8 +190,13 @@ def test_distinct_blocked_accounts_close_the_egress_and_shed_its_accounts(capsys
                 a.start_login({"garmin_email": acct, "garmin_password": "pw"})
     assert first.breaker.remaining() > 0            # 2 distinct accounts: IP-level limit
     assert a.pool.pick(three) is not first          # its accounts move to the next route
-    opened = [r["scope"] for r in _rows(capsys) if r.get("event") == "login-breaker-open"]
-    assert opened == ["account", "egress"]
+    second = a.pool.order(two)[1]
+    assert seen == [first.proxy, first.proxy, second.proxy]   # the trip failed `two` over
+    assert second.breaker.remaining() == 0          # a failed-over block is the account's
+    opened = [(r["scope"], r["egress"]) for r in _rows(capsys)
+              if r.get("event") == "login-breaker-open"]
+    assert opened == [("account", first.label), ("egress", first.label),
+                      ("account", second.label)]
 
 
 def test_old_blocks_age_out_of_the_egress_window():
@@ -460,18 +465,18 @@ def test_egress_rest_escalates_and_resets_after_a_sign_in_gets_through():
     accts = _accounts_on(pool, route, 8)
 
     def trip(i):
-        pool.record_blocked(route, accts[i])
-        assert pool.record_blocked(route, accts[i + 1]) == "egress"
+        assert pool.record_blocked(route, accts[i]) == "egress"
         return route.rest_s
 
-    assert trip(0) == 1800
-    clock[0] += 1801
-    assert trip(2) == 3600
-    clock[0] += 3601
-    assert trip(4) == 7200                              # capped at the last step
-    clock[0] += 7201
+    pool.record_blocked(route, accts[0])
+    assert trip(1) == 1800                              # 2 distinct accounts
+    for i, step in enumerate((7200, 21600, 86400, 86400), start=2):
+        clock[0] += route.rest_s + 1
+        assert trip(i) == step                          # suspect: one block is enough
+    clock[0] += 86401
     pool.record_ok(route)                               # recovered: back to step one
-    assert trip(6) == 1800
+    assert pool.record_blocked(route, accts[6]) == "account"
+    assert trip(7) == 1800
 
 
 def test_wrong_credentials_neither_cool_the_account_nor_count_against_the_egress(capsys):
@@ -561,3 +566,157 @@ def test_breaker_extend_only_lengthens():
     assert b.extend(300) == 1800 and b.remaining() == 1800
     t[0] = 1700
     assert b.extend(300) == 300                             # longer than the 100 s left
+
+
+def _persisting_pool(spec, rows=None, clock=None, wall=None):
+    clock = clock or [0.0]
+    wall = wall or [1_000_000.0]
+    pool = EgressPool(spec, breaker=lambda: SsoBreaker(clock=lambda: clock[0]),
+                      clock=lambda: clock[0], wall=lambda: wall[0])
+    saved = {}
+    pool.attach(rows or {}, lambda row: saved.__setitem__(row["label"], dict(row)))
+    return pool, saved
+
+
+def test_egress_rest_survives_a_restart(capsys):
+    # hydra-ops 02: every deploy handed a burned IP back to users as "fresh".
+    wall = [1_000_000.0]
+    pool, saved = _persisting_pool(f"{P1},{P2}", wall=wall)
+    route = pool.routes[0]
+    a, b = _accounts_on(pool, route, 2)
+    pool.record_blocked(route, a)
+    pool.record_blocked(route, b)                       # trips: 30 min, level 1
+    row = saved[route.label]
+    assert row["rest_level"] == 1 and row["rest_until"] == wall[0] + 1800
+    assert row["last_blocked_at"] == wall[0]
+
+    wall[0] += 600                                      # restart 10 min later
+    again, _ = _persisting_pool(f"{P1},{P2}", rows=dict(saved), wall=wall)
+    r2 = again.routes[0]
+    assert r2.breaker.remaining() == pytest.approx(1200)
+    assert again.suspect(r2) and not again.suspect(again.routes[1])
+    restored = [r for r in _rows(capsys) if r.get("event") == "egress-state-restored"]
+    assert [(r["egress"], r["rest_level"], r["remaining_s"]) for r in restored] == \
+        [(route.label, 1, 1200)]
+
+
+def test_an_expired_rest_is_not_resumed_but_the_level_is():
+    wall = [1_000_000.0]
+    rows = {"10.0.0.1:3128": {"label": "10.0.0.1:3128", "egress_ip": "1.2.3.4",
+                              "rest_level": 3, "rest_until": wall[0] - 5,
+                              "last_ok_at": None, "last_blocked_at": None}}
+    pool, saved = _persisting_pool(f"{P1},{P2}", rows=rows, wall=wall)
+    route = pool.routes[0]
+    assert route.breaker.remaining() == 0 and route.egress_ip == "1.2.3.4"
+    assert pool.record_blocked(route, "x@x.cz") == "egress"   # still suspect
+    assert route.rest_s == 86400 and saved[route.label]["rest_level"] == 4
+
+
+def test_a_sign_in_through_clears_the_persisted_rest():
+    wall = [1_000_000.0]
+    pool, saved = _persisting_pool(P1, wall=wall)
+    route = pool.routes[0]
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_blocked(route, "b@x.cz")
+    wall[0] += 2000
+    pool.record_ok(route)
+    row = saved[route.label]
+    assert (row["rest_level"], row["rest_until"], row["last_ok_at"]) == (0, None, wall[0])
+
+
+def test_a_new_egress_ip_starts_its_rest_over(capsys):
+    # A burned floating IP swapped for a fresh one behind the same port.
+    pool, saved = _persisting_pool(P1)
+    route = pool.routes[0]
+    route.egress_ip = "1.1.1.1"
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_blocked(route, "b@x.cz")
+    assert route.breaker.remaining() > 0
+    probe = SsoProbe(60, pool=pool, fetch=lambda proxy=None: 200,
+                     trace=lambda proxy=None: "2.2.2.2")
+    probe.run()
+    assert route.breaker.remaining() == 0 and not pool.suspect(route)
+    assert saved[route.label]["egress_ip"] == "2.2.2.2"
+    assert saved[route.label]["rest_level"] == 0
+    assert any(r.get("event") == "egress-ip-changed" for r in _rows(capsys))
+
+
+def test_the_same_egress_ip_keeps_its_rest():
+    pool, saved = _persisting_pool(P1)
+    route = pool.routes[0]
+    route.egress_ip = "1.1.1.1"
+    pool.record_blocked(route, "a@x.cz")
+    pool.record_blocked(route, "b@x.cz")
+    SsoProbe(60, pool=pool, fetch=lambda proxy=None: 200,
+             trace=lambda proxy=None: "1.1.1.1").run()
+    assert route.breaker.remaining() > 0 and pool.suspect(route)
+
+
+def test_a_failing_save_never_fails_the_sign_in_path(capsys):
+    pool = EgressPool(P1)
+
+    def boom(row):
+        raise OSError("disk full")
+    pool.attach({}, boom)
+    route = pool.routes[0]
+    assert pool.record_blocked(route, "a@x.cz") == "account"
+    pool.record_ok(route)
+    failed = [r for r in _rows(capsys) if r.get("event") == "egress-state-save-failed"]
+    assert failed and failed[0]["error"] == "OSError"
+
+
+def test_blocked_on_a_suspect_egress_fails_over_and_signs_in(capsys):
+    # A burned IP coming back from its rest costs one attempt, not a user.
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    first, second, _direct = a.pool.order("me@x.cz")
+    a.pool.record_blocked(first, "x@x.cz")
+    a.pool.record_blocked(first, "y@x.cz")              # tripped earlier: suspect
+    first.breaker.reset()                               # ... and its rest is over
+    seen = []
+
+    def fake(email, pw, **_kw):
+        seen.append(egress.current())
+        if egress.current() == first.proxy:
+            raise login.GarminLoginError("429", reason="blocked")
+        return login.LoginResult(status="ok", tokens_json='{"t":1}')
+    with patch.object(login, "start_login", side_effect=fake):
+        assert isinstance(a.start_login(FORM), base.LoginOk)
+    assert seen == [first.proxy, second.proxy]
+    assert first.rest_s == 7200                          # next step of the ladder
+    rows = _rows(capsys)
+    outcomes = [(r["egress"], r["outcome"]) for r in rows if r.get("event") == "garmin-login-attempt"]
+    assert outcomes == [(first.label, "blocked"), (second.label, "ok")]
+
+
+def test_an_account_level_block_does_not_fail_over():
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    seen, fake = _route_spy(login.GarminLoginError("429", reason="blocked"))
+    with patch.object(login, "start_login", side_effect=fake):
+        with pytest.raises(base.LoginError):
+            a.start_login(FORM)
+    assert len(seen) == 1                                # healthy egress, lone block
+
+
+def test_no_failover_when_the_first_attempt_ate_the_time_budget():
+    a = GarminAdapter(_cfg(GARMIN_SSO_PROXY=f"{P1},{P2}"))
+    first = a.pool.order("me@x.cz")[0]
+    a.pool.record_blocked(first, "x@x.cz")
+    a.pool.record_blocked(first, "y@x.cz")
+    first.breaker.reset()
+    seen, fake = _route_spy(login.GarminLoginError("429", reason="blocked"))
+    import missingmcp.adapters.garmin as garmin
+    with patch.object(login, "start_login", side_effect=fake), \
+            patch.object(garmin, "_BLOCKED_FAILOVER_BUDGET_S", 0.0):   # budget already spent
+        with pytest.raises(base.LoginError):
+            a.start_login(FORM)
+    assert seen == [first.proxy]
+
+
+def test_egress_state_round_trips_through_the_store(tmp_path):
+    from missingmcp import store
+    conn = store.init_db(str(tmp_path / "g.db"))
+    row = {"label": "10.0.0.1:3128", "egress_ip": "1.2.3.4", "rest_level": 2,
+           "rest_until": 1234.5, "last_ok_at": None, "last_blocked_at": 1000.0}
+    store.save_egress_state(conn, row)
+    store.save_egress_state(conn, {**row, "rest_level": 3})
+    assert store.load_egress_state(conn) == {"10.0.0.1:3128": {**row, "rest_level": 3}}

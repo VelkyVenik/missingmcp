@@ -47,7 +47,7 @@ sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod D
 
 User `grok` (key-only SSH, not in the docker group) may sudo exactly one
 command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
-`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `metrics [1d..28d]`,
+`sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `metrics [1d..28d]`, `egress`,
 `workers`, `usage`, `report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
 `query_only`). After editing `deploy/mmcp`:
 `scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import time
 from typing import Mapping
 from ...log import log
 from ..base import (LoginError, LoginOk, SecondFactorError, SecondFactorNeeded,
@@ -92,6 +93,12 @@ def _login_error_message(reason: str) -> str:
     return "Garmin sign-in failed, please try again."
 
 
+# A sign-in blocked on a just-tripped egress is retried once on the next route
+# within the same call (hydra-ops 02) — only if the first attempt left enough
+# of the 75 s login_timeout for a second one (a blocked attempt through a
+# proxy usually fails in well under 30 s).
+_BLOCKED_FAILOVER_BUDGET_S = 35.0
+
 # failing-logins map, "Choose the throttle policy": the two new turn-aways.
 _IN_FLIGHT_MESSAGE = ("A sign-in for this Garmin account is already in progress. "
                       "Wait a minute, then try again.")
@@ -158,6 +165,8 @@ class GarminAdapter:
                 message="garmin login rejected (sign-in already in flight)")
             raise LoginError(_IN_FLIGHT_MESSAGE, reason="blocked")
         password = form.get("garmin_password", "")
+        t0 = time.monotonic()
+        failed_over = False     # already retried a "blocked" on another route
         try:
             while True:
                 skip = _SKIP_WHEN_PROXIED if route.proxy else None
@@ -198,13 +207,26 @@ class GarminAdapter:
                         # The account always cools down; the egress only once
                         # several accounts are blocked on it (an IP-level
                         # limit) — then its accounts move to their next route.
-                        scope = self.pool.record_blocked(route, account)
+                        scope = self.pool.record_blocked(route, account,
+                                                         failover=failed_over)
                         cooldown = (route.rest_s if scope == "egress"
                                     else egress.ACCOUNT_COOLDOWN_S)
                         log("login-breaker-open", cooldown_s=int(cooldown), scope=scope,
                             egress=route.label, account=account,
                             message=(f"garmin {scope} breaker open on {route.label} "
                                      f"for {int(cooldown)}s"))
+                        # The egress just closed on this very attempt: the
+                        # block is most likely the IP's, not the account's,
+                        # so give the user one try on the next route instead
+                        # of an error (a burned IP costs an attempt, not a
+                        # user). Once only — a second block is the account's.
+                        if (scope == "egress" and not failed_over
+                                and time.monotonic() - t0 < _BLOCKED_FAILOVER_BUDGET_S):
+                            nxt = self.pool.pick(account)
+                            if nxt is not None:
+                                failed_over = True
+                                route = nxt
+                                continue
                     raise LoginError(_login_error_message(reason), reason=reason) from e
         finally:
             del password  # never retained beyond the login call

@@ -678,3 +678,20 @@ def test_unsubscribe_rate_limits_only_unknown_tokens(tmp_path):
                       ).status_code == 200
     codes = [c.get(f"/unsubscribe?t=guess{i}").status_code for i in range(12)]
     assert codes[:10] == [404] * 10 and codes[-1] == 429
+
+
+def test_garmin_egress_rest_is_restored_at_startup(tmp_path, capsys):
+    # hydra-ops 02: the app hands the pool its persisted state, so a burned
+    # egress stays rested across deploys.
+    import time
+    conn = store.init_db(str(tmp_path / "t.db"))
+    store.save_egress_state(conn, {"label": "direct", "egress_ip": "1.2.3.4",
+                                   "rest_level": 2, "rest_until": time.time() + 3600,
+                                   "last_ok_at": None, "last_blocked_at": None})
+    conn.close()
+    capsys.readouterr()
+    _client(tmp_path)
+    rows = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
+    restored = [r for r in rows if r.get("event") == "egress-state-restored"]
+    assert [(r["egress"], r["rest_level"]) for r in restored] == [("direct", 2)]
+    assert 3500 < restored[0]["remaining_s"] <= 3600
