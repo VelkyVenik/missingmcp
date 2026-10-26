@@ -81,6 +81,11 @@ def build_app(config: Config) -> Starlette:
     # registered regardless of the env var.
     sso_probe = (SsoProbe(config.sso_probe_interval, pool=adapters["garmin"].pool)
                  if "garmin" in adapters else SsoProbe(0))
+    if "garmin" in adapters:
+        # The egress rest outlives deploys (hydra-ops 02): a burned IP stays
+        # rested instead of greeting the next users as "fresh".
+        adapters["garmin"].pool.attach(store.load_egress_state(conn),
+                                       lambda row: store.save_egress_state(conn, row))
     meter = usage.UsageMeter(conn)
 
     # {USAGE_METER_<ADAPTER>} placeholders survive the startup render and are
