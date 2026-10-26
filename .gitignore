@@ -20,3 +20,6 @@ data/
 
 # Internal Garmin API research and operator communication decisions
 .scratch/garmin-official-api/
+
+# Ops tickets for hydra — egress IPs, rate-limit tactics, host details (not public)
+.scratch/hydra-ops/
