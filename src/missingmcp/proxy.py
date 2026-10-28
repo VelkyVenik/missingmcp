@@ -152,6 +152,14 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     if body is None:
         return JSONResponse({"error": "request_too_large"}, status_code=413)
 
+    # Re-check the Bearer AFTER the body await and load the credentials with no
+    # await in between: a reconnect may have revoked this token and replaced the
+    # account's blob while the body was arriving (car: a squatter's token must
+    # never read the real owner's new key — PR #65 review).
+    token_hash = store.hash_token(request.headers.get("authorization", "")[7:])
+    if not store.token_still_valid(conn, token_hash, adapter.name, key):
+        log("mcp-auth-rejected", method=method, status=401)
+        return JSONResponse({"error": "invalid_token"}, status_code=401)
     tokens = store.get_account_tokens(conn, adapter.name, key, secret)
     if tokens is None:
         # valid Bearer, but the account blob is gone → re-authorize to self-heal
