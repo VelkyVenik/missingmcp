@@ -47,7 +47,7 @@ sqlite3 'file:data/gateway.db?mode=ro'                        # read-only prod D
 User `grok` (key-only SSH, not in the docker group) may sudo exactly one
 command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
 `sudo mmcp logs [6h|1d] [--grep TEXT]`, `status`, `metrics [1d..28d]`, `egress`,
-`workers`, `usage`, `report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
+`workers`, `backups`, `usage`, `report`, and `sql` (one statement on stdin, DB opened `?mode=ro` +
 `query_only`). After editing `deploy/mmcp`:
 `scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.
 
@@ -105,14 +105,57 @@ pending one with `sudo shutdown -c`.
 
 ## Backups
 
-**Hetzner Backups** (server setting): a daily snapshot of the whole VM, the
-last 7 kept — `data/gateway.db` and `gateway.env` included. The gateway's own
-off-box S3 backup (`BACKUP_S3_*`) is **off** here: it wrote to the Railway
-bucket and was dropped with Railway (2026-10-28). Restore = Hetzner console →
-hydra → Backups → restore (whole VM), or rebuild a fresh server from a
-snapshot and copy `data/gateway.db` + `gateway.env` out of it. Keep a copy of
-`GATEWAY_SECRET` in the password manager too: without it the DB's account
-blobs can't be decrypted.
+Two layers, both in hydra's Hetzner location (neither survives losing it):
+
+- **Hetzner Backups** (server setting): a daily snapshot of the whole VM, the
+  last 7 kept — `data/gateway.db` and `gateway.env` included. Restore = Hetzner
+  console → hydra → Backups → restore (whole VM), or rebuild a fresh server from
+  a snapshot and copy `data/gateway.db` + `gateway.env` out of it.
+- **Hourly DB snapshots** on the backup volume (Hetzner Volume, 10 GB ext4,
+  `/mnt/backup`, fstab `nofail`). Volumes are *not* in Hetzner Backups, and the
+  volume outlives the VM — it can be attached to a rebuilt server. This is the
+  layer for "a bug/migration damaged the DB two hours ago".
+  `missingmcp-backup.timer` runs `deploy/backup.sh` at :17 every hour: SQLite
+  online backup (no writer blocking in WAL) → `PRAGMA integrity_check` → zstd →
+  `/mnt/backup/missingmcp/hourly/gateway-<UTC>.db.zst`; the first snapshot of
+  each day/month is hard-linked into `daily/` / `monthly/`. Kept: 48 hourly,
+  30 daily, 12 monthly. It refuses to run when the volume isn't mounted (it
+  would fill the root disk) and only prunes after a new snapshot landed. Only
+  the DB is backed up: `data/users/` (worker token dirs) and `workers.json` are
+  rebuilt from it. A failed run pushes to ntfy (`missingmcp-backup-alert.service`,
+  topic in `/etc/missingmcp-backup.env`); `mmcp status` prints the newest
+  snapshot's age (`STALE` past 2 h — catches a timer that stopped firing),
+  `mmcp backups` lists them.
+
+The gateway's own off-box S3 backup (`BACKUP_S3_*`) is **off** here: it wrote
+to the Railway bucket and was dropped with Railway (2026-10-28). Keep a copy of
+`GATEWAY_SECRET` in the password manager: without it the DB's account blobs
+can't be decrypted (it is deliberately not copied to the volume).
+
+Install / update the snapshot job (from the repo root):
+
+```bash
+scp deploy/backup.sh deploy/missingmcp-backup*.service deploy/missingmcp-backup.timer venik@hydra.venik.org:/tmp/
+ssh venik@hydra.venik.org 'sudo install -m 755 /tmp/backup.sh /usr/local/bin/missingmcp-backup &&
+  sudo install -m 644 /tmp/missingmcp-backup*.service /tmp/missingmcp-backup.timer /etc/systemd/system/ &&
+  sudo systemctl daemon-reload && sudo systemctl enable --now missingmcp-backup.timer'
+# once, on hydra: the alert topic (the same ntfy topic as the uptime check on dragon)
+#   echo 'NTFY_TOPIC=...' | sudo install -m 600 /dev/stdin /etc/missingmcp-backup.env
+```
+
+Restore from a snapshot (on hydra):
+
+```bash
+cd /opt/missingmcp
+docker compose stop gateway
+sudo mkdir data/broken && sudo mv data/gateway.db data/gateway.db-* data/broken/   # -wal/-shm may be absent
+sudo zstd -d /mnt/backup/missingmcp/hourly/gateway-<UTC>.db.zst -o data/gateway.db
+sudo sqlite3 data/gateway.db 'PRAGMA integrity_check'   # → ok
+docker compose start gateway
+```
+
+Tokens that rotated after the snapshot (WHOOP, BMW, Garmin) are lost with the
+rollback; those accounts get a re-auth 401 and sign in again.
 
 ## Rebuilding the server
 

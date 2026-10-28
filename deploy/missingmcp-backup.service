@@ -1,0 +1,12 @@
+# Hourly gateway DB snapshot → /mnt/backup (deploy/backup.sh).
+# Install: deploy/README.md → Backups.
+[Unit]
+Description=missingmcp gateway DB backup to /mnt/backup
+RequiresMountsFor=/mnt/backup
+OnFailure=missingmcp-backup-alert.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/missingmcp-backup
+Nice=10
+IOSchedulingClass=idle

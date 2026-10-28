@@ -1,0 +1,11 @@
+# OnFailure hook of missingmcp-backup.service: one ntfy push. The topic name is
+# a secret (anyone who knows it can read and post), so it lives only in
+# /etc/missingmcp-backup.env (root 0600: NTFY_TOPIC=...), never in this repo.
+# `$$` is a literal `$` handed to the shell (systemd would expand a bare one).
+[Unit]
+Description=Alert on a failed missingmcp backup
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/missingmcp-backup.env
+ExecStart=/bin/sh -c 'curl -fsS --max-time 15 -H "Title: hydra: missingmcp backup FAILED" -H "Priority: high" -H "Tags: warning" -d "$$(journalctl -u missingmcp-backup.service -n 5 -o cat --no-pager)" "https://ntfy.sh/$${NTFY_TOPIC}"'

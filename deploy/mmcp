@@ -22,6 +22,7 @@ usage: sudo mmcp <command>
   workers                     running garmin workers (workers.json)
   egress                      Garmin sign-in egresses: persisted rest (level, time left), last ok/blocked,
                               and real sign-in outcomes over 24 h / 7 d (egress-health events)
+  backups                     DB snapshots on /mnt/backup (hourly/daily/monthly), last runs' journal
   usage                       tool/method leaderboard (aggregate)
   report                      yesterday's new/active/total users per connector
   sql                         ONE read-only SQL statement from stdin, tab-separated output
@@ -31,6 +32,21 @@ EOF
 }
 
 py() { docker exec -i "$C" python3 "$@"; }
+
+BK=/mnt/backup/missingmcp
+# One line: age + size of the newest hourly snapshot, STALE past 2 h
+# (the timer runs hourly, so one missed run is already worth a look).
+backup_line() {
+	local f age flag=""
+	f=$(ls -1 "$BK"/hourly/gateway-*.db.zst 2>/dev/null | sort | tail -n 1 || true)
+	if [ -z "$f" ]; then
+		echo "backup: NONE in $BK/hourly — STALE"
+		return
+	fi
+	age=$(( ($(date +%s) - $(stat -c %Y "$f")) / 60 ))
+	[ "$age" -le 120 ] || flag=" — STALE"
+	echo "backup: ${age}m ago, $(du -h "$f" | cut -f1) ($(basename "$f"))$flag"
+}
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
@@ -56,6 +72,7 @@ case "$cmd" in
 		docker stats --no-stream --format 'memory: {{.MemUsage}}  cpu: {{.CPUPerc}}' "$C"
 		echo "healthz: $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/healthz)"
 		echo "disk: $(df -h / | awk 'NR==2 {print $3 " used of " $2 " (" $5 ")"}')"
+		backup_line
 		py /app/scripts/status.py
 		;;
 	metrics)
@@ -186,6 +203,16 @@ EOF
 )
 		journalctl -t missingmcp-gateway --since -7d -o json --no-pager -q | grep -F egress-health \
 			| python3 -I -c "$script" "$state"
+		;;
+	backups)
+		backup_line
+		echo "volume: $(df -h /mnt/backup | awk 'NR==2 {print $3 " used of " $2 " (" $5 ")"}')"
+		for tier in hourly daily monthly; do
+			echo "$tier ($(ls -1 "$BK/$tier" 2>/dev/null | wc -l) kept, newest first):"
+			ls -1sh "$BK/$tier" 2>/dev/null | tail -n +2 | sort -k2 -r | head -n 5 | sed 's/^/  /' || true
+		done
+		echo "last runs:"
+		journalctl -u missingmcp-backup.service -n 6 -o short-iso --no-pager -q | sed 's/^/  /'
 		;;
 	usage) py /app/scripts/usage.py --tools ;;
 	report) py /app/scripts/daily_report.py ;;
