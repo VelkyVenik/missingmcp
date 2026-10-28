@@ -68,6 +68,9 @@ afterwards as a normal plan session.
   `tools/list` filtered by the stored `operations[]`; location only in its own tool; actions
   return at once with no polling; `budget` in every result, 60 s status cache, friendly
   429/422/504 tool errors.
+- [Write the car connector spec](issues/06-write-spec.md) — **destination reached**:
+  `docs/superpowers/specs/2026-10-28-car-connector-design.md`; the sign-in GET runs in
+  `start_login`, and `verify` checks the blob offline (amends 04).
 
 ## Not yet specified
 
