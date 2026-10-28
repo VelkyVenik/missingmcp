@@ -6,7 +6,7 @@
       <ol>
         <li>Profile &rarr; <strong>Smart home</strong> <span class="quiet">(Profil &rarr; Chytrá domácnost)</span></li>
         <li><strong>Create key</strong> &rarr; <strong>Copy key</strong> <span class="quiet">(Vytvořit klíč &rarr; Kopírovat klíč)</span></li>
-        <li>Copy the <strong>VIN</strong> from the same screen</li>
+        <li>Copy the <strong>Vehicle VIN</strong> from the same screen <span class="quiet">(VIN vozidla)</span></li>
       </ol>
     </div>
     {ERROR}
@@ -14,7 +14,7 @@
 {OAUTH_FIELDS}
       <label>Brand<select name="car_brand" required><option value="skoda">Škoda</option></select></label>
       <label>API key<input name="car_api_key" type="password" autocomplete="off" required></label>
-      <label>VIN<input name="car_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false" required><span class="hint">17 characters, shown next to your keys in the app.</span></label>
+      <label>VIN<input name="car_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false" required><span class="hint">17 characters &mdash; <em>Vehicle VIN</em> (VIN vozidla) on the same screen, with a copy button.</span></label>
       <label>Your email<input name="car_email" type="email" autocomplete="email" required><span class="hint">Only for important news about this connector.</span></label>
       <button class="btn" type="submit" data-busy-label="Checking your key with Škoda…">Connect</button>
     </form>
