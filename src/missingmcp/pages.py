@@ -21,7 +21,8 @@ _OG_IMAGE = "og.png"                     # the site-wide card
 # Every card scripts/gen_og_image.py draws (one per --variant) → its alt text.
 OG_IMAGES = {
     "og.png": "MissingMCP — Claude & ChatGPT answer from your own Garmin data.",
-    "og-car.png": "MissingMCP — Claude, ChatGPT & Grok answer from your own car.",
+    "og-car.png": "MissingMCP — “Warm up my car, I’m leaving in 10.” Claude, ChatGPT & "
+                  "Grok talk to your own car.",
 }
 _OG_IMAGE_VER = {name: hashlib.sha256(
     (Path(__file__).parent / "static" / name).read_bytes()).hexdigest()[:8]

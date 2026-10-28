@@ -56,8 +56,9 @@ VARIANTS = {
     },
     "car": {
         "out": "og-car.png",
-        "ask": ["Is my car charged", "and locked?"],
-        "answer": [("Claude, ChatGPT & Grok answer from ", False), ("your own", True),
+        "ask": ["Warm up my car,", "I’m leaving in 10."],  # an action, not a read:
+                                                             # the card shows it *does* things
+        "answer": [("Claude, ChatGPT & Grok talk to ", False), ("your own", True),
                    (" car.", False)],
         "endpoints": [("missingmcp.com/", "car", "/mcp")],
     },
