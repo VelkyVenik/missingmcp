@@ -540,9 +540,9 @@ def _bmw_telematics() -> dict:
         "vehicle.drivetrain.electricEngine.charging.status": cell("NOCHARGING"),
         "vehicle.body.chargingPort.status": cell("DISCONNECTED"),
         "vehicle.powertrain.electric.battery.stateOfCharge.target": cell("80", "%"),
-        "vehicle.cabin.door.row1.driver.isOpen": cell("false"),
-        "vehicle.cabin.door.row1.passenger.isOpen": cell("false"),
-        "vehicle.body.trunk.isOpen": cell("true"),
+        "vehicle.cabin.door.row1.driver.isOpen": cell("CLOSED"),
+        "vehicle.cabin.door.row1.passenger.isOpen": cell("CLOSED"),
+        "vehicle.body.trunk.isOpen": cell("OPEN"),
         "vehicle.cabin.infotainment.navigation.currentLocation.latitude": cell(BMW_LAT),
         "vehicle.cabin.infotainment.navigation.currentLocation.longitude": cell(BMW_LON),
     }
@@ -558,6 +558,7 @@ class FakeBmwUpstream(_FakeHttpServer):
       - telematics: the container read's telematicData
       - force_api: HTTP status every /customers call answers with while set
       - refresh_fails: the refresh grant answers 400 invalid_grant
+      - token_500: the next device-code token request answers 500 (seen live)
     Tokens are at-N / rt-N; a refresh invalidates the refresh token it used and
     the access tokens before it (rotation)."""
 
@@ -569,6 +570,7 @@ class FakeBmwUpstream(_FakeHttpServer):
         self.telematics = _bmw_telematics()
         self.force_api = None
         self.refresh_fails = False
+        self.token_500 = False
         self._n = 0
         self.valid_access, self.valid_refresh = set(), set()
         super().__init__()
@@ -614,6 +616,9 @@ class FakeBmwUpstream(_FakeHttpServer):
                         if up.refresh_fails or form.get("refresh_token") not in up.valid_refresh:
                             return self._send(400, {"error": "invalid_grant"})
                         return self._send(200, up._mint())
+                    if up.token_500:
+                        up.token_500 = False
+                        return self._send(500)
                     state = up.device_state
                     if state == "approved":
                         return self._send(200, up._mint())

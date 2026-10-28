@@ -153,6 +153,9 @@ class CarAdapter:
         except CarUpstreamError as e:
             if e.kind == "pending":
                 raise SecondFactorError(_BMW_PENDING, state) from None
+            if e.kind == "upstream_error":     # BMW hiccup (a 500 seen live): keep the code
+                raise SecondFactorError("BMW didn't answer — press the button again in a "
+                                        "moment.", state) from None
             raise _bmw_login_error(e) from None
         try:
             tokens = bmw.tokens_from(resp)

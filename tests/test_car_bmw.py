@@ -179,6 +179,26 @@ def test_vin_not_on_the_account_is_rejected(fake_bmw, tmp_path):
     assert _raw_blob(app) is None
 
 
+def test_bmw_500_on_approval_keeps_the_code(fake_bmw, tmp_path):
+    client, db = _client(fake_bmw, tmp_path)
+    fake_bmw.token_500 = True
+    r, _, _ = _start(client)
+    r = _approve(client, r.text)
+    assert r.status_code == 400 and "press the button again" in r.text
+    assert "BMW-1234" in r.text
+    assert _approve(client, r.text).status_code == 302
+
+
+def test_missing_position_says_so(fake_bmw, tmp_path):
+    for k in ("latitude", "longitude"):
+        fake_bmw.telematics[f"vehicle.cabin.infotainment.navigation.currentLocation.{k}"] = \
+            {"value": None, "unit": "degrees", "timestamp": None}
+    client, _ = _client(fake_bmw, tmp_path)
+    token = _connect(client, fake_bmw)
+    loc = _payload(_call(client, token, "get_vehicle_location"))
+    assert loc["lat"] is None and "no position" in loc["note"]
+
+
 def test_declined_code_starts_over(fake_bmw, tmp_path):
     client, _ = _client(fake_bmw, tmp_path)
     fake_bmw.device_state = "denied"

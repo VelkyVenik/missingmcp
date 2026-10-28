@@ -287,11 +287,13 @@ def _text(cell: dict | None) -> str | None:
 
 
 def _flag(cell: dict | None) -> bool | None:
+    """An is-open cell: BMW sends "OPEN" / "CLOSED" (live i3, 2026-10-28); true /
+    false accepted too. Anything else (null, INVALID…) is unknown."""
     v = (cell or {}).get("value")
     if isinstance(v, bool):
         return v
     s = str(v).strip().lower() if v is not None else ""
-    return {"true": True, "false": False}.get(s)
+    return {"open": True, "true": True, "closed": False, "false": False}.get(s)
 
 
 def _at(*cells) -> str | None:
@@ -341,5 +343,11 @@ def normalize_status(td: dict) -> dict:
 
 def normalize_location(td: dict) -> dict:
     lat, lon = td.get(K_LAT), td.get(K_LON)
-    return {"parked": None, "address": None, "lat": _num(lat, 7), "lon": _num(lon, 7),
-            "captured_at": _at(lat, lon)}
+    out = {"parked": None, "address": None, "lat": _num(lat, 7), "lon": _num(lon, 7),
+           "captured_at": _at(lat, lon)}
+    if out["lat"] is None or out["lon"] is None:
+        # Seen live: the keys come back with null values when the car hasn't
+        # shared a position (e.g. location sharing off in the car).
+        out["note"] = ("BMW has no position for this car right now — the car may not be "
+                       "sharing its location.")
+    return out
