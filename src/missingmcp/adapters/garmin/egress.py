@@ -7,6 +7,9 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+import importlib
+import pkgutil
+
 from garminconnect import client as _gc_client
 
 from ...log import log
@@ -22,9 +25,13 @@ from ...log import log
 # tripped proxies would mean no sign-ins at all for the 30 min cooldown.
 #
 # garminconnect takes no proxy option and builds its HTTP sessions internally,
-# so the two HTTP modules garminconnect.client uses are swapped for thin
-# wrappers that inject the proxy chosen for the *current thread* (`via()`)
-# into every Session/post they create. Sign-in runs on asyncio.to_thread
+# so the HTTP modules it uses are swapped for thin wrappers that inject the
+# proxy chosen for the *current thread* (`via()`) into every Session/post they
+# create. Since 0.3.19 garminconnect.client is a package whose submodules each
+# `import requests` themselves (sso.py: the +requests strategies and MFA
+# restore; session.py: the DI token exchange), so every submodule's `requests`
+# is wrapped — not just the package's — while curl_cffi is still reached
+# through the package attribute (`pkg.cffi_requests`). Sign-in runs on asyncio.to_thread
 # workers, one call per thread, so concurrent sign-ins on different egresses
 # never see each other's proxy. In the gateway process garminconnect serves
 # sign-in only — workers are separate processes (unaffected), and
@@ -455,9 +462,19 @@ class _ProxiedCffi:
         return self._mod.post(url, **kwargs)
 
 
+def _client_modules() -> list:
+    """garminconnect.client and every submodule of it (0.3.19+ is a package)."""
+    mods = [_gc_client]
+    for info in pkgutil.iter_modules(getattr(_gc_client, "__path__", [])):
+        mods.append(importlib.import_module(f"{_gc_client.__name__}.{info.name}"))
+    return mods
+
+
 def _install() -> None:
-    if not isinstance(_gc_client.requests, _ProxiedRequests):
-        _gc_client.requests = _ProxiedRequests(_gc_client.requests)
+    for mod in _client_modules():
+        req = getattr(mod, "requests", None)
+        if req is not None and not isinstance(req, _ProxiedRequests):
+            mod.requests = _ProxiedRequests(req)
     cffi = getattr(_gc_client, "cffi_requests", None)
     if cffi is not None and not isinstance(cffi, _ProxiedCffi):
         _gc_client.cffi_requests = _ProxiedCffi(cffi)

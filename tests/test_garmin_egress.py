@@ -274,6 +274,33 @@ def test_cffi_wrapper_injects_proxy_into_sessions_and_posts():
     ]
 
 
+def test_every_garminconnect_client_module_uses_the_proxied_requests():
+    """garminconnect >= 0.3.19 split `client` into a package whose submodules
+    import `requests` themselves (sso.py: +requests strategies and MFA restore;
+    session.py: DI token exchange). A module left with the real `requests`
+    would sign in from the host IP while logs and breakers blame the chosen
+    egress — this fails on the next such refactor instead."""
+    import importlib
+    import pkgutil
+    import requests as real_requests
+    mods = [gc_client] + [importlib.import_module(f"{gc_client.__name__}.{m.name}")
+                          for m in pkgutil.iter_modules(gc_client.__path__)]
+    for mod in mods:
+        assert getattr(mod, "requests", None) is not real_requests, mod.__name__
+    from garminconnect.client import session, sso
+    assert isinstance(sso.requests, egress._ProxiedRequests)
+    assert isinstance(session.requests, egress._ProxiedRequests)
+
+
+def test_sso_module_sessions_go_through_the_proxy(recording_proxy):
+    from garminconnect.client import sso
+    url, seen = recording_proxy
+    with egress.via(url):
+        r = sso.requests.Session().get("http://sso.garmin.invalid/mobile", timeout=5)
+    assert r.status_code == 200
+    assert seen == ["http://sso.garmin.invalid/mobile"]
+
+
 def test_requests_traffic_really_goes_through_the_proxy(recording_proxy):
     url, seen = recording_proxy
     with egress.via(url):

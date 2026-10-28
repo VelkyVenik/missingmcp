@@ -302,16 +302,17 @@ wheels = [
 
 [[package]]
 name = "garminconnect"
-version = "0.3.17"
+version = "0.3.20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "curl-cffi" },
     { name = "requests" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "ua-generator" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/32/4e/2758ce40ee00487a36154df4a3b1bfa6b7f3038954d49de3747718d853b4/garminconnect-0.3.17.tar.gz", hash = "sha256:f6b6dd282c950c394478cb5bcca506e1432e82037e27625d1456ef49c8f17ffe", size = 109120, upload-time = "2026-09-29T07:19:53.616Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/bf/e947dcb466f96c063b83493a375a5139534fedcc86509287fbf8463335b2/garminconnect-0.3.20.tar.gz", hash = "sha256:1e156f4242bc4214d5d86788503b2d5ebd92a14698dbd3906f765f06eaac551c", size = 168748, upload-time = "2026-10-23T11:32:11.163Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/a5/cf958eab4eaae4bb94852a3819f367074a4a19e489938ae3cb1efc32bd87/garminconnect-0.3.17-py3-none-any.whl", hash = "sha256:624d8c2468d865d286c9fb7ae8133633bb1d52a2b019c8beb5ff9ae10dd43264", size = 102734, upload-time = "2026-09-29T07:19:52.182Z" },
+    { url = "https://files.pythonhosted.org/packages/09/9d/4ef1a87a45278c1e2854f5b301ff944059e31f116eb50704324f0bc0f4ed/garminconnect-0.3.20-py3-none-any.whl", hash = "sha256:d56a1720dff5f4d64be5f105d082bb6b546480a1920f901f1523c19aa76791fc", size = 163422, upload-time = "2026-10-23T11:32:09.468Z" },
 ]
 
 [[package]]
@@ -525,7 +526,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=42" },
-    { name = "garminconnect", specifier = "==0.3.17" },
+    { name = "garminconnect", specifier = "==0.3.20" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
@@ -1112,6 +1113,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c09092e6b34058f36a460eea2d4c3e8b910c695975a0/typing_inspection-0.4.4.tar.gz", hash = "sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47", size = 76928, upload-time = "2026-08-12T12:37:25.997Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147", size = 14750, upload-time = "2026-08-12T12:37:24.648Z" },
+]
+
+[[package]]
+name = "tzdata"
+version = "2026.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/29/6a1391d31cd00ff9e927215a224a880e1e84e826b64ba80a499e51c074d8/tzdata-2026.6.tar.gz", hash = "sha256:85d2cd9c09f81f0bb29db27759fc83af4f1e620efb814f8c5bf8b4cc4feece6d", size = 201017, upload-time = "2026-10-28T09:57:09.137Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl", hash = "sha256:0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec", size = 348210, upload-time = "2026-10-28T09:57:07.276Z" },
 ]
 
 [[package]]

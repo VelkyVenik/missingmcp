@@ -15,7 +15,7 @@ dependencies = [
     # sign-in path depends on this version's behavior — skip_strategies (mobile
     # strategies skipped behind GARMIN_SSO_PROXY) and email-MFA detection via
     # the page's mfaMethod vars (0.3.2 misread those pages as "blocked").
-    "garminconnect==0.3.17",
+    "garminconnect==0.3.20",
     "cryptography>=42",
     "python-multipart>=0.0.9",
     # PostHog telemetry (telemetry.py). The SDK is thread-based (no asyncio) and

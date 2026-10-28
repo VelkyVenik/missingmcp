@@ -43,7 +43,9 @@ def _dump_tokens(client) -> str:
 # before 2026-10-12), and portal hits a Cloudflare bot challenge (403, 80 of
 # 80) after 10-20 s anti-WAF waits each — pushing a failed sign-in past
 # login_timeout and only feeding Cloudflare more failures from our egress.
-# Applied only when a proxy is in play.
+# Applied only when a proxy is in play. garminconnect 0.3.20 fixed the mobile
+# strategy (it now loads the sign-in page before posting, #479); whether that
+# gets it through our proxies is untried — mobile stays skipped until tested.
 _SKIP_WHEN_PROXIED = frozenset({"mobile+cffi", "mobile+requests",
                                 "portal+cffi", "portal+requests"})
 
