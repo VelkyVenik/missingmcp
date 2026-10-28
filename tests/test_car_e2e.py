@@ -53,9 +53,9 @@ def _submit(client, page, **fields):
     return client.post("/car/oauth/authorize", data=data, follow_redirects=False)
 
 
-def _connect(client):
+def _connect(client, **fields):
     page, reg, verifier = _form_page(client)
-    r = _submit(client, page)
+    r = _submit(client, page, **fields)
     assert r.status_code == 302, r.text
     q = parse_qs(urlparse(r.headers["location"]).query)
     assert q["state"] == ["claude-state"]
@@ -140,6 +140,58 @@ def test_key_and_vin_never_logged(fake_skoda, capsys):
     out = capsys.readouterr()
     for secret in (SKODA_KEY, SKODA_VIN):
         assert secret not in out.out and secret not in out.err
+
+
+ATTACKER_KEY, ATTACKER_VIN = "key-attacker", "TMBTEST0000000002"
+
+
+def _status_call(client, token):
+    return _mcp(client, token, "tools/call", {"name": "get_vehicle_capabilities",
+                                              "arguments": {}})
+
+
+def test_unverified_email_squat_cannot_reach_the_victims_car(fake_skoda):
+    """Codex P1: an attacker connects their own car under the victim's email; the
+    victim later connects theirs. The attacker's token must die then, never
+    inherit the victim's key."""
+    fake_skoda.keys[ATTACKER_KEY] = {ATTACKER_VIN}
+    client = _client(fake_skoda)
+    attacker_token = _connect(client, car_api_key=ATTACKER_KEY, car_vin=ATTACKER_VIN)
+    assert _status_call(client, attacker_token).status_code == 200
+    victim_token = _connect(client)                      # same email, the victim's own car
+    assert _status_call(client, attacker_token).status_code == 401
+    r = _status_call(client, victim_token)
+    assert json.loads(r.json()["result"]["content"][0]["text"])["vehicle"]["vin_tail"] \
+        == SKODA_VIN[-6:]
+    # attacker re-squats: the victim is logged out, but the attacker sees only their own car
+    attacker_token2 = _connect(client, car_api_key=ATTACKER_KEY, car_vin=ATTACKER_VIN)
+    assert _status_call(client, victim_token).status_code == 401
+    r = _status_call(client, attacker_token2)
+    assert json.loads(r.json()["result"]["content"][0]["text"])["vehicle"]["vin_tail"] \
+        == ATTACKER_VIN[-6:]
+
+
+def test_pending_code_dies_when_the_car_changes(fake_skoda):
+    fake_skoda.keys[ATTACKER_KEY] = {ATTACKER_VIN}
+    client = _client(fake_skoda)
+    page, reg, verifier = _form_page(client)
+    r = _submit(client, page, car_api_key=ATTACKER_KEY, car_vin=ATTACKER_VIN)
+    code = parse_qs(urlparse(r.headers["location"]).query)["code"][0]
+    _connect(client)                                     # victim connects before the exchange
+    r = client.post("/car/oauth/token", data={
+        "grant_type": "authorization_code", "code": code,
+        "client_id": reg["client_id"], "client_secret": reg["client_secret"],
+        "redirect_uri": "https://claude.ai/cb", "code_verifier": verifier})
+    assert r.status_code == 400
+
+
+def test_reconnecting_the_same_car_keeps_other_devices_signed_in(fake_skoda):
+    fake_skoda.keys["key-2"] = {SKODA_VIN}
+    client = _client(fake_skoda)
+    phone = _connect(client)
+    laptop = _connect(client, car_api_key="key-2")       # fresh key, same car
+    assert _status_call(client, phone).status_code == 200
+    assert _status_call(client, laptop).status_code == 200
 
 
 def test_expired_key_on_tool_call_is_reauth_401(fake_skoda):

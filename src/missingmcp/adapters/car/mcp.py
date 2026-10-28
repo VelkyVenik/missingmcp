@@ -159,7 +159,7 @@ class CarLocalForward:
         self._cfg = config
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._budget: dict[str, Budget] = {}                  # VIN → last observed
-        self._status_cache: dict[str, tuple[datetime, dict]] = {}   # account → (at, payload)
+        self._status_cache: dict[str, tuple[datetime, dict]] = {}   # "account|VIN" → (at, payload)
 
     def _client(self, brand: str):
         return _CLIENTS[brand](self._cfg.car_skoda_api_base)
@@ -255,7 +255,7 @@ class CarLocalForward:
             else:
                 reply = await self._client(d["brand"]).action(d["api_key"], d["vin"], op, body)
                 self._note_budget(d["vin"], reply.budget)
-                self._status_cache.pop(account_key, None)
+                self._status_cache.pop(f"{account_key}|{d['vin']}", None)
                 payload = {"accepted": True, "message": _ACCEPTED}
         except CarUpstreamError as e:
             if e.kind == "invalid_key":
@@ -277,7 +277,8 @@ class CarLocalForward:
 
     async def _status(self, conn, account_key: str, d: dict) -> dict:
         now = self._now()
-        hit = self._status_cache.get(account_key)
+        cache_key = f"{account_key}|{d['vin']}"      # a reconnect may switch the car
+        hit = self._status_cache.get(cache_key)
         if hit and (now - hit[0]).total_seconds() < STATUS_CACHE_S:
             return {**hit[1], "cached": True}
         reply = await self._client(d["brand"]).read(d["api_key"], d["vin"], STATUS_INCLUDES)
@@ -285,11 +286,23 @@ class CarLocalForward:
         data = reply.data or {}
         vehicle = data.get("vehicle", {})
         if "operations" in vehicle:
-            ops = skoda.operations(vehicle)
-            if ops != d.get("operations"):
-                d = {**d, "operations": ops}
-                store.upsert_account(conn, "car", account_key, json.dumps(d),
-                                     self._cfg.gateway_secret)
+            self._refresh_operations(conn, account_key, d, skoda.operations(vehicle))
         payload = skoda.normalize_status(vehicle, data.get("errors", []), d["vin"])
-        self._status_cache[account_key] = (now, payload)
+        self._status_cache[cache_key] = (now, payload)
         return dict(payload)
+
+    def _refresh_operations(self, conn, account_key: str, d: dict, ops: list[str]) -> None:
+        """Compare-and-set: a reconnect may have replaced the blob while the read
+        awaited the upstream, so re-read the stored blob and only touch it if it
+        still holds the same credential. No await between read and write — atomic
+        on the single event loop, which also runs oauth._finish."""
+        raw = store.get_account_tokens(conn, "car", account_key, self._cfg.gateway_secret)
+        if raw is None:
+            return
+        current = json.loads(raw)
+        if (current.get("api_key"), current.get("vin")) != (d["api_key"], d["vin"]):
+            return
+        if current.get("operations") != ops:
+            store.upsert_account(conn, "car", account_key,
+                                 json.dumps({**current, "operations": ops}),
+                                 self._cfg.gateway_secret)

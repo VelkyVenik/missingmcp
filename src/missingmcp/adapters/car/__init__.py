@@ -71,6 +71,14 @@ class CarAdapter:
                 "operations": skoda.operations((reply.data or {}).get("vehicle", {}))}
         return LoginOk(account_key=normalize_account_key(email), blob=json.dumps(blob))
 
+    @staticmethod
+    def credential_subject(blob: str) -> str:
+        """The car a blob grants access to (brand + VIN): the identity the upstream
+        actually proved, unlike the typed email that is our account_key. oauth._finish
+        revokes the account's tokens and pending codes when a sign-in changes it."""
+        d = json.loads(blob)
+        return f"{d['brand']}:{d['vin']}"
+
     def resume_second_factor(self, state: object, form: Mapping[str, str]) -> LoginOk:
         raise LoginError("Car sign-in does not use a verification code.")
 

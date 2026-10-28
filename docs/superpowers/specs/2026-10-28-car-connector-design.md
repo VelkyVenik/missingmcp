@@ -264,6 +264,15 @@ beta) → "Under the hood" → "All tools" (generated) → CTA.
   `start_login` and `verify` succeed).
 - The typed email is unverified. It is still the `account_key`, so global unsubscribe and every
   existing per-account op apply unchanged.
+- **Unverified email ≠ access** (Codex review, PR #65): since anyone can sign in under any email,
+  access is bound to the **credential subject** the upstream proved (brand + VIN). When a sign-in
+  changes the subject, `oauth._finish` revokes all access tokens and pending auth codes of that
+  account before persisting (adapter hook `credential_subject`, generic and probed with
+  `getattr`). A squatter's token dies when the real owner connects. A re-squat logs the owner
+  out but never exposes their key. Reconnecting the same car keeps other devices signed in.
+- The `operations[]` refresh after a status read is a **compare-and-set**: it re-reads the stored
+  blob and writes only if it still holds the same key + VIN. The status cache is keyed by
+  account + VIN.
 - Log events (stable schema; amended at implementation): sign-in failures use the existing
   generic `login-start-failed` / `login-verify-failed` events with car `reason` values
   `invalid_form`, `invalid_key`, `vin_not_covered`, `rate_limited`, `upstream_error`. The expired

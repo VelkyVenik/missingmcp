@@ -502,6 +502,15 @@ def create_code(conn, code_hash, client_id, redirect_uri, code_challenge, method
     conn.commit()
 
 
+def revoke_codes(conn, adapter: str, account_key: str) -> int:
+    """Delete an account's not-yet-exchanged authorization codes (they would mint
+    tokens for the account's current blob). Returns rows deleted."""
+    cur = conn.execute("DELETE FROM oauth_codes WHERE adapter=? AND account_key=?",
+                       (adapter, account_key))
+    conn.commit()
+    return cur.rowcount
+
+
 def consume_code(conn, code_hash) -> dict | None:
     row = conn.execute(
         "SELECT adapter, client_id, redirect_uri, code_challenge, code_challenge_method, "

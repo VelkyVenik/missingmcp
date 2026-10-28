@@ -152,6 +152,39 @@ def test_status_cache_expires(fake_skoda):
     assert "cached" not in out and len(fake_skoda.calls) == 2
 
 
+def test_operations_refresh_never_overwrites_a_concurrent_reconnect(fake_skoda):
+    """Codex P2: a reconnect lands while a status read is in flight; the read's
+    operations refresh must not write the old key back over the new one."""
+    fwd, conn, blob, cfg = _setup(fake_skoda, ops=["startCharging"])
+    new_blob = {**json.loads(blob), "api_key": "key-new", "operations": ["startCharging"]}
+    real_client = fwd._client
+
+    class Racing:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def read(self, *a, **kw):
+            reply = await self.inner.read(*a, **kw)
+            # the reconnect's _finish runs on the loop while we awaited upstream
+            store.upsert_account(conn, "car", ACCOUNT, json.dumps(new_blob), cfg.gateway_secret)
+            return reply
+
+    fwd._client = lambda brand: Racing(real_client(brand))
+    _call(fwd, conn, blob, "get_vehicle_status")
+    stored = json.loads(store.get_account_tokens(conn, "car", ACCOUNT, cfg.gateway_secret))
+    assert stored["api_key"] == "key-new"
+    assert stored["operations"] == ["startCharging"]
+
+
+def test_status_cache_is_per_car(fake_skoda):
+    fwd, conn, blob, _ = _setup(fake_skoda)
+    _call(fwd, conn, blob, "get_vehicle_status")
+    fake_skoda.keys[SKODA_KEY].add("TMBTEST0000000002")
+    other = json.dumps({**json.loads(blob), "vin": "TMBTEST0000000002"})
+    _, out = _call(fwd, conn, other, "get_vehicle_status")
+    assert "cached" not in out and out["vehicle"]["vin_tail"] == "000002"
+
+
 def test_status_refreshes_stored_operations(fake_skoda):
     fwd, conn, blob, cfg = _setup(fake_skoda, ops=["startCharging"])
     _call(fwd, conn, blob, "get_vehicle_status")
