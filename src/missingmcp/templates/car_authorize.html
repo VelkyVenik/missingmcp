@@ -1,0 +1,32 @@
+  <div class="auth">
+    <h1>Connect your <span class="hl">car</span></h1>
+    <p class="sub">Use your car maker&rsquo;s own API key to connect your car to your AI assistant (Claude, ChatGPT, Grok&hellip;). Beta.</p>
+    <div class="note">
+      <strong>Škoda: get your key (2 minutes, in the phone app)</strong>
+      <ol>
+        <li>Open the <strong>MyŠkoda</strong> app &rarr; <strong>Profil</strong> &rarr; <strong>Chytrá domácnost</strong> (Smart home).</li>
+        <li>Tap <strong>Vytvořit klíč</strong> (Create key), name it e.g. &ldquo;MissingMCP&rdquo;, then <strong>Kopírovat klíč</strong> (Copy key).</li>
+        <li>Copy the <strong>VIN</strong> from the same screen.</li>
+      </ol>
+      Keys can only be created in the app, last about 6 months, and can be deleted there any time.
+    </div>
+    <div class="note">
+      <strong>What happens to your data</strong>
+      <ul>
+        <li>Your API key and VIN are stored <strong>encrypted</strong> (AES-256-GCM) on this server, so it can reach your car on your behalf. They are <strong>never shared with your AI assistant</strong> (Claude, ChatGPT, Grok&hellip;) or its maker.</li>
+        <li>Car data is <strong>passed through</strong> on demand and is <strong>not stored</strong> by this gateway.</li>
+        <li>Škoda&rsquo;s API is for <strong>personal use</strong>; this is an unofficial, free beta. Your email is used only for important news about this connector.</li>
+      </ul>
+      This gateway is operated by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong> &mdash; only continue if you trust them. You can disconnect anytime.
+    </div>
+    {ERROR}
+    <form method="post" action="{AUTHORIZE_ACTION}">
+{OAUTH_FIELDS}
+      <label>Brand<select name="car_brand" required><option value="skoda">Škoda</option></select></label>
+      <label>Your email<input name="car_email" type="email" autocomplete="email" required></label>
+      <label>API key<input name="car_api_key" type="password" autocomplete="off" required></label>
+      <label>VIN<input name="car_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false" required></label>
+      <button class="btn" type="submit" data-busy-label="Checking your key with Škoda…">Connect</button>
+    </form>
+    <p class="beer"><span>Free to use &mdash; if it earns a spot in your routine, <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">buy me a beer</a> to keep it running.</span></p>
+  </div>
