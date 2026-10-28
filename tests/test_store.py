@@ -408,7 +408,13 @@ def test_token_last_used_written_at_most_once_per_resolution(conn):
     assert last() > "2000-01-01 00:00:00"
 
 
+def _accounts(conn, *keys):
+    for key in keys:
+        store.upsert_account(conn, "garmin", key, "{}", SECRET)
+
+
 def test_usage_buffer_accumulates_until_flush(conn):
+    _accounts(conn, "me@x.cz", "other@x.cz")
     buf = store.UsageBuffer()
     buf.add("garmin", "me@x.cz", "get_activities")
     buf.add("garmin", "me@x.cz", "get_activities")
@@ -427,6 +433,7 @@ def test_usage_buffer_accumulates_until_flush(conn):
 
 
 def test_usage_buffer_keeps_newest_last_used(conn):
+    _accounts(conn, "me@x.cz")
     conn.execute("INSERT INTO tool_usage VALUES ('garmin','me@x.cz','t',1,'2999-01-01 00:00:00')")
     conn.commit()
     buf = store.UsageBuffer()
@@ -444,6 +451,21 @@ def test_usage_buffer_requeues_on_db_error():
         buf.flush(broken)
     assert buf.pending() == 1                        # batch requeued, not lost
     good = store.init_db(":memory:")
+    _accounts(good, "me@x.cz")
     buf.add("garmin", "me@x.cz", "t")
     assert buf.flush(good) == 1
     assert good.execute("SELECT calls FROM tool_usage").fetchone()[0] == 2
+
+
+def test_usage_buffer_drops_counts_of_purged_account(conn):
+    """revoke.py --purge between a call and the flush: the flush must not
+    resurrect the account's tool_usage rows."""
+    _accounts(conn, "me@x.cz", "gone@x.cz")
+    buf = store.UsageBuffer()
+    buf.add("garmin", "me@x.cz", "t")
+    buf.add("garmin", "gone@x.cz", "t")
+    conn.execute("DELETE FROM accounts WHERE account_key='gone@x.cz'")
+    conn.commit()
+    buf.flush(conn)
+    assert [r[0] for r in conn.execute("SELECT account_key FROM tool_usage")] == ["me@x.cz"]
+    assert buf.pending() == 0

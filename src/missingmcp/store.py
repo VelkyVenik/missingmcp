@@ -594,15 +594,20 @@ class UsageBuffer:
         return len(self._pending)
 
     def flush(self, conn) -> int:
-        """Write the pending counts; returns the number of rows touched. On a DB
-        error the batch goes back into the buffer for the next flush."""
+        """Write the pending counts; returns the number of entries flushed. On a DB
+        error the batch goes back into the buffer for the next flush.
+
+        Counts for an account that no longer exists are dropped: a purge
+        (`scripts/revoke.py --purge`, retired-adapter cleanup) between a call and
+        the flush must not resurrect its tool_usage rows (and its email)."""
         if not self._pending:
             return 0
         batch, self._pending = self._pending, {}
         try:
             conn.executemany(
                 "INSERT INTO tool_usage (adapter, account_key, tool, calls, last_used) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS "
+                "(SELECT 1 FROM accounts WHERE adapter=?1 AND account_key=?2) "
                 "ON CONFLICT(adapter, account_key, tool) DO UPDATE SET "
                 "calls = calls + excluded.calls, "
                 "last_used = MAX(COALESCE(last_used, ''), excluded.last_used)",
