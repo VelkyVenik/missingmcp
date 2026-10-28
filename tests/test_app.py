@@ -82,7 +82,8 @@ def test_garmin_chatgpt_guide_page(tmp_path):
     r = c.get("/garmin/chatgpt")
     assert r.status_code == 200
     assert "Connect Garmin to ChatGPT" in r.text            # title + H2
-    assert "Developer mode" in r.text                       # the ChatGPT-specific step
+    assert "Add custom MCP server" in r.text                # the ChatGPT-specific step
+    assert "Developer mode" not in r.text                   # the retired menu path
     assert "https://gw.example.com/garmin/mcp" in r.text    # same endpoint as /garmin
     assert ('<link rel="canonical" '
             'href="https://gw.example.com/garmin/chatgpt">') in r.text
@@ -91,6 +92,25 @@ def test_garmin_chatgpt_guide_page(tmp_path):
     # ... and the crawler surface knows about the page too.
     assert "<loc>https://gw.example.com/garmin/chatgpt</loc>" in c.get("/sitemap.xml").text
     assert "https://gw.example.com/garmin/chatgpt" in c.get("/llms.txt").text
+
+
+def test_garmin_grok_guide_page(tmp_path):
+    c = _client(tmp_path)
+    r = c.get("/garmin/grok")
+    assert r.status_code == 200
+    assert "Connect Garmin to Grok" in r.text               # title + H2
+    assert "grok.com/connectors" in r.text                  # the Grok-specific step
+    assert "https://gw.example.com/garmin/mcp" in r.text    # same endpoint as /garmin
+    assert ('<link rel="canonical" '
+            'href="https://gw.example.com/garmin/grok">') in r.text
+    assert "{USAGE_METER" not in r.text                     # meter placeholder filled
+    assert 'href="/garmin"' in r.text                       # cross-links the Claude landing
+    assert 'href="/garmin/chatgpt"' in r.text               # ... and the ChatGPT guide
+    # every Garmin page points at the Grok guide
+    assert 'href="/garmin/grok"' in c.get("/garmin").text
+    assert 'href="/garmin/grok"' in c.get("/garmin/chatgpt").text
+    assert "<loc>https://gw.example.com/garmin/grok</loc>" in c.get("/sitemap.xml").text
+    assert "https://gw.example.com/garmin/grok" in c.get("/llms.txt").text
 
 
 def test_unknown_path_serves_home_as_404(tmp_path):
@@ -305,6 +325,7 @@ def test_home_features_garmin_first(tmp_path):
     assert "Your Garmin data," in r                        # hero H1
     assert 'href="/garmin">Connect in Claude' in r
     assert 'href="/garmin/chatgpt">Connect in ChatGPT' in r
+    assert 'href="/garmin/grok">Connect in Grok' in r
     assert "Also on MissingMCP" in r                       # the demoted strip
     # priority Garmin > car > WHOOP: car is teased in the hero and leads the strip
     assert r.count('href="/car"') == 2

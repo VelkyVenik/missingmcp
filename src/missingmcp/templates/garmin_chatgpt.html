@@ -1,7 +1,7 @@
 <!-- Client-specific connect guide — targets the "connect garmin to chatgpt"
      query family. The connector itself is the same /garmin/mcp endpoint the
      Claude landing documents; this page owns the ChatGPT-specific steps
-     (developer mode) and caveats. Keep the section skeleton in the family:
+     (chatgpt.com/plugins → custom MCP server) and caveats. Keep the section skeleton in the family:
      hero → what is this → how to connect → what to ask → under the hood. -->
   <div class="page-hero">
     <div class="wrap">
@@ -31,27 +31,27 @@
       <div class="cards">
         <div class="card">
           <span class="step-n">Step 1</span>
-          <h3>Turn on developer mode</h3>
-          <p>In ChatGPT <strong>on the web</strong>: Settings &rarr; Apps &rarr; Advanced settings &rarr; toggle <strong>Developer mode</strong> on. It&rsquo;s available on Plus, Pro, Business, Enterprise, and Education plans.</p>
+          <h3>Open Plugins</h3>
+          <p>In ChatGPT <strong>on the web</strong>, go to <strong>chatgpt.com/plugins</strong> and choose <strong>+</strong> &rarr; <strong>Add custom MCP server</strong>.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 2</span>
-          <h3>Add the connector</h3>
-          <p>Choose <strong>Create app</strong> (custom connector), name it &ldquo;Garmin&rdquo;, and paste <code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> as the server URL. Pick <strong>OAuth</strong> as the authentication.</p>
+          <h3>Add the server</h3>
+          <p>Name it &ldquo;Garmin&rdquo;, choose a public endpoint, and paste <code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> as the URL. Pick <strong>OAuth</strong> as the authentication, accept the warning, then <strong>Create as a plugin</strong> and install it.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 3</span>
           <h3>Sign in once</h3>
-          <p>ChatGPT opens a sign-in page &mdash; enter your Garmin Connect email and password (and an MFA code if prompted). If you close the tab mid-flow, remove the app and add it again to restart cleanly.</p>
+          <p>ChatGPT opens a sign-in page &mdash; enter your Garmin Connect email and password (and an MFA code if prompted). If you close the tab mid-flow, remove the plugin and add it again to restart cleanly.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 4</span>
           <h3>Start asking</h3>
-          <p>Enable the app in a conversation and try &ldquo;How did I sleep last night?&rdquo; ChatGPT asks for confirmation before any tool that writes to your Garmin calendar.</p>
+          <p>Turn the plugin on in a conversation and try &ldquo;How did I sleep last night?&rdquo; ChatGPT asks for confirmation before any tool that writes to your Garmin calendar.</p>
         </div>
       </div>
       <div class="note">
-        <strong>Good to know:</strong> custom MCP connectors in ChatGPT are a beta feature and currently <strong>web-only</strong> &mdash; the mobile apps can&rsquo;t add them yet. OpenAI also moves these menus around occasionally; if the path above doesn&rsquo;t match, look for <em>Apps</em>, <em>Connectors</em>, or <em>Developer mode</em> in Settings.
+        <strong>Good to know:</strong> custom MCP servers in ChatGPT are added <strong>on the web</strong>, and availability depends on your plan. OpenAI also moves these menus around occasionally; if the path above doesn&rsquo;t match, look for <em>Plugins</em>, <em>Connectors</em>, or <em>Apps</em> in Settings.
       </div>
       <div class="note warn">
         <strong>Before you sign in:</strong> your Garmin password is used once and <strong>never stored</strong> &mdash; only encrypted session tokens (AES-256-GCM) are kept so the gateway can reach your data. Your health data passes through on demand and is not stored. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>. Not affiliated with Garmin &mdash; see the <a href="/garmin#faq">FAQ</a>.
@@ -89,7 +89,7 @@
       <h2 class="sec-h">Under the hood</h2>
       <div class="prose">
         <p>MCP is an open standard, and this gateway speaks it by the book &mdash; OAuth 2.1 with PKCE, dynamic client registration, Streamable HTTP. That&rsquo;s why the <em>same URL</em> works in ChatGPT, Claude, Codex, and any other MCP-capable client without any per-app setup on this side. The whole gateway is open source (<a href="https://github.com/VelkyVenik/missingmcp">GitHub</a>, MIT) and self-hostable; the Garmin smarts come from the unmodified open-source <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> server.</p>
-        <p>Prefer Claude? The <a href="/garmin">Garmin connector page</a> has the Claude steps, the full 134-tool list, and everything else about this connector.</p>
+        <p>Prefer Claude? The <a href="/garmin">Garmin connector page</a> has the Claude steps, the full 134-tool list, and everything else about this connector. On Grok? Follow the <a href="/garmin/grok">Grok guide</a>.</p>
       </div>
     </div>
   </section>

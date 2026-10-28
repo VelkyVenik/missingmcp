@@ -49,7 +49,7 @@ VARIANTS = {
         "out": "og.png",
         "ask": ["How did I sleep", "this week?"],   # pre-wrapped: the break is a
                                                     # design decision, not luck
-        "answer": [("Claude & ChatGPT answer from ", False), ("your own", True),
+        "answer": [("Claude, ChatGPT & Grok answer from ", False), ("your own", True),
                    (" Garmin data.", False)],       # (text, emphasized)
         "endpoints": [("missingmcp.com/", "garmin", "/mcp"),
                       ("missingmcp.com/", "whoop", "/mcp")],

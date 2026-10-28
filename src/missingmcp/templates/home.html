@@ -1,17 +1,18 @@
 <!-- Homepage = wayfinder (PRD: .scratch/homepage-wayfinder/PRD.md): sell Garmin
      once, show the active-user count, route to the right client guide
-     (/garmin for Claude, /garmin/chatgpt for ChatGPT). Detail lives on the
+     (/garmin for Claude, /garmin/chatgpt for ChatGPT, /garmin/grok for Grok). Detail lives on the
      subpages — this page never duplicates their steps or tool lists.
      Priority: Garmin (hero) > car (hero teaser + first card) > WHOOP. Car is
      promoted via /car itself; the homepage only points there. -->
   <div class="hero">
     <div class="wrap">
-      <h1>Your Garmin data, <span class="hl">in Claude &amp; ChatGPT</span>.</h1>
+      <h1>Your Garmin data, <span class="hl">in Claude, ChatGPT &amp; Grok</span>.</h1>
       <p class="hero-meter">{USAGE_METER_GARMIN}</p>
       <p>Everything your watch knows &mdash; training, sleep, recovery, health &mdash; one URL away from a conversation. Sign in once, then just ask: <em>&ldquo;Did I eat enough for today&rsquo;s ride?&rdquo;</em> &mdash; and get an answer that actually knows.</p>
       <div class="cta-row">
         <a class="btn" href="/garmin">Connect in Claude &rarr;</a>
         <a class="btn" href="/garmin/chatgpt">Connect in ChatGPT &rarr;</a>
+        <a class="btn" href="/garmin/grok">Connect in Grok &rarr;</a>
       </div>
       <p class="quiet">One URL, open standard (MCP) &mdash; works in Codex, Gemini, and any other MCP-capable app too.</p>
       <p class="hero-teaser"><span class="pill beta">New</span> Your car in your AI, too &mdash; <a href="/car">battery, range, climate &rarr;</a></p>
@@ -42,7 +43,7 @@
         <div class="card">
           <span class="step-n">Step 1</span>
           <h3>Copy one URL</h3>
-          <p><code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> &mdash; the same address for every client. Add it where your AI keeps its connectors: <a href="/garmin">Claude</a> or <a href="/garmin/chatgpt">ChatGPT</a>.</p>
+          <p><code>{PUBLIC_URL}<wbr>/garmin<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/garmin/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> &mdash; the same address for every client. Add it where your AI keeps its connectors: <a href="/garmin">Claude</a>, <a href="/garmin/chatgpt">ChatGPT</a> or <a href="/garmin/grok">Grok</a>.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 2</span>
@@ -69,7 +70,7 @@
         </div>
         <div>
           <h3>Standard OAuth 2.1</h3>
-          <p>Your AI app &mdash; Claude, ChatGPT, or any other &mdash; never sees your credentials. It gets its own revocable token, over the same OAuth + PKCE flow that banks and APIs use.</p>
+          <p>Your AI app &mdash; Claude, ChatGPT, Grok, or any other &mdash; never sees your credentials. It gets its own revocable token, over the same OAuth + PKCE flow that banks and APIs use.</p>
         </div>
         <div>
           <h3>Your data passes through, nothing sticks</h3>
@@ -130,6 +131,7 @@
         <div class="cta-row">
           <a class="btn" href="/garmin">Connect in Claude &rarr;</a>
           <a class="btn" href="/garmin/chatgpt">Connect in ChatGPT &rarr;</a>
+        <a class="btn" href="/garmin/grok">Connect in Grok &rarr;</a>
         </div>
       </div>
     </div>

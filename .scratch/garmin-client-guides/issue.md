@@ -1,6 +1,6 @@
 # Garmin connect guides: fix ChatGPT, add Grok, refresh Claude
 
-Status: ready-for-agent
+Status: done (2026-10-28) — live Garmin sign-in in Grok still to confirm after deploy
 
 ## Problem
 
