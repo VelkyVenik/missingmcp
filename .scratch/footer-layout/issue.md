@@ -1,6 +1,6 @@
 # Footer: one row, brand left, links right
 
-Status: ready-for-agent
+Status: done
 
 ## Problem
 
