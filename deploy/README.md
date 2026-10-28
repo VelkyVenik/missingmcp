@@ -157,6 +157,47 @@ docker compose start gateway
 Tokens that rotated after the snapshot (WHOOP, BMW, Garmin) are lost with the
 rollback; those accounts get a re-auth 401 and sign in again.
 
+## Garmin sign-in egress
+
+The gateway's own Garmin traffic (sign-in, MFA, token verify) leaves through
+`GARMIN_SSO_PROXY` routes, each on its own source IP, so Garmin's SSO rate
+limiter sees several addresses instead of one (README → Configuration;
+`mmcp egress` shows each route's health). Since 2026-10-28 they are local to
+hydra:
+
+| route (`GARMIN_SSO_PROXY`) | source IP | Hetzner Floating IP |
+|---|---|---|
+| `http://172.30.0.1:3129` | 167.233.184.254 | `floating_2` (rDNS `f-2.missingmcp.com`) |
+| `http://172.30.0.1:3131` | 167.233.183.195 | `floating-4` (rDNS `f-4.missingmcp.com`) |
+| `direct` (last resort, built in) | 178.105.209.44 | hydra's primary IP |
+
+- **squid** (Ubuntu package) with `deploy/squid.conf` → `/etc/squid/squid.conf`:
+  one port per IP (`tcp_outgoing_address` by `localport`), only `*.garmin.com`,
+  only from the compose network `172.30.0.0/24` — no proxy auth, and the
+  Hetzner Cloud Firewall keeps the ports off the internet.
+- **IPv4 only:** `deploy/squid-ipv4-only.conf` →
+  `/etc/systemd/system/squid.service.d/ipv4-only.conf`. `connectapi.garmin.com`
+  has AAAA records, and `tcp_outgoing_address` doesn't cover IPv6 — squid would
+  leave from hydra's own IPv6 address instead of the route's IP.
+- **Floating IPs:** assigned to hydra in the Hetzner console (they're homed in
+  Nuremberg, hydra is in Falkenstein — fine within `eu-central`) *and* held on
+  `eth0` via `deploy/60-floating-ips.yaml` → `/etc/netplan/60-floating-ips.yaml`
+  (0600). Without the second half squid can't bind them: every CONNECT → 503.
+
+Check a route from inside the gateway container (prints the IP Garmin sees):
+
+```bash
+docker exec missingmcp-gateway-1 python3 -c "import urllib.request as u; print(u.build_opener(u.ProxyHandler({'https': 'http://172.30.0.1:3129'})).open('https://sso.garmin.com/cdn-cgi/trace').read().decode())" | grep ^ip=
+```
+
+Adding a route: a new Floating IP (assign + netplan), a new `http_port` /
+`acl via_…` / `tcp_outgoing_address` triple in `squid.conf`, append the URL to
+`GARMIN_SSO_PROXY`, `docker compose up -d --force-recreate gateway`. A route's
+rest state is keyed by its `host:port` label in `egress_state`; when a label
+goes away, delete its row by hand (nothing prunes it). Until 2026-10-28 the
+routes ran through squid on dragon (with proxy auth over the internet); that
+setup and its primary/f3 routes are gone.
+
 ## Rebuilding the server
 
 On a fresh Ubuntu box after the setup above:
@@ -172,6 +213,8 @@ On a fresh Ubuntu box after the setup above:
    `gateway.db` into it from a backup) and `gateway.env` (0600).
    **`GATEWAY_SECRET` must be identical** (it decrypts every stored token);
    `PUBLIC_URL` stays `https://missingmcp.com`.
+   Garmin sign-in egress: squid + Floating IPs as in [Garmin sign-in
+   egress](#garmin-sign-in-egress) (reassign the Floating IPs to the new server).
 4. **GHCR:** the `missingmcp` package is public (the repo is public and the
    image holds no secrets), so hydra pulls without a login.
 5. **Deploy key:** `ssh-keygen -t ed25519 -N '' -C github-deploy -f deploy_key`;

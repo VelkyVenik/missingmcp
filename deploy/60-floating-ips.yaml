@@ -1,0 +1,11 @@
+# hydra's Hetzner Floating IPs (/etc/netplan/60-floating-ips.yaml, 0600), the
+# source addresses of the Garmin sign-in egress routes in deploy/squid.conf.
+# Hetzner routes a Floating IP to the server it's assigned to (console);
+# the server must also hold it on its interface.
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 167.233.184.254/32
+        - 167.233.183.195/32
