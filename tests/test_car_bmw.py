@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from starlette.testclient import TestClient
 from conftest import BMW_CLIENT_ID, BMW_LAT, BMW_LON, BMW_VIN
 from missingmcp import store
+from missingmcp.adapters.base import SessionExpired
 from missingmcp.adapters.car import bmw
 from missingmcp.app import build_app
 from missingmcp.config import load_config
@@ -306,3 +307,79 @@ def test_concurrent_stale_calls_refresh_exactly_once(fake_bmw):
     refreshes = [1 for _m, p, _h, body in fake_bmw.calls
                  if p == "/token" and b"grant_type=refresh_token" in body]
     assert len(refreshes) == 1
+
+
+def _stale_blob(fake, vin=BMW_VIN) -> dict:
+    first = fake._mint()
+    return {"v": 1, "brand": "bmw", "client_id": BMW_CLIENT_ID, "vin": vin,
+            "access_token": first["access_token"], "refresh_token": first["refresh_token"],
+            "access_expires_at": int(time.time()) + 10, "container_id": "C0001",
+            "operations": []}
+
+
+def test_refresh_never_overwrites_a_reconnect_to_another_car(fake_bmw):
+    """Codex P1: a reconnect lands while the refresh awaits BMW; the refresh must
+    not restore the old blob over it, and the in-flight request ends (re-auth)."""
+    cfg = _cfg(fake_bmw)
+    conn = store.init_db(":memory:")
+    api = bmw.BmwClient(cfg)
+    d = _stale_blob(fake_bmw)
+    store.upsert_account(conn, "car", KEY, json.dumps(d), cfg.gateway_secret)
+    other = {**d, "vin": "WBY00000000000099", "refresh_token": "rt-new",
+             "access_expires_at": int(time.time()) + 3600}
+    fake_bmw.delay_s = 0.3
+
+    async def race():
+        task = asyncio.create_task(api.ensure_fresh(conn, KEY, dict(d)))
+        await asyncio.sleep(0.1)                      # refresh is now awaiting BMW
+        store.upsert_account(conn, "car", KEY, json.dumps(other), cfg.gateway_secret)
+        return await asyncio.gather(task, return_exceptions=True)
+    (result,) = asyncio.run(race())
+    assert isinstance(result, SessionExpired)
+    stored = json.loads(store.get_account_tokens(conn, "car", KEY, cfg.gateway_secret))
+    assert stored["vin"] == "WBY00000000000099" and stored["refresh_token"] == "rt-new"
+
+
+def test_refresh_yields_to_a_reconnect_of_the_same_car(fake_bmw):
+    cfg = _cfg(fake_bmw)
+    conn = store.init_db(":memory:")
+    api = bmw.BmwClient(cfg)
+    d = _stale_blob(fake_bmw)
+    store.upsert_account(conn, "car", KEY, json.dumps(d), cfg.gateway_secret)
+    relogin = {**d, "access_token": "at-relogin", "refresh_token": "rt-relogin",
+               "access_expires_at": int(time.time()) + 3600}
+    fake_bmw.delay_s = 0.3
+
+    async def race():
+        task = asyncio.create_task(api.ensure_fresh(conn, KEY, dict(d)))
+        await asyncio.sleep(0.1)
+        store.upsert_account(conn, "car", KEY, json.dumps(relogin), cfg.gateway_secret)
+        return await task
+    used = asyncio.run(race())
+    assert used["refresh_token"] == "rt-relogin"
+    stored = json.loads(store.get_account_tokens(conn, "car", KEY, cfg.gateway_secret))
+    assert stored["refresh_token"] == "rt-relogin"
+
+
+def test_concurrent_status_and_location_cost_one_read(fake_bmw):
+    """Codex P2: simultaneous calls must share one telematic read."""
+    from missingmcp.adapters.car.mcp import CarLocalForward
+    cfg = _cfg(fake_bmw)
+    conn = store.init_db(":memory:")
+    fake_bmw.containers.append({"name": "missingmcp", "containerId": "C0001", "state": "ACTIVE"})
+    d = {**_stale_blob(fake_bmw), "access_expires_at": int(time.time()) + 3600}
+    store.upsert_account(conn, "car", KEY, json.dumps(d), cfg.gateway_secret)
+    fwd = CarLocalForward(cfg)
+    fake_bmw.delay_s = 0.2
+
+    def body(name):
+        return json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                           "params": {"name": name, "arguments": {}}}).encode()
+
+    async def both():
+        return await asyncio.gather(
+            fwd.handle(conn, KEY, json.dumps(d), body("get_vehicle_status")),
+            fwd.handle(conn, KEY, json.dumps(d), body("get_vehicle_location")))
+    for status, _h, raw in asyncio.run(both()):
+        assert status == 200 and json.loads(raw)["result"]["isError"] is False
+    assert len(_telematic_calls(fake_bmw)) == 1

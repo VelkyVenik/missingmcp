@@ -559,6 +559,7 @@ class FakeBmwUpstream(_FakeHttpServer):
       - force_api: HTTP status every /customers call answers with while set
       - refresh_fails: the refresh grant answers 400 invalid_grant
       - token_500: the next device-code token request answers 500 (seen live)
+      - delay_s: sleep before answering a refresh or a telematic read
     Tokens are at-N / rt-N; a refresh invalidates the refresh token it used and
     the access tokens before it (rotation)."""
 
@@ -571,6 +572,7 @@ class FakeBmwUpstream(_FakeHttpServer):
         self.force_api = None
         self.refresh_fails = False
         self.token_500 = False
+        self.delay_s = 0.0
         self._n = 0
         self.valid_access, self.valid_refresh = set(), set()
         super().__init__()
@@ -613,6 +615,7 @@ class FakeBmwUpstream(_FakeHttpServer):
                     form = {k: v[0] for k, v in parse_qs(raw.decode()).items()}
                     grant = form.get("grant_type")
                     if grant == "refresh_token":
+                        time.sleep(up.delay_s)
                         if up.refresh_fails or form.get("refresh_token") not in up.valid_refresh:
                             return self._send(400, {"error": "invalid_grant"})
                         return self._send(200, up._mint())
@@ -650,6 +653,7 @@ class FakeBmwUpstream(_FakeHttpServer):
                     up.containers.append(c)
                     return self._send(201, c)
                 if path.startswith("/customers/vehicles/") and path.endswith("/telematicData"):
+                    time.sleep(up.delay_s)
                     vin = path.split("/")[3]
                     cid = parse_qs(query).get("containerId", [""])[0]
                     if vin not in up.vins:

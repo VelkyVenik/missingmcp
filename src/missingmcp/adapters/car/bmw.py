@@ -238,6 +238,13 @@ class BmwClient:
                         "client_id": current["client_id"]})
             except httpx.HTTPError as e:
                 raise CarUpstreamError("upstream_error") from e
+            # A reconnect (oauth._finish) doesn't take this lock and may have stored
+            # new credentials — even another car — while BMW answered: it wins.
+            # Re-read with no await before the write below (compare-and-set on the
+            # single event loop).
+            latest = self._reconnected(conn, account_key, current)
+            if latest is not None:
+                return latest
             if r.status_code != 200:
                 err = _oauth_error(r)
                 log_warn("car-refresh-failed", account=account_key, status=r.status_code,
@@ -246,12 +253,26 @@ class BmwClient:
                     raise SessionExpired(f"BMW refresh rejected: {err}")
                 raise CarUpstreamError("upstream_error", r.status_code, err)
             new = {**current, **tokens_from(r.json(), current)}
-            # No await between this write and the read above's lock-protected use:
-            # oauth._finish (a reconnect) runs on the same loop and can't interleave.
             store.upsert_account(conn, "car", account_key, json.dumps(new),
                                  self._cfg.gateway_secret)
             log("car-refresh-ok", account=account_key)
             return new
+
+    def _reconnected(self, conn, account_key: str, before: dict) -> dict | None:
+        """None if the stored blob is still the one we refreshed from. Otherwise a
+        reconnect replaced it: the same car's new blob is returned for this request
+        to use; a different car (or brand) ends it — that sign-in revoked our token."""
+        raw = store.get_account_tokens(conn, "car", account_key, self._cfg.gateway_secret)
+        latest = json.loads(raw) if raw else None
+        if latest is not None and latest.get("refresh_token") == before["refresh_token"] \
+                and latest.get("client_id") == before["client_id"] \
+                and latest.get("vin") == before["vin"]:
+            return None
+        log("car-refresh-superseded", account=account_key)
+        if latest and latest.get("brand") == "bmw" and \
+                (latest.get("client_id"), latest.get("vin")) == (before["client_id"], before["vin"]):
+            return latest
+        raise SessionExpired("car account was reconnected during the refresh")
 
     async def telematics(self, d: dict) -> dict:
         """One read of the account's container: {key: {value, unit, timestamp}}."""

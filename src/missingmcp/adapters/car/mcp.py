@@ -14,6 +14,7 @@ the upstream accepts them (no polling — a sleeping car takes ~2 min), and ever
 result reports the remaining budget. An upstream 401 (key expired or revoked)
 raises SessionExpired so the proxy answers re-auth 401."""
 from __future__ import annotations
+import asyncio
 import json
 import math
 import time
@@ -182,6 +183,7 @@ class CarLocalForward:
         self._bmw = bmw.BmwClient(config)
         self._bmw_calls: dict[str, deque] = {}        # VIN → monotonic times of our calls
         self._bmw_cache: dict[str, tuple[datetime, dict]] = {}      # "account|VIN" → (at, telematics)
+        self._bmw_fill: dict[str, asyncio.Lock] = {}                # "account|VIN" → cache-fill lock
 
     def _client(self, brand: str):
         return _CLIENTS[brand](self._cfg.car_skoda_api_base)
@@ -323,16 +325,19 @@ class CarLocalForward:
         return _tool_ok(rid, payload)
 
     async def _bmw_telematics(self, conn, account_key: str, d: dict) -> "tuple[dict, bool]":
-        now = self._now()
+        """Cache fills are serialized per account+car and the cache re-checked inside
+        the lock: concurrent status + location calls cost one read of the ~50/day."""
         cache_key = f"{account_key}|{d['vin']}"
-        hit = self._bmw_cache.get(cache_key)
-        if hit and (now - hit[0]).total_seconds() < BMW_CACHE_S:
-            return hit[1], True
-        d = await self._bmw.ensure_fresh(conn, account_key, d)
-        self._bmw_calls.setdefault(d["vin"], deque()).append(time.monotonic())
-        td = await self._bmw.telematics(d)
-        self._bmw_cache[cache_key] = (now, td)
-        return td, False
+        async with self._bmw_fill.setdefault(cache_key, asyncio.Lock()):
+            now = self._now()
+            hit = self._bmw_cache.get(cache_key)
+            if hit and (now - hit[0]).total_seconds() < BMW_CACHE_S:
+                return hit[1], True
+            d = await self._bmw.ensure_fresh(conn, account_key, d)
+            self._bmw_calls.setdefault(d["vin"], deque()).append(time.monotonic())
+            td = await self._bmw.telematics(d)
+            self._bmw_cache[cache_key] = (now, td)
+            return td, False
 
     def _bmw_budget(self, vin: str) -> dict:
         """Our own count: BMW's quota is per Client ID and other apps spend it too,
