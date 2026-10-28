@@ -36,7 +36,9 @@ class CarAdapter:
     landing_template = "car.html"
     # Landing copy + link-preview card (app.adapter_routes probes these): the
     # generic "connect your Car account to Claude" reads wrong for a car.
-    landing_title = "Car MCP Server — Your car in Claude, ChatGPT & Grok | MissingMCP"
+    # The title doubles as the link-preview headline (iMessage shows the domain under
+    # it, so no "| MissingMCP"); the search phrase "MCP server" lives in the description.
+    landing_title = "Connect your car to Claude, ChatGPT & Grok"
     landing_description = ("Hosted car MCP server: ask Claude, ChatGPT or Grok about "
                            "battery, range and locks, and pre-heat the cabin. Škoda first, "
                            "your own API key, free beta.")
