@@ -8,10 +8,13 @@ WORKDIR /app
 # e8554bc (2026-09-01): the worker logs in on a background thread and answers
 # /healthz before the sign-in resolves. 8e809d8 (2026-10-12) adds GET /readyz
 # (ready|pending|failed), which WorkerManager polls (forward.readiness_path).
-# e79df6f (tip of main, contains 8e809d8): reviewed 2026-10-12 — no new
-# dependencies (lock bumps of anyio/pyjwt/urllib3 only), no new network
-# destinations; +1 tool (set_activity_exercise_sets).
-ARG GARMIN_MCP_REF=e79df6fc59b276d03c478398b91c7e40a791f46b
+# a2ca5fc (tip of main, 2026-10-20): reviewed 2026-10-28 — no dependency
+# changes (garminconnect stays 0.3.2), no new network destinations; env/CLI,
+# /healthz, /readyz and the token file unchanged. +3 tools (delete_activity,
+# reschedule_workout, push_workout_to_device); deletes now need confirm=true;
+# tool calls run off the worker's event loop. New optional env
+# (GARMIN_TOOL_PROFILE, GARMIN_MCP_HTTP_TOKEN) left unset: workers bind 127.0.0.1.
+ARG GARMIN_MCP_REF=a2ca5fcac34524b83814fe2fcf3d479f8a75983f
 ENV GARMIN_MCP_REF=${GARMIN_MCP_REF}
 
 # git: uv installs the pinned garmin_mcp worker from a git ref.
