@@ -115,8 +115,9 @@ setup](#whoop-connector-setup) in Configuration.
 One connector for every supported car brand; the brand is picked per account on
 the sign-in form. Today: **Škoda**, on the official
 [MyŠkoda Public API](https://public.api.connect.skoda-auto.cz/docs). Each user
-brings their own API key (MyŠkoda app → Profil → Chytrá domácnost → Vytvořit
-klíč) plus the car's VIN and an email. Key and VIN are stored encrypted; no
+brings their own API key (MyŠkoda app → Profile → Smart home → Create key;
+Czech UI: Profil → Chytrá domácnost → Vytvořit klíč) plus the car's VIN and an
+email. Key and VIN are stored encrypted; no
 operator setup or secret is needed, so the connector is always on. Served
 in-process (local strategy). Tools are brand-neutral: status, location (only on
 request), and climate / ventilation / charging start-stop and charge limit,

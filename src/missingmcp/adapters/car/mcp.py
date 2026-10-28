@@ -221,8 +221,8 @@ class CarLocalForward:
         expires = _parse_ts(d.get("expires_at"))
         if expires and self._now() >= expires - timedelta(days=EXPIRY_NOTICE_DAYS):
             payload["notice"] = (f"Your Škoda API key expires on {expires.date().isoformat()}. "
-                                 "Create a new one in the MyŠkoda app (Profil → Chytrá "
-                                 "domácnost) and reconnect.")
+                                 "Create a new one in the MyŠkoda app (Profile → Smart "
+                                 "home; Profil → Chytrá domácnost) and reconnect.")
         return payload
 
     # --- tools/call -------------------------------------------------------------

@@ -158,21 +158,28 @@
     .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
             padding: .8rem 1rem; border-radius: 0 10px 10px 0; font-size: .9rem; margin: 1.2rem 0; }
     .note.warn { border-color: var(--warn); background: var(--warn-soft); }
-    .note ul { margin: .3rem 0 0 1.1rem; }
+    .note ul, .note ol { margin: .3rem 0 0 1.1rem; }
     .note li { margin: .25rem 0; }
     .err { color: var(--err); background: var(--err-soft); border: 1px solid var(--err);
            padding: .6rem .9rem; border-radius: 10px; margin: 1rem 0; font-size: .92rem; }
 
     .auth { max-width: 27rem; margin: 2.2rem auto 3.5rem; padding: 0 1.25rem; }
+    .auth.wide { max-width: 36rem; }
     .auth h1 { font-size: 1.55rem; margin-bottom: .4rem; }
     .auth .sub { color: var(--muted); font-size: .95rem; }
     .auth form { border: 1px solid var(--border); background: var(--bg-card); border-radius: 16px; padding: 1.4rem; }
     .auth label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); }
     .auth label + label { margin-top: 1rem; }
-    .auth input:not([type="hidden"]) { display: block; width: 100%; padding: .65rem .8rem; margin-top: .35rem;
+    .auth input:not([type="hidden"]), .auth select { display: block; width: 100%; padding: .65rem .8rem; margin-top: .35rem;
                  border: 1px solid var(--border); border-radius: 10px;
-                 background: var(--bg); color: var(--text); font-size: 1rem; }
-    .auth input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+                 background: var(--bg); color: var(--text); font-size: 1rem; font-family: inherit; }
+    .auth select { appearance: none; -webkit-appearance: none; padding-right: 2.2rem; cursor: pointer;
+                   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+                   background-repeat: no-repeat; background-position: right .85rem center; }
+    .auth input:focus, .auth select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .auth .hint { display: block; font-weight: 400; font-size: .78rem; color: var(--muted); margin-top: .3rem; }
+    .auth .fine { font-size: .82rem; color: var(--muted); margin-top: 1rem; }
+    .auth .fine p + p { margin-top: .5rem; }
     .auth .btn { display: block; width: 100%; margin-top: 1.3rem; border: 0;
                  font-size: 1rem; font-family: inherit; cursor: pointer; }
 
