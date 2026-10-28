@@ -51,57 +51,35 @@ command, `/usr/local/bin/mmcp` (= `deploy/mmcp`, `/etc/sudoers.d/91-mmcp`):
 `query_only`). After editing `deploy/mmcp`:
 `scp deploy/mmcp venik@hydra.venik.org:/tmp/ && ssh venik@hydra.venik.org sudo install -m 755 /tmp/mmcp /usr/local/bin/mmcp`.
 
-Host metrics: sysstat samples CPU, RAM,
-network and load every minute (`sysstat-collect.timer.d/every-minute.conf`)
-and keeps 28 days (`HISTORY=28` in `/etc/sysstat/sysstat`); `mmcp metrics`
-summarizes them per hour (1d) or per day.
-
-Dashboard: **Beszel** at https://hydra.venik.org (`/opt/beszel`, not in this
-repo — hub 0.21.0 on `127.0.0.1:8090` behind Caddy with a Let's Encrypt cert,
-agent on a unix socket shared only with the hub, `docker.sock` read-only).
-Host + per-container CPU/RAM/swap/network history and alerts. Login
-`admin@venik.org`, password in `/opt/beszel/hub.env`.
-
-### Alerts (ntfy push to the phone)
-
-All alerts go to one ntfy.sh topic (app: ntfy). The topic name works like a
-password — it is **not** in this public repo: see `TOPIC` in
-`~/uptime/check.sh` on dragon (also the Beszel notification URL).
-
-- **Uptime** — `~/uptime/check.sh` on **dragon** (cron, every minute; another
-  host and location, so it still fires when hydra is down): `GET
-  https://missingmcp.com/healthz`, DOWN push (urgent) after 2 consecutive
-  failures, UP push on recovery; failed checks in `~/uptime/failures.log`.
-- **Beszel** (Settings → Notifications, shoutrrr `ntfy://ntfy.sh/<topic>`):
-  hydra down / RAM > 85 % 5 min / CPU > 80 % 10 min / disk > 80 %; dragon down /
-  RAM > 90 % 10 min / disk > 85 %. Beszel has no swap alert — swap shows in
-  `mmcp metrics`.
-- Blind spot: each host watches the other, so a Hetzner-wide outage taking
-  both down sends nothing.
+`mmcp metrics` summarizes the host's sysstat samples (CPU, RAM, swap,
+network, load; 1-min, 28 days) per hour (1d) or per day.
 
 The gateway logs to the host's **persistent journal** (compose `logging:
 journald`, tag `missingmcp-gateway`), not to a per-container file: `docker
 logs` history dies with the container on every deploy, the journal spans
-them. Capped at 10 GB, compressed, 5 GB disk always kept free, rate limit
-raised for bursts (`/etc/systemd/journald.conf.d/50-missingmcp.conf`) — weeks
-to months of history. Other containers keep the daemon default of
-50 MB × 5 (`/etc/docker/daemon.json`). OS security updates
-install daily 06:00–07:00 UTC (`unattended-upgrades`); when one needs a reboot
-(kernel, libc, systemd) the host reboots at the next **03:30 UTC**
-(`/etc/apt/apt.conf.d/52-auto-reboot`) — ~1 min down, the gateway gets 30 s to
-persist tokens, containers come back via `restart: unless-stopped`. Cancel a
-pending one with `sudo shutdown -c`.
+them (`/etc/systemd/journald.conf.d/50-missingmcp.conf`: 10 GB cap, rate limit
+raised for bursts — weeks to months of history). When an OS update needs a
+reboot, the host reboots at the next **03:30 UTC** — ~1 min down, the gateway
+gets 30 s to persist tokens, containers come back via `restart:
+unless-stopped`. Cancel a pending one with `sudo shutdown -c`.
 
-## Server setup (done 2026-10-25)
+## Host
 
-- User `venik` (sudo NOPASSWD, docker group); root and password SSH login off
-  (`/etc/ssh/sshd_config.d/00-hardening.conf`). Hetzner Cloud Firewall: 22, 80, 443.
+The host itself — OS setup and hardening (SSH, firewall, fail2ban), swap,
+unattended upgrades, the monitoring dashboard and alerting (external uptime
+check, host-resource alerts) — is the operator's and documented outside this
+repo. What the app relies on:
+
 - Docker CE + compose plugin and Caddy from their upstream apt repos (Ubuntu's
-  Caddy is 2.6), `sqlite3`, docker log rotation, Hetzner Backups on.
-- 4 GB `/swapfile` (fstab), `vm.swappiness=10` (`/etc/sysctl.d/90-swappiness.conf`):
-  a cushion, not capacity — the container may swap up to its 6 GB limit
-  (`memory.swap.max`), so sustained swap use in `mmcp metrics` means it's time
-  to lower `MAX_WORKERS` or move to a CAX31.
+  Caddy is 2.6); `sqlite3` and `zstd` (DB backups), `squid` (Garmin sign-in
+  egress) on the host.
+- Inbound: 22, 80, 443 only (Hetzner Cloud Firewall + ufw); the squid ports
+  only from the compose network `172.30.0.0/24`.
+- Swap is a cushion, not capacity — the container may swap up to its 6 GB
+  limit (`memory.swap.max`), so sustained swap use in `mmcp metrics` means it's
+  time to lower `MAX_WORKERS` or move to a CAX31.
+- All alerts (uptime, host resources, a failed DB backup) go to one ntfy.sh
+  topic. Its name works like a password — it is **not** in this public repo.
 
 ## Backups
 
@@ -139,7 +117,7 @@ scp deploy/backup.sh deploy/missingmcp-backup*.service deploy/missingmcp-backup.
 ssh venik@hydra.venik.org 'sudo install -m 755 /tmp/backup.sh /usr/local/bin/missingmcp-backup &&
   sudo install -m 644 /tmp/missingmcp-backup*.service /tmp/missingmcp-backup.timer /etc/systemd/system/ &&
   sudo systemctl daemon-reload && sudo systemctl enable --now missingmcp-backup.timer'
-# once, on hydra: the alert topic (the same ntfy topic as the uptime check on dragon)
+# once, on hydra: the operator's ntfy alert topic (see Host)
 #   echo 'NTFY_TOPIC=...' | sudo install -m 600 /dev/stdin /etc/missingmcp-backup.env
 ```
 
@@ -174,7 +152,7 @@ hydra:
 - **squid** (Ubuntu package) with `deploy/squid.conf` → `/etc/squid/squid.conf`:
   one port per IP (`tcp_outgoing_address` by `localport`), only `*.garmin.com`,
   only from the compose network `172.30.0.0/24` — no proxy auth, and the
-  Hetzner Cloud Firewall keeps the ports off the internet.
+  Hetzner Cloud Firewall and ufw keep the ports off the internet.
 - **IPv4 only:** `deploy/squid-ipv4-only.conf` →
   `/etc/systemd/system/squid.service.d/ipv4-only.conf`. `connectapi.garmin.com`
   has AAAA records, and `tcp_outgoing_address` doesn't cover IPv6 — squid would
@@ -200,7 +178,7 @@ setup and its primary/f3 routes are gone.
 
 ## Rebuilding the server
 
-On a fresh Ubuntu box after the setup above:
+On a fresh Ubuntu box with the [Host](#host) prerequisites in place:
 
 1. **Origin certificate.** Cloudflare → SSL/TLS → Origin Server → Create
    certificate for `missingmcp.com` → save as
