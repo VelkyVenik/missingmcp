@@ -19,8 +19,10 @@ afterwards as a normal plan session.
   their **own** `X-API-Key` (encrypted blob). Prominent ToS/risk copy on the connector page
   (Public API = personal end-user use only; no commercial service). Same stance as Garmin:
   no monetization, no promotion.
-- **Visibility (decided 2026-10-28):** own landing page `/car` (brand list); not on the
-  homepage, not in campaigns, not in MCP directories — for now (see Out of scope). Ships
+- **Visibility (decided 2026-10-28, revised same day):** own landing page `/car` (brand
+  list) is what gets promoted. Homepage priority Garmin > car > WHOOP: car gets a hero
+  teaser line + the first card in "Also on MissingMCP", Garmin keeps the hero. Not in
+  campaigns or MCP directories — for now (see Out of scope). Ships
   enabled, labelled beta (no env kill switch).
 - **v1 includes actions** (decided 2026-10-28): climate / aux heat / ventilation start-stop,
   not just read state. Details (confirmation, temperature params, idempotency) → tool-set ticket.

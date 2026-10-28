@@ -292,5 +292,7 @@ def test_car_landing_has_its_own_link_preview(fake_skoda):
     assert "/static/og.png?v=" in client.get("/garmin").text
 
 
-def test_home_page_does_not_promote_car(fake_skoda):
-    assert "/car" not in _client(fake_skoda).get("/").text
+def test_home_page_points_to_car(fake_skoda):
+    # second after Garmin: a hero teaser + the first "Also on" card, both
+    # routing to /car — the page that gets promoted
+    assert _client(fake_skoda).get("/").text.count('href="/car"') == 2

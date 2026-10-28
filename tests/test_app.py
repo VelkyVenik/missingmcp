@@ -305,7 +305,10 @@ def test_home_features_garmin_first(tmp_path):
     assert "Your Garmin data," in r                        # hero H1
     assert 'href="/garmin">Connect in Claude' in r
     assert 'href="/garmin/chatgpt">Connect in ChatGPT' in r
-    assert "More connectors" in r                          # the demoted strip
+    assert "Also on MissingMCP" in r                       # the demoted strip
+    # priority Garmin > car > WHOOP: car is teased in the hero and leads the strip
+    assert r.count('href="/car"') == 2
+    assert r.index('href="/car">Connect your car') < r.index('href="/whoop"')
 
 
 def test_operator_link_comes_from_config(tmp_path):
@@ -379,7 +382,7 @@ def test_home_lists_upcoming_connectors(tmp_path):
     assert "Oura and Apple Health are on the wishlist" in r
     assert "not in active development" in r
     assert "100 connected users" in r               # WHOOP card stays, honestly capped
-    assert "Beta" not in r                          # the Beta pill is retired
+    assert r.count("Beta") == 1                     # only the car card is beta (WHOOP's pill retired)
     assert 'class="pill soon"' not in r
     assert 'data-modal="suggest"' in r
     assert 'data-modal="subscribe"' in r
