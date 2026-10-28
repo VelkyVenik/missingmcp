@@ -29,7 +29,7 @@ import sys
 
 W, H, SS = 1200, 630, 2          # SS = supersampling factor
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "src", "missingmcp", "static", "og.png")
+STATIC = os.path.join(ROOT, "src", "missingmcp", "static")
 
 # --- palette: src/missingmcp/templates/_layout.html, dark theme ---------------
 BG      = "#0e1013"
@@ -42,12 +42,26 @@ LIVE    = "#34d399"
 
 # --- copy --------------------------------------------------------------------
 EYEBROW  = "MissingMCP"
-ASK      = ["How did I sleep", "this week?"]        # pre-wrapped: the break is a
+# One card per variant: the site-wide card (og.png) and per-connector cards for
+# pages whose subject isn't health data (pages.OG_IMAGES maps file → alt text).
+VARIANTS = {
+    "default": {
+        "out": "og.png",
+        "ask": ["How did I sleep", "this week?"],   # pre-wrapped: the break is a
                                                     # design decision, not luck
-ANSWER   = [("Claude & ChatGPT answer from ", False), ("your own", True),
-            (" Garmin data.", False)]               # (text, emphasized)
-ENDPOINTS = [("missingmcp.com/", "garmin", "/mcp"),
-             ("missingmcp.com/", "whoop", "/mcp")]
+        "answer": [("Claude & ChatGPT answer from ", False), ("your own", True),
+                   (" Garmin data.", False)],       # (text, emphasized)
+        "endpoints": [("missingmcp.com/", "garmin", "/mcp"),
+                      ("missingmcp.com/", "whoop", "/mcp")],
+    },
+    "car": {
+        "out": "og-car.png",
+        "ask": ["Is my car charged", "and locked?"],
+        "answer": [("Claude, ChatGPT & Grok answer from ", False), ("your own", True),
+                   (" car.", False)],
+        "endpoints": [("missingmcp.com/", "car", "/mcp")],
+    },
+}
 
 # --- fonts: system faces, variable axes set explicitly so weights are exact ---
 NY   = "/System/Library/Fonts/NewYork.ttf"          # axes: Optical Size, Weight, GRAD
@@ -135,9 +149,14 @@ def chip(draw, x, y, head, mid, tail, f):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Draw the OG card to static/og.png")
+    p = argparse.ArgumentParser(description="Draw an OG card into static/")
+    p.add_argument("--variant", choices=sorted(VARIANTS), default="default",
+                   help="which card to draw (default: the site-wide og.png)")
     p.add_argument("--open", action="store_true", help="open the PNG when done")
     args = p.parse_args()
+    v = VARIANTS[args.variant]
+    ASK, ANSWER, ENDPOINTS = v["ask"], v["answer"], v["endpoints"]
+    OUT = os.path.join(STATIC, v["out"])
     try:
         from PIL import Image, ImageDraw
     except ImportError:
