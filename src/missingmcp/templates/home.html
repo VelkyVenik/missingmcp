@@ -1,7 +1,9 @@
 <!-- Homepage = wayfinder (PRD: .scratch/homepage-wayfinder/PRD.md): sell Garmin
      once, show the active-user count, route to the right client guide
      (/garmin for Claude, /garmin/chatgpt for ChatGPT). Detail lives on the
-     subpages — this page never duplicates their steps or tool lists. -->
+     subpages — this page never duplicates their steps or tool lists.
+     Priority: Garmin (hero) > car (hero teaser + first card) > WHOOP. Car is
+     promoted via /car itself; the homepage only points there. -->
   <div class="hero">
     <div class="wrap">
       <h1>Your Garmin data, <span class="hl">in Claude &amp; ChatGPT</span>.</h1>
@@ -12,6 +14,7 @@
         <a class="btn" href="/garmin/chatgpt">Connect in ChatGPT &rarr;</a>
       </div>
       <p class="quiet">One URL, open standard (MCP) &mdash; works in Codex, Gemini, and any other MCP-capable app too.</p>
+      <p class="hero-teaser"><span class="pill beta">New</span> Your car in your AI, too &mdash; <a href="/car">battery, range, climate &rarr;</a></p>
     </div>
   </div>
 
@@ -62,7 +65,7 @@
       <div class="trust">
         <div>
           <h3>Passwords: never stored &mdash; often never seen</h3>
-          <p>Where the service offers its own OAuth (WHOOP), you sign in there and this gateway never sees a password. Where it doesn&rsquo;t (Garmin), your password signs you in once and is immediately discarded. Either way, only the resulting tokens are kept &mdash; encrypted with AES-256-GCM.</p>
+          <p>Where the service offers its own OAuth (WHOOP), you sign in there and this gateway never sees a password. Where it doesn&rsquo;t (Garmin), your password signs you in once and is immediately discarded. For your car, you paste an API key from your car maker&rsquo;s app &mdash; never your account password &mdash; and you can revoke it there anytime. Either way, only tokens and keys are kept &mdash; encrypted with AES-256-GCM.</p>
         </div>
         <div>
           <h3>Standard OAuth 2.1</h3>
@@ -82,8 +85,14 @@
 
   <section id="connectors">
     <div class="wrap">
-      <h2 class="sec-h">More connectors</h2>
+      <h2 class="sec-h">Also on MissingMCP</h2>
       <div class="cards">
+        <div class="card">
+          <span class="pill beta">Beta</span>{USAGE_METER_CAR}
+          <h3>Your car</h3>
+          <p>Battery, range, locks and climate &mdash; or just &ldquo;warm the car, I&rsquo;m leaving in 10.&rdquo; &Scaron;koda today, more brands as car makers open their APIs.</p>
+          <a class="go" href="/car">Connect your car &rarr;</a>
+        </div>
         <div class="card">
           {USAGE_METER_WHOOP}
           <h3>WHOOP</h3>

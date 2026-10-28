@@ -18,6 +18,8 @@ researching connect steps for the car connector (2026-10-28, sources below).
   **grok.com/connectors → New Connector → Custom → URL → complete sign-in**. On Grok Business, an
   admin adds it first in console.x.ai → Grok Business → Connectors. Grok's handling of DCR and our
   path-scoped discovery is undocumented, so it **must be tested live** before publishing.
+  *Update 2026-10-28:* Vaclav confirmed Grok works live with `/car` (same OAuth layer), so a
+  single Garmin sign-in in Grok is the remaining check.
 - **Claude** (`templates/garmin.html` step 2 and the home page if it repeats it): the page says
   *Settings → Connectors → Add custom connector … leave OAuth Client ID/Secret empty*. Claude now
   shows *Customize → Connectors → + Add → Add custom connector*, and an OAuth client choice whose
@@ -39,7 +41,9 @@ for all three clients and can serve as the reference copy.
    `garmin.html` next to the existing ChatGPT one.
 3. Update the Claude step in `garmin.html` (menu path + "Register automatically"), and the same
    copy wherever else it's repeated (grep for "Add custom connector").
-4. Tests in the existing landing-page style: `/garmin/grok` renders, and the sitemap includes it.
+4. Home page (`home.html` + the home title/description in `app.py`): H1, title and meta read
+   "Claude, ChatGPT & Grok" like `/car`; a third hero/final CTA button → `/garmin/grok`.
+5. Tests in the existing landing-page style: `/garmin/grok` renders, and the sitemap includes it.
 
 ## Acceptance
 
