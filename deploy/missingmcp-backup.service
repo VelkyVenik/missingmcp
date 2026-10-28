@@ -2,7 +2,11 @@
 # Install: deploy/README.md → Backups.
 [Unit]
 Description=missingmcp gateway DB backup to /mnt/backup
-RequiresMountsFor=/mnt/backup
+# Wants, not RequiresMountsFor: a failed mount must still run the script, whose
+# mountpoint check then fails the unit and fires OnFailure. A Requires= on the
+# mount would only fail the start job — no failed state, no alert.
+Wants=mnt-backup.mount
+After=mnt-backup.mount
 OnFailure=missingmcp-backup-alert.service
 
 [Service]
