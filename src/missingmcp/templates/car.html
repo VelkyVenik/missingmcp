@@ -1,5 +1,216 @@
-  <section class="hero">
-    <h1>Car MCP Server</h1>
-    <p>Connect your car to Claude. Beta.</p>
-    <p><code>{PUBLIC_URL}/car/mcp</code></p>
+<!-- Connector page — follows the section skeleton established by garmin.html:
+     hero → what is this → supported brands → what your assistant can do
+     → how to connect (per AI client) → tips & tricks → limits → terms & risks
+     → under the hood → all tools. One connector for every car brand: brands are
+     listed here, chosen per account on the sign-in form. Client-neutral copy —
+     the same URL works in Claude, ChatGPT and Grok. -->
+  <div class="page-hero">
+    <div class="wrap">
+      <span class="pill beta">Beta</span>{USAGE_METER_CAR}
+      <h1>Your car, <span class="hl">in your AI assistant</span>.</h1>
+      <p>Battery, range, locks and climate &mdash; ask Claude, ChatGPT or Grok about your car, and have it warm the cabin before you leave. One connector for every supported brand, using your car maker&rsquo;s own official API.</p>
+      <div class="cta-row">
+        <a class="btn" href="#connect">Connect in 2 minutes</a>
+        <span class="quiet">Server URL: <code>{PUBLIC_URL}<wbr>/car<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/car/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button></span>
+      </div>
+    </div>
+  </div>
+
+  <section id="about">
+    <div class="wrap">
+      <h2 class="sec-h">What is this?</h2>
+      <div class="prose">
+        <p>Your car&rsquo;s app knows the battery level, whether the doors are locked and how warm the cabin is &mdash; but you have to open it and tap around. This connector lets you just ask: <em>&ldquo;Do I have enough range to get to Prague and back?&rdquo;</em>, <em>&ldquo;Did I lock the car?&rdquo;</em>, <em>&ldquo;Warm the car to 21 degrees, I&rsquo;m leaving in 15 minutes.&rdquo;</em></p>
+        <p>It&rsquo;s a hosted <strong>MCP (Model Context Protocol) server</strong> &mdash; the open standard Claude, ChatGPT, Grok and most AI apps speak. You connect it once with your own API key from your car maker&rsquo;s app.</p>
+      </div>
+    </div>
   </section>
+
+  <section id="brands">
+    <div class="wrap">
+      <h2 class="sec-h">Supported brands</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="pill beta">Beta</span>
+          <h3>Škoda</h3>
+          <p>Through the official <a href="https://public.api.connect.skoda-auto.cz/docs" target="_blank" rel="noopener noreferrer">MyŠkoda Public API</a>. Status, battery &amp; range, charging, climate, and ventilation where your car has it. Get a key in the <strong>MyŠkoda</strong> app: Profil &rarr; Chytrá domácnost &rarr; Vytvořit klíč.</p>
+        </div>
+      </div>
+      <p class="quiet">Other brands follow as soon as they offer owners an official API. Volkswagen, Audi, Cupra and Seat don&rsquo;t yet.</p>
+    </div>
+  </section>
+
+  <section id="data">
+    <div class="wrap">
+      <h2 class="sec-h">What your assistant can do</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Status</h3>
+          <p>Locks, doors, windows, lights, odometer &mdash; each with the time the car last reported it.</p>
+        </div>
+        <div class="card">
+          <h3>Battery &amp; charging</h3>
+          <p>Battery level, range, charging state; start or stop charging and set the charge limit.</p>
+        </div>
+        <div class="card">
+          <h3>Climate</h3>
+          <p>Pre-heat or pre-cool the cabin to a temperature you pick, and stop it again. Ventilation too, on cars that have it.</p>
+        </div>
+        <div class="card">
+          <h3>Location</h3>
+          <p>Where the car is parked &mdash; only when you ask. Status answers never include it.</p>
+        </div>
+      </div>
+      <p class="quiet">Your assistant only sees the actions your car supports, and asks before running any of them.</p>
+    </div>
+  </section>
+
+  <section id="connect">
+    <div class="wrap">
+      <h2 class="sec-h">How to connect</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Step 1</span>
+          <h3>Get your key</h3>
+          <p>In the <strong>MyŠkoda</strong> phone app: Profil &rarr; Chytrá domácnost &rarr; <strong>Vytvořit klíč</strong> &rarr; Kopírovat klíč. Note the <strong>VIN</strong> on the same screen. Keys can only be created in the app.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 2</span>
+          <h3>Add the server URL</h3>
+          <p><code>{PUBLIC_URL}<wbr>/car<wbr>/mcp</code><button class="copy" type="button" data-copy="{PUBLIC_URL}/car/mcp" title="Copy to clipboard" aria-label="Copy server URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="done">&#10003;</span></button> &mdash; see your assistant below.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 3</span>
+          <h3>Fill in the form</h3>
+          <p>A sign-in page opens: pick your brand, enter your email, paste the key and the VIN. We check the key with your car maker once and you&rsquo;re connected.</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Step 4</span>
+          <h3>Start asking</h3>
+          <p>Try &ldquo;How much range do I have?&rdquo; or &ldquo;Warm the car to 21 °C.&rdquo;</p>
+        </div>
+      </div>
+
+      <h3 id="clients">Adding the URL in your assistant</h3>
+      <div class="cards">
+        <div class="card">
+          <h3>Claude</h3>
+          <p>Customize &rarr; Connectors &rarr; <strong>+ Add</strong> &rarr; <strong>Add custom connector</strong>, name it &ldquo;Car&rdquo; and paste the URL. For the OAuth client pick <strong>Register automatically</strong>. On Team or Enterprise an owner adds it once under Organization settings &rarr; Connectors, then everyone clicks Connect and signs in with their own car. Add it on web or desktop; it syncs to the phone apps.</p>
+        </div>
+        <div class="card">
+          <h3>ChatGPT</h3>
+          <p>On the web: <strong>chatgpt.com/plugins</strong> &rarr; <strong>+</strong> &rarr; <strong>Add custom MCP server</strong>, name it &ldquo;Car&rdquo;, choose a public endpoint, paste the URL and pick <strong>OAuth</strong>, then <strong>Create as a plugin</strong>. Availability depends on your plan; ChatGPT asks before every action.</p>
+        </div>
+        <div class="card">
+          <h3>Grok</h3>
+          <p>On <strong>grok.com/connectors</strong> &rarr; <strong>New Connector</strong> &rarr; <strong>Custom</strong>, paste the URL and complete the sign-in. On Grok Business an admin adds it first in the xAI console under Connectors.</p>
+        </div>
+      </div>
+      <div class="note">
+        <strong>Good to know:</strong> AI apps move these menus around; if a path above doesn&rsquo;t match, look for <em>Connectors</em>, <em>Plugins</em> or <em>Apps</em> in settings. The URL is the same everywhere.
+      </div>
+
+      <div class="note warn">
+        <strong>Before you connect:</strong> your API key and VIN are stored <strong>encrypted</strong> (AES-256-GCM) so the gateway can reach your car; car data passes through on demand and is not stored. You can delete the key in the MyŠkoda app anytime, which cuts access immediately. Only use this gateway if you trust the operator: this instance is run by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>. Details in <a href="/#security">Security &amp; trust</a>.
+      </div>
+      <p class="beer"><span>Free to use &mdash; if it earns a spot in your routine, <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">buy me a beer</a> to keep it running.</span></p>
+    </div>
+  </section>
+
+  <section id="tips">
+    <div class="wrap">
+      <h2 class="sec-h">Tips &amp; tricks</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Before you leave</h3>
+          <p>&ldquo;I&rsquo;m leaving in 15 minutes &mdash; warm the car to 21 °C, and tell me if the battery is enough for 120 km.&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Peace of mind</h3>
+          <p>&ldquo;Is the car locked, and are all the windows closed?&rdquo;</p>
+        </div>
+        <div class="card">
+          <span class="step-n">Prompt</span>
+          <h3>Charging plan</h3>
+          <p>&ldquo;Set the charge limit to 80 % for everyday driving and remind me to raise it before the weekend trip.&rdquo;</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="limits">
+    <div class="wrap">
+      <h2 class="sec-h">Limits</h2>
+      <div class="prose">
+        <ul>
+          <li><strong>20 requests per hour per car</strong> &mdash; set by Škoda and shared with any other app using a key for the same car. Every answer shows how many are left; status is cached for a minute.</li>
+          <li><strong>A sleeping car takes about 2 minutes</strong> to react to a command. Your assistant sends it and doesn&rsquo;t keep checking &mdash; ask again in a moment.</li>
+          <li><strong>Keys last about 6 months.</strong> You&rsquo;ll get a heads-up two weeks before; then create a new key and reconnect.</li>
+          <li>No locking, unlocking or honking &mdash; Škoda&rsquo;s API doesn&rsquo;t offer them. Auxiliary heating isn&rsquo;t supported yet.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="terms">
+    <div class="wrap">
+      <h2 class="sec-h">Terms &amp; risks</h2>
+      <div class="prose">
+        <p>Škoda&rsquo;s Public API is meant for <strong>personal use</strong> by the car&rsquo;s owner. This connector is a free, unofficial <strong>beta</strong>: you bring your own key, and you can revoke it in the MyŠkoda app anytime. Commands reach a real car &mdash; your assistant asks before running them, but you stay responsible for what you approve.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="under-the-hood">
+    <div class="wrap">
+      <h2 class="sec-h">Under the hood</h2>
+      <div class="prose">
+        <p>The connector is built into the gateway itself, on each car maker&rsquo;s official API &mdash; for Škoda the <a href="https://public.api.connect.skoda-auto.cz/docs" target="_blank" rel="noopener noreferrer">MyŠkoda Public API</a>. No reverse engineering, no passwords: just the key you created.</p>
+        <p>Everything is open source in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a> &mdash; audit it, or self-host the whole thing.</p>
+        <p>Škoda&reg; is a trademark of ŠKODA AUTO a.s. MissingMCP is an independent project and is not affiliated with, endorsed by, or sponsored by any car maker.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap">
+      <h2 class="sec-h">All tools</h2>
+<!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_car_tools.py -->
+      <p class="lede">All <strong>10 tools</strong> this connector exposes. Actions show up only when your car supports them.</p>
+      <div class="tools">
+        <details open>
+          <summary>Read <span class="count">&middot; 3 tools</span></summary>
+          <dl>
+            <dt><code>get_vehicle_capabilities</code></dt><dd>What this car supports (available tools), its brand, key expiry and the remaining request budget. Free: makes no request to the car.</dd>
+            <dt><code>get_vehicle_status</code></dt><dd>Current state: locks, doors, windows, battery %, range, charging, climate, ventilation, odometer, each with the time the car reported it. Counts against the car&#x27;s 20 requests/hour; cached for 60 s. No location — see get_vehicle_location.</dd>
+            <dt><code>get_vehicle_location</code></dt><dd>Where the car is parked: address and GPS coordinates. Only call when the user asks where the car is.</dd>
+          </dl>
+        </details>
+        <details open>
+          <summary>Actions <span class="count">&middot; 7 tools</span></summary>
+          <dl>
+            <dt><code>start_climate</code></dt><dd>Start climate control (pre-heat or pre-cool the cabin). A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>stop_climate</code></dt><dd>Stop climate control. A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>start_ventilation</code></dt><dd>Start cabin ventilation. A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>stop_ventilation</code></dt><dd>Stop cabin ventilation. A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>start_charging</code></dt><dd>Start charging (the car must be plugged in). A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>stop_charging</code></dt><dd>Stop charging. A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+            <dt><code>set_charge_limit</code></dt><dd>Set the target battery level charging stops at. A sleeping car can take ~2 minutes to react; don&#x27;t poll — check get_vehicle_status later if the user asks.</dd>
+          </dl>
+        </details>
+      </div>
+<!-- GENERATED:TOOLS:END -->
+    </div>
+  </section>
+
+  <div class="final">
+    <div class="wrap">
+      <div class="inner">
+        <h2>Your car has the <span class="hl">answers</span>.</h2>
+        <p>Two minutes from now you can ask for them &mdash; free, open source, revocable anytime.</p>
+        <a class="btn" href="#connect">Connect your car</a>
+      </div>
+    </div>
+  </div>

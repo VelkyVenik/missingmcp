@@ -160,6 +160,17 @@ def test_get_and_delete_are_405(fake_skoda):
     assert client.delete("/car/mcp", headers=h).status_code == 405
 
 
-def test_landing_renders(fake_skoda):
+def test_landing_lists_every_tool_brand_and_client(fake_skoda):
+    from missingmcp.adapters.car.mcp import TOOLS
     r = _client(fake_skoda).get("/car")
     assert r.status_code == 200
+    for name, *_ in TOOLS:
+        assert f"<code>{name}</code>" in r.text
+    for needle in ("Škoda", "Claude", "ChatGPT", "Grok", "https://gw.example.com/car/mcp",
+                   "Beta"):
+        assert needle in r.text
+    assert "{USAGE_METER_CAR}" not in r.text      # placeholder filled per request
+
+
+def test_home_page_does_not_promote_car(fake_skoda):
+    assert "/car" not in _client(fake_skoda).get("/").text
