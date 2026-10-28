@@ -60,6 +60,12 @@ def test_whoop_settings_and_base_override():
     assert c.whoop_api_base == "http://127.0.0.1:9999"   # trailing slash stripped
 
 
+def test_car_skoda_api_base_default_and_override():
+    assert load_config(BASE).car_skoda_api_base == "https://public.api.connect.skoda-auto.cz"
+    c = load_config({**BASE, "CAR_SKODA_API_BASE": "http://127.0.0.1:9999/"})
+    assert c.car_skoda_api_base == "http://127.0.0.1:9999"   # trailing slash stripped
+
+
 def test_garmin_stateless_http_defaults_on():
     assert load_config(BASE).garmin_stateless_http is True
 
