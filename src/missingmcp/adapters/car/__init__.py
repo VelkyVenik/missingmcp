@@ -9,7 +9,7 @@ from . import bmw, skoda
 from .common import CarUpstreamError
 from .mcp import CarLocalForward, _parse_ts
 
-BRANDS = {"skoda": "Škoda", "bmw": "BMW / Mini"}
+BRANDS = {"skoda": "Škoda", "bmw": "BMW Group"}
 
 # CarUpstreamError.kind → (form message, log reason)
 _LOGIN_ERRORS = {
@@ -42,8 +42,8 @@ _BMW_PENDING = ("BMW hasn't confirmed yet — approve the code on BMW's page, th
 class CarAdapter:
     """Form login (brand + email + the owner's own API key + VIN) and local
     forward (mcp.py). One connector for every car brand; the account's brand
-    lives in its blob. Brands: Škoda (MyŠkoda Public API) and BMW / Mini (BMW
-    CarData, read-only).
+    lives in its blob. Brands: Škoda (MyŠkoda Public API) and the BMW Group —
+    BMW, Mini, Rolls-Royce, Toyota Supra, BMW Motorrad (BMW CarData, read-only).
 
     Škoda: start_login makes the sign-in's only upstream call — the car's budget
     is 20 requests/hour — and captures the key expiry + supported operations into
@@ -63,8 +63,8 @@ class CarAdapter:
     # it, so no "| MissingMCP"); the search phrase "MCP server" lives in the description.
     landing_title = "Control your car from Claude, ChatGPT & Grok"
     landing_description = ("Hosted car MCP server: ask Claude, ChatGPT or Grok about "
-                           "battery, range and locks, and pre-heat the cabin. Škoda, BMW "
-                           "and Mini, your own API key, free beta.")
+                           "battery, range and locks, and pre-heat the cabin. Škoda, BMW, "
+                           "Mini and more, your own API key, free beta.")
     og_image = "og-car.png"
 
     def __init__(self, config):

@@ -48,3 +48,14 @@ CarData customer API. Facts: [assets/08-other-brands-owner-api.md §1](../assets
   sharing; the 429 shape is still unseen. does a second device sign-in on the same Client ID
   keep the Grok bot's tokens alive; real quota behaviour (429 shape); which container keys the
   i3 actually returns (doors, climate).
+
+## BMW Group widening (2026-10-28)
+
+- The CarData portal lists BMW ConnectedDrive, Mini Connected, Toyota Supra Connect,
+  Rolls-Royce Connected and My BMW Motorrad: one API, one BMW Group login. The `bmw` brand now
+  covers them all (picker, form, site), labelled **tested on BMW only**; owners of the others
+  are asked to report back to the operator.
+- Container v2 (`missingmcp-v2`, new name because keys are fixed at creation and reuse goes
+  by name): adds fuel level / litres / range, door lock state and windows, all names from BMW's
+  Customer Telematics Data Catalogue (bmw.de/de-de/mybmw/public/cardata-telematic-catalogue/).
+  Accounts on the v1 container keep working; a reconnect moves them to v2.

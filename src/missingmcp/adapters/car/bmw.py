@@ -1,5 +1,6 @@
-"""The `bmw` brand of the car connector (BMW + Mini): a client for the official
-BMW CarData customer API. Spec: docs/superpowers/specs/2026-10-28-car-bmw-brand-design.md.
+"""The `bmw` brand of the car connector — every BMW Group make on CarData (BMW,
+Mini, Rolls-Royce, Toyota Supra, BMW Motorrad; tested on BMW only): a client for
+the official BMW CarData customer API. Spec: docs/superpowers/specs/2026-10-28-car-bmw-brand-design.md.
 
 Contract: BMW's own OpenAPI files (portal assets, copied to
 .scratch/car-connector/assets/bmw-cardata-*.json). Auth is a user-owned Client ID
@@ -26,15 +27,18 @@ from ..base import SessionExpired
 from .common import CarUpstreamError
 
 SCOPE = "authenticate_user openid cardata:api:read"
-CONTAINER_NAME = "missingmcp"
+# Versioned: a container's keys are fixed at creation and reuse goes by name, so
+# a new key set needs a new name (v2 = fuel, locks and windows for non-EVs).
+CONTAINER_NAME = "missingmcp-v2"
 DAILY_LIMIT = 50
 REFRESH_MARGIN_S = 120
 _CLIENT_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
-# Telematic keys the missingmcp container asks for (BMW data catalogue names; a
-# key the car doesn't report is simply absent from the reply).
+# Telematic keys the missingmcp container asks for — names from BMW's Customer
+# Telematics Data Catalogue (bmw.de/de-de/mybmw/public/cardata-telematic-catalogue/).
+# A key the car doesn't have comes back absent or null.
 K_SOC = "vehicle.drivetrain.batteryManagement.header"
 K_SOC_DISPLAYED = "vehicle.powertrain.electric.battery.stateOfCharge.displayed"
 K_SOC_TARGET = "vehicle.powertrain.electric.battery.stateOfCharge.target"
@@ -55,10 +59,19 @@ DOOR_KEYS = ("vehicle.cabin.door.row1.driver.isOpen",
              "vehicle.cabin.door.row2.passenger.isOpen")
 K_TRUNK = "vehicle.body.trunk.isOpen"
 K_BONNET = "vehicle.body.hood.isOpen"
+K_FUEL_LEVEL = "vehicle.drivetrain.fuelSystem.level"                 # %
+K_FUEL_LITERS = "vehicle.drivetrain.fuelSystem.remainingFuel"         # l
+K_FUEL_RANGE = "vehicle.cabin.infotainment.navigation.remainingRange"  # km on the tank
+K_LOCK = "vehicle.cabin.door.lock.status"    # SECURED | LOCKED | SELECTIVE-LOCKED | UNLOCKED
+WINDOW_KEYS = ("vehicle.cabin.window.row1.driver.status",
+               "vehicle.cabin.window.row1.passenger.status",
+               "vehicle.cabin.window.row2.driver.status",
+               "vehicle.cabin.window.row2.passenger.status")   # CLOSED | INTERMEDIATE | OPEN
 CONTAINER_KEYS = sorted({K_SOC, K_SOC_DISPLAYED, K_SOC_TARGET, K_RANGE, K_RANGE_KOMBI,
                          K_RANGE_LAST, K_ODOMETER, K_CHARGING, K_CHARGING_LEFT, K_PLUG,
                          K_CLIMATE, K_PRECONDITIONING, K_LAT, K_LON, *DOOR_KEYS, K_TRUNK,
-                         K_BONNET})
+                         K_BONNET, K_FUEL_LEVEL, K_FUEL_LITERS, K_FUEL_RANGE, K_LOCK,
+                         *WINDOW_KEYS})
 
 DATA_AGE_NOTE = ("BMW reports what the car last sent; it never wakes the car, so values "
                  "may be minutes to hours old — see each captured_at.")
@@ -333,15 +346,40 @@ def _open_closed(flag: bool | None) -> str | None:
 
 def normalize_status(td: dict) -> dict:
     """Brand-neutral status (the Škoda shape where CarData has the value). Never
-    carries location — that's get_vehicle_location's alone."""
+    carries location — that's get_vehicle_location's alone. range_km is the
+    electric range on a car that has one, else the total; a car with a tank gets
+    a fuel block, and a plug-in hybrid (or i3 REx) also total_range_km."""
     out: dict = {}
     soc = td.get(K_SOC) or td.get(K_SOC_DISPLAYED)
     if _num(soc) is not None:
         out["battery_percent"] = _num(soc)
-    rng = next((td[k] for k in (K_RANGE, K_RANGE_KOMBI, K_RANGE_LAST)
-                if _num(td.get(k)) is not None), None)
-    if rng is not None:
-        out["range_km"] = _num(rng)
+    electric = next((td[k] for k in (K_RANGE, K_RANGE_KOMBI) if _num(td.get(k)) is not None),
+                    None)
+    total = _num(td.get(K_RANGE_LAST))
+    if electric is not None:
+        out["range_km"] = _num(electric)
+    elif total is not None:
+        out["range_km"] = total
+    fuel = {"level_percent": _num(td.get(K_FUEL_LEVEL)),
+            "liters": _num(td.get(K_FUEL_LITERS)),
+            "range_km": _num(td.get(K_FUEL_RANGE))}
+    if any(v is not None for v in fuel.values()):
+        fuel["captured_at"] = _at(td.get(K_FUEL_LEVEL), td.get(K_FUEL_LITERS),
+                                  td.get(K_FUEL_RANGE))
+        out["fuel"] = fuel
+        # The i3 REx reported a "total" (80 km) below its electric range (151 km),
+        # live 2026-10-28: only a total that adds something is worth showing.
+        if electric is not None and total is not None and total > _num(electric):
+            out["total_range_km"] = total
+    lock = _text(td.get(K_LOCK))
+    if lock and lock not in ("invalid", "unknown"):
+        out["locks"] = {"state": lock, "locked": lock in ("secured", "locked"),
+                        "captured_at": _at(td.get(K_LOCK))}
+    windows = [_text(td.get(k)) for k in WINDOW_KEYS]
+    windows = [w for w in windows if w in ("open", "intermediate", "closed")]
+    if windows:
+        out["windows"] = ("open" if "open" in windows else
+                          "partly_open" if "intermediate" in windows else "closed")
     if _num(td.get(K_ODOMETER)) is not None:
         out["odometer_km"] = _num(td[K_ODOMETER])
     ch, plug = td.get(K_CHARGING), td.get(K_PLUG)
@@ -358,8 +396,9 @@ def normalize_status(td: dict) -> dict:
         state = _open_closed(_flag(td.get(key)))
         if state:
             out[name] = state
-    if known or "trunk" in out or "bonnet" in out:
-        out["doors_captured_at"] = _at(*(td.get(k) for k in (*DOOR_KEYS, K_TRUNK, K_BONNET)))
+    if known or "trunk" in out or "bonnet" in out or "windows" in out:
+        out["doors_captured_at"] = _at(*(td.get(k) for k in
+                                         (*DOOR_KEYS, K_TRUNK, K_BONNET, *WINDOW_KEYS)))
     climate = td.get(K_CLIMATE) or td.get(K_PRECONDITIONING)
     if _text(climate):
         out["climate"] = {"state": _text(climate), "captured_at": _at(climate)}

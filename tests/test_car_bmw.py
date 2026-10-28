@@ -140,7 +140,7 @@ def test_sign_in_shows_code_then_finishes_after_approval(fake_bmw, tmp_path):
     assert d["operations"] == [] and d["container_id"] == "C0001"
     assert d["refresh_token"] == "rt-1"
     # the container asks for our key set; PKCE rode along on the device + token calls
-    assert fake_bmw.containers[0]["name"] == "missingmcp"
+    assert fake_bmw.containers[0]["name"] == bmw.CONTAINER_NAME
     assert set(fake_bmw.containers[0]["technicalDescriptors"]) == set(bmw.CONTAINER_KEYS)
     dev = next(b for _m, p, _h, b in fake_bmw.calls if p == "/device/code")
     assert b"code_challenge_method=S256" in dev
@@ -150,8 +150,9 @@ def test_sign_in_shows_code_then_finishes_after_approval(fake_bmw, tmp_path):
 
 def test_existing_container_is_reused(fake_bmw, tmp_path):
     fake_bmw.containers += [
-        {"name": "missingmcp", "purpose": "x", "containerId": "C0041", "state": "DELETED"},
-        {"name": "missingmcp", "purpose": "x", "containerId": "C0042", "state": "ACTIVE"}]
+        {"name": "missingmcp", "purpose": "x", "containerId": "C0040", "state": "ACTIVE"},
+        {"name": bmw.CONTAINER_NAME, "purpose": "x", "containerId": "C0041", "state": "DELETED"},
+        {"name": bmw.CONTAINER_NAME, "purpose": "x", "containerId": "C0042", "state": "ACTIVE"}]
     client, app = _client(fake_bmw, tmp_path)
     _connect(client, fake_bmw)
     assert _blob(app)["container_id"] == "C0042"
@@ -366,7 +367,7 @@ def test_concurrent_status_and_location_cost_one_read(fake_bmw):
     from missingmcp.adapters.car.mcp import CarLocalForward
     cfg = _cfg(fake_bmw)
     conn = store.init_db(":memory:")
-    fake_bmw.containers.append({"name": "missingmcp", "containerId": "C0001", "state": "ACTIVE"})
+    fake_bmw.containers.append({"name": bmw.CONTAINER_NAME, "containerId": "C0001", "state": "ACTIVE"})
     d = {**_stale_blob(fake_bmw), "access_expires_at": int(time.time()) + 3600}
     store.upsert_account(conn, "car", KEY, json.dumps(d), cfg.gateway_secret)
     fwd = CarLocalForward(cfg)
@@ -406,3 +407,42 @@ def test_queued_request_never_takes_over_a_reconnected_car(fake_bmw):
         return await asyncio.gather(first, second, return_exceptions=True)
     results = asyncio.run(race())
     assert all(isinstance(r, SessionExpired) for r in results), results
+
+
+def test_combustion_car_gets_fuel_locks_and_windows():
+    t = "2026-10-28T08:15:00.000Z"
+    cell = lambda v: {"value": v, "unit": None, "timestamp": t}  # noqa: E731
+    status = bmw.normalize_status({
+        bmw.K_RANGE_LAST: cell("540"), bmw.K_FUEL_LEVEL: cell("62"),
+        bmw.K_FUEL_LITERS: cell("37.5"), bmw.K_FUEL_RANGE: cell("540"),
+        bmw.K_LOCK: cell("SECURED"), bmw.K_ODOMETER: cell("12000"),
+        bmw.WINDOW_KEYS[0]: cell("CLOSED"), bmw.WINDOW_KEYS[1]: cell("INTERMEDIATE")})
+    assert status["range_km"] == 540 and "battery_percent" not in status
+    assert status["fuel"] == {"level_percent": 62, "liters": 37.5, "range_km": 540,
+                              "captured_at": t}
+    assert "total_range_km" not in status                 # no electric range to add to
+    assert status["locks"] == {"state": "secured", "locked": True, "captured_at": t}
+    assert status["windows"] == "partly_open"
+
+
+def test_plug_in_hybrid_reports_electric_and_total_range():
+    t = "2026-10-28T08:15:00.000Z"
+    cell = lambda v: {"value": v, "unit": None, "timestamp": t}  # noqa: E731
+    status = bmw.normalize_status({
+        bmw.K_RANGE: cell("48"), bmw.K_RANGE_LAST: cell("610"),
+        bmw.K_FUEL_LEVEL: cell("80"), bmw.K_LOCK: cell("UNLOCKED")})
+    assert status["range_km"] == 48 and status["total_range_km"] == 610
+    assert status["locks"]["locked"] is False
+
+
+def test_container_keys_are_catalogue_names():
+    assert all(k.startswith("vehicle.") for k in bmw.CONTAINER_KEYS)
+    assert {bmw.K_FUEL_LEVEL, bmw.K_LOCK, *bmw.WINDOW_KEYS} <= set(bmw.CONTAINER_KEYS)
+
+
+def test_total_range_below_electric_is_dropped():
+    t = "2026-10-28T08:15:00.000Z"
+    cell = lambda v: {"value": v, "unit": None, "timestamp": t}  # noqa: E731
+    status = bmw.normalize_status({bmw.K_RANGE: cell("151"), bmw.K_RANGE_LAST: cell("80"),
+                                   bmw.K_FUEL_LEVEL: cell("40")})
+    assert status["range_km"] == 151 and "total_range_km" not in status
