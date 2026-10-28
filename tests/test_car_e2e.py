@@ -224,6 +224,21 @@ def test_landing_lists_every_tool_brand_and_client(fake_skoda):
     assert "{USAGE_METER_CAR}" not in r.text      # placeholder filled per request
 
 
+def test_form_uses_no_data_uris_blocked_by_csp(fake_skoda):
+    """PR #66 review: CSP default-src 'self' blocks data: images, so the styled
+    select's chevron must not be one."""
+    client = _client(fake_skoda)
+    reg = client.post("/car/oauth/register",
+                      json={"redirect_uris": ["https://claude.ai/cb"]}).json()
+    _, challenge = _pkce()
+    r = client.get("/car/oauth/authorize", params={
+        "client_id": reg["client_id"], "redirect_uri": "https://claude.ai/cb", "state": "s",
+        "code_challenge": challenge, "code_challenge_method": "S256"})
+    csp = r.headers["content-security-policy"]
+    assert "data:" not in csp
+    assert "url(\"data:" not in r.text and "url('data:" not in r.text and "url(data:" not in r.text
+
+
 def test_myskoda_screenshots_served_and_linked(fake_skoda):
     client = _client(fake_skoda)
     r = client.get("/static/myskoda-smart-home.png")
