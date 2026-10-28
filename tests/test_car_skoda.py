@@ -134,6 +134,51 @@ def test_sync_error_mapping(fake_skoda):
     assert e.value.kind == "invalid_key"
 
 
+# --- brand-neutral shapes -------------------------------------------------------
+
+from conftest import _skoda_vehicle
+from missingmcp.adapters.car.skoda import normalize_location, normalize_status
+
+_SENTINELS = ("PLATE-SENTINEL", "NAME-SENTINEL", "ADDR-SENTINEL", "RENDER-SENTINEL",
+              "49.123456", "16.654321", SKODA_VIN)
+
+
+def test_normalize_status_maps_full_read():
+    v = _skoda_vehicle()
+    s = normalize_status(v, [{"type": "ACTIVE_VENTILATION_UNSUPPORTED", "description": ""}],
+                         SKODA_VIN)
+    assert s["vehicle"] == {"brand": "skoda", "vin_tail": SKODA_VIN[-6:]}
+    assert s["locks"]["locked"] is True and s["locks"]["doors_locked"] is True
+    assert s["doors"] == "closed" and s["windows"] == "closed" and s["lights"] == "off"
+    assert s["trunk"] == "closed" and s["bonnet"] == "closed"
+    assert s["battery_percent"] == 75 and s["range_km"] == 296
+    assert s["charging"] == {"state": "connect_cable", "plug": "disconnected",
+                             "power_kw": 0.0, "limit_percent": 80, "minutes_to_full": 0,
+                             "captured_at": "2026-10-28T08:35:36Z"}
+    assert s["climate"]["state"] == "off" and s["climate"]["target_c"] == 22.0
+    assert s["climate"]["window_heating"] == {"front": "off", "rear": "off"}
+    assert s["odometer_km"] == 8279
+    assert s["unsupported"] == ["ventilation"]
+    assert "ventilation" not in {k for k in s if k != "unsupported"}
+
+
+def test_normalize_status_never_leaks_identity_or_location():
+    dumped = json.dumps(normalize_status(_skoda_vehicle(), [], SKODA_VIN))
+    for sentinel in _SENTINELS:
+        assert sentinel not in dumped
+
+
+def test_normalize_status_tolerates_missing_sections():
+    s = normalize_status({"odometer": {"mileageInKm": 5}}, [], SKODA_VIN)
+    assert s["odometer_km"] == 5 and "charging" not in s and "climate" not in s
+
+
+def test_normalize_location():
+    loc = normalize_location(_skoda_vehicle())
+    assert loc == {"parked": True, "address": "ADDR-SENTINEL", "lat": 49.123456,
+                   "lon": 16.654321, "captured_at": None}
+
+
 def test_connect_error_is_upstream_error():
     c = SkodaClient("http://127.0.0.1:9", timeout_s=0.5)
     with pytest.raises(CarUpstreamError) as e:

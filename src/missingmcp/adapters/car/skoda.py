@@ -112,6 +112,107 @@ def _reply(r: httpx.Response) -> Reply:
     return Reply(data, _budget(r), r.headers.get("X-API-Key-Expires-At"))
 
 
+# --- brand-neutral shapes -----------------------------------------------------
+# Škoda's enum values are passed through lower-cased (CONNECT_CABLE →
+# "connect_cable"): mechanical, no invented semantics. Identity and location
+# fields (name, licensePlate, renderUrl, parkingPosition, the full VIN) never
+# enter the status shape — location has its own tool.
+
+# errors[] type → neutral section name reported under "unsupported"
+_UNSUPPORTED = {
+    "STATUS_UNSUPPORTED": "status",
+    "FUEL_STATUS_UNSUPPORTED": "fuel",
+    "ODOMETER_UNSUPPORTED": "odometer",
+    "PARKING_POSITION_UNSUPPORTED": "location",
+    "AIR_CONDITIONING_UNSUPPORTED": "climate",
+    "AUXILIARY_HEATING_UNSUPPORTED": "auxiliary_heating",
+    "ACTIVE_VENTILATION_UNSUPPORTED": "ventilation",
+    "CHARGING_UNSUPPORTED": "charging",
+    "CHARGING_PROFILES_UNSUPPORTED": "charging_profiles",
+}
+
+
+def _low(value):
+    return value.lower() if isinstance(value, str) else value
+
+
+def _yes(value) -> bool | None:
+    return {"YES": True, "NO": False}.get(value)
+
+
+def normalize_status(vehicle: dict, errors: list, vin: str) -> dict:
+    unsupported = [_UNSUPPORTED[e.get("type")] for e in errors or []
+                   if e.get("type") in _UNSUPPORTED]
+    out: dict = {"vehicle": {"brand": "skoda", "vin_tail": normalize_vin(vin)[-6:]}}
+
+    st = vehicle.get("status") if "status" not in unsupported else None
+    if st:
+        overall, detail = st.get("overall", {}), st.get("detail", {})
+        out["locks"] = {"locked": _yes(overall.get("locked")),
+                        "doors_locked": _yes(overall.get("doorsLocked")),
+                        "captured_at": st.get("carCapturedTimestamp")}
+        for key, src in (("doors", overall), ("windows", overall), ("lights", overall),
+                         ("trunk", detail), ("bonnet", detail)):
+            if key in src:
+                out[key] = _low(src[key])
+
+    ch = vehicle.get("charging") if "charging" not in unsupported else None
+    if ch:
+        status, settings = ch.get("status", {}), ch.get("settings", {})
+        battery = status.get("battery", {})
+        if "stateOfChargeInPercent" in battery:
+            out["battery_percent"] = battery["stateOfChargeInPercent"]
+        if "remainingCruisingRangeInMeters" in battery:
+            out["range_km"] = round(battery["remainingCruisingRangeInMeters"] / 1000)
+        out["charging"] = {"state": _low(status.get("state")),
+                           "plug": _low(status.get("plugConnectionState")),
+                           "power_kw": status.get("chargePowerInKw"),
+                           "limit_percent": settings.get("targetStateOfChargeInPercent"),
+                           "minutes_to_full": status.get("remainingTimeToFullyChargedInMinutes"),
+                           "captured_at": ch.get("carCapturedTimestamp")}
+
+    ac = vehicle.get("airConditioning") if "climate" not in unsupported else None
+    if ac:
+        climate = {"state": _low(ac.get("state")),
+                   "target_c": (ac.get("targetTemperature") or {}).get("value"),
+                   "captured_at": ac.get("carCapturedTimestamp")}
+        wh = ac.get("windowHeating")
+        if wh:
+            climate["window_heating"] = {"front": _low(wh.get("front")),
+                                         "rear": _low(wh.get("rear"))}
+        if ac.get("estimatedReachOfTargetTemperatureAt"):
+            climate["target_reached_at"] = ac["estimatedReachOfTargetTemperatureAt"]
+        out["climate"] = climate
+
+    vent = vehicle.get("activeVentilation") if "ventilation" not in unsupported else None
+    if vent:
+        out["ventilation"] = {"state": _low(vent.get("state")),
+                              "captured_at": vent.get("carCapturedTimestamp")}
+
+    odo = vehicle.get("odometer") if "odometer" not in unsupported else None
+    if odo and "mileageInKm" in odo:
+        out["odometer_km"] = odo["mileageInKm"]
+
+    if unsupported:
+        out["unsupported"] = unsupported
+    return out
+
+
+def normalize_location(vehicle: dict) -> dict:
+    pos = vehicle.get("parkingPosition") or {}
+    gps = pos.get("gpsCoordinates") or {}
+    return {"parked": pos.get("state") == "PARKED" if pos.get("state") else None,
+            "address": pos.get("formattedAddress"),
+            "lat": gps.get("latitude"), "lon": gps.get("longitude"),
+            "captured_at": pos.get("carCapturedTimestamp")}
+
+
+def operations(vehicle: dict) -> list[str]:
+    """The car's supported operationIds from an `include=operations` read."""
+    return [o["name"] for o in vehicle.get("operations") or [] if isinstance(o, dict)
+            and isinstance(o.get("name"), str)]
+
+
 class SkodaClient:
     def __init__(self, base_url: str, timeout_s: float = 15.0):
         self.base_url = base_url.rstrip("/")
