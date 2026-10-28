@@ -97,9 +97,11 @@ upstream OAuth).
   is stored encrypted and can be revoked in the app any time).
 - **`login_hint(form)`** returns the typed email (for the `login-start` log line, hashed as usual).
 - **`start_login(form)`** does the **only upstream call** of a sign-in:
-  `GET /api/v1/vehicles/{vin}?include=info,operations` with the key. It costs 1 of the 20/h.
+  `GET /api/v1/vehicles/{vin}?include=operations` with the key. It costs 1 of the 20/h.
   - 200 → `LoginOk(account_key=normalize_account_key(email), blob=…)`. The blob captures
-    `expires_at` (from `X-API-Key-Expires-At`), `operations[]` and the model name from `info`.
+    `expires_at` (from `X-API-Key-Expires-At`) and `operations[]`. (`info` holds only the
+    user-defined name, plate and render URL. The API has no model field, so `info` isn't
+    requested.)
   - 401 → `LoginError("That API key isn't valid or has expired — create a new one in MyŠkoda.")`
   - 403 → `LoginError("This key doesn't cover that VIN — check the VIN, or create the key for this car.")`
   - 429 → `LoginError("Škoda's limit of 20 requests/hour for this car is used up — try again in N min.")`
@@ -108,7 +110,7 @@ upstream OAuth).
   - Form validation (bad email, VIN not 17 chars, empty key) fails before the network call.
 - **`verify(blob)`** makes **no network call**. It decodes the blob, checks its shape (brand,
   key, VIN, `expires_at` present and not in the past) and returns a display name for logging
-  (brand + model, e.g. "Škoda Elroq"). The upstream check has already happened in `start_login`,
+  (`"Škoda"`; the user-defined car name stays out of logs). The upstream check has already happened in `start_login`,
   in the same authorize request; a second GET would spend another unit of a 20/h budget for
   nothing. Verify-then-persist still holds: `_finish` runs only after both succeeded.
 - Both calls go through `_bounded` as every adapter sign-in must (they're synchronous httpx).
@@ -121,8 +123,7 @@ extension:
 
 ```json
 {"v": 1, "brand": "skoda", "api_key": "…", "vin": "TMB…", "expires_at": "2027-04-26T09:11:23Z",
- "operations": ["startAirConditioning", "stopAirConditioning", "startCharging", "…"],
- "model": "Elroq"}
+ "operations": ["startAirConditioning", "stopAirConditioning", "startCharging", "…"]}
 ```
 
 The API key and VIN are **never logged** and never materialized to files. Logs carry at most the
@@ -136,7 +137,7 @@ The API key and VIN are **never logged** and never materialized to files. Logs c
 - **Per brand dispatch:** `blob["brand"]` selects the brand client (`adapters/car/skoda.py`).
   Tools call a small brand-client interface: `read(sections)`, `action(name, body)`. A second
   brand adds a module that implements it. A shared base module is extracted only then.
-- **Rotation:** none. The only blob write after sign-in is refreshing `operations[]` (and `model`)
+- **Rotation:** none. The only blob write after sign-in is refreshing `operations[]`
   when a status read returns a different list. It is persisted via the store in the same request.
 - **401 from the upstream on any tool call** (expired, revoked, or deleted key) →
   `SessionExpired` → the proxy's existing re-auth 401 (`_reauth_required`). The client re-runs
@@ -168,11 +169,11 @@ planning time; prefer extracting a small shared helper if it falls out cleanly.
 | `start_charging` / `stop_charging` | `POST …/charging/start\|stop` | `startCharging` / `stopCharging` | 1 |
 | `set_charge_limit(percent)` | `PUT …/charging/limit` | `setChargingLimit` | 1 |
 
-- **`get_vehicle_capabilities`** returns the brand, model, VIN (last 6 chars), supported actions
+- **`get_vehicle_capabilities`** returns the brand, VIN (last 6 chars), supported actions
   in words, key `expires_at`, and the last known budget.
 - **`get_vehicle_status`** output uses brand-neutral English keys, metric units, °C and UTC ISO
   timestamps. Each section has its own `captured_at`. Example shape:
-  `{"vehicle": {"brand": "skoda", "model": "Elroq", "vin_tail": "123456"}, "locks": {...},
+  `{"vehicle": {"brand": "skoda", "vin_tail": "123456"}, "locks": {...},
   "doors": {...}, "windows": "closed", "battery_percent": 75, "range_km": 296,
   "charging": {"state": "not_connected", "power_kw": 0, "limit_percent": 80, "captured_at": "…"},
   "climate": {"state": "off", "target_c": 22, "captured_at": "…"}, "odometer_km": 8279,
