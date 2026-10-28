@@ -2,8 +2,8 @@ name: Deploy to hydra
 
 # Builds the arm64 image on every push to main and publishes it to GHCR.
 # The deploy job runs on manual dispatch, or on push once the repo variable
-# HYDRA_AUTODEPLOY is "true" — set it at the Railway → hydra cutover, so the
-# two hosts never both serve production (see deploy/README.md).
+# HYDRA_AUTODEPLOY is "true" (set it to "false" to hold deploys during
+# maintenance; see deploy/README.md).
 on:
   push:
     branches: [main]

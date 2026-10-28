@@ -21,7 +21,7 @@ then the body. The unsubscribe footer is appended automatically.
 
 DB path resolves like status.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
 `test` also needs the MAIL_* env (present on the gateway service).
-On Railway: railway ssh --service gateway "python3 /app/scripts/campaign.py status"
+On hydra (/opt/missingmcp): docker compose exec gateway python3 /app/scripts/campaign.py status
 """
 from __future__ import annotations
 import argparse

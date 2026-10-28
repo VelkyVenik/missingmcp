@@ -1,5 +1,5 @@
 """The structured-logging contract: everything must reach STDOUT as JSON with a
-proper level attribute — Railway classifies plain STDERR output as
+proper level attribute — the log pipeline files plain STDERR output as
 error-severity (uvicorn's default handlers did exactly that in production)."""
 import io
 import json

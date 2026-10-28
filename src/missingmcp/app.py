@@ -675,15 +675,15 @@ def main() -> None:
     # per-request "POST /mcp 200" lines would just duplicate them.
     # log_config=None: don't let uvicorn install its own STDERR handlers — its
     # records propagate to the root logger, where log.py's _StructuredHandler
-    # turns them into JSON on stdout (Railway reads plain stderr as error).
+    # turns them into JSON on stdout (the log pipeline files plain stderr as error).
     # proxy_headers + forwarded_allow_ips: the container is only reachable via
-    # the TLS edge (Railway), so without trusting X-Forwarded-For every request's
-    # client.host is the shared edge IP and all per-IP rate limits collapse into
+    # the TLS proxy, so without trusting X-Forwarded-For every request's
+    # client.host is the proxy's IP and all per-IP rate limits collapse into
     # one global bucket. Default "*" makes uvicorn take the LEFTMOST X-Forwarded-For
-    # entry — which on Railway is the real client IP and is NOT client-spoofable:
-    # Railway's edge controls that leftmost position ("clients can send a spoofed
-    # X-Forwarded-For, but the real client IP will always be the leftmost entry
-    # since our edge proxy appends to the chain" — Railway support). SELF-HOST
+    # entry — which in production is the real client IP and is NOT client-spoofable:
+    # hydra's Caddy (deploy/Caddyfile) resolves the client IP from
+    # CF-Connecting-IP, trusted only from Cloudflare's ranges, and REPLACES
+    # X-Forwarded-For with exactly that one entry. SELF-HOST
     # CAVEAT: behind a proxy that appends to (rather than controls) a client's
     # X-Forwarded-For, "*" + leftmost is spoofable — set FORWARDED_ALLOW_IPS to
     # your proxy's IP(s) so uvicorn walks the trusted hops from the right instead.

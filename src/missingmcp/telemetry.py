@@ -32,7 +32,7 @@ _logger_provider = None   # OTel LoggerProvider, kept for shutdown flush
 # Loggers whose bridged records must NOT re-enter the tee: the OTLP exporter
 # logs its own failures (opentelemetry.*) over an HTTP stack that logs too
 # (urllib3/requests, shared with the posthog SDK) — teeing those would turn an
-# export failure into a self-amplifying loop. They still reach stdout/Railway.
+# export failure into a self-amplifying loop. They still reach stdout/the journal.
 _TEE_SKIP_PREFIXES = ("opentelemetry", "urllib3", "requests", "posthog")
 
 _LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warn": logging.WARNING,

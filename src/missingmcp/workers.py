@@ -18,8 +18,8 @@ _SAFE = re.compile(r"[^A-Za-z0-9_.@-]")
 # an unpollable zombie can't shrink the pool forever.
 _COOLING_KILL_S = 5.0
 _COOLING_MAX_S = 10.0
-# Worker lines that indicate a real problem get error severity so Railway
-# surfaces them; everything else is info. Deliberately loose — false negatives
+# Worker lines that indicate a real problem get error severity so log
+# filters surface them; everything else is info. Deliberately loose — false negatives
 # just stay info-level and remain searchable.
 _WORKER_ERROR = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b")
 # The one deliberate exception to that loose filter: the worker's uvicorn
@@ -45,7 +45,7 @@ _VALIDATION_DETAIL = re.compile(
 
 def _pump_worker_output(stream, account: str) -> None:
     """Forward a worker's merged stdout/stderr line-by-line into the structured
-    log (event `worker-log`, filterable by account in Railway). Runs on a daemon
+    log (event `worker-log`, filterable by account). Runs on a daemon
     thread until the pipe closes; replaces the old per-user worker.log files on
     the volume (unbounded, only reachable over ssh). Sign-in readiness is no
     longer inferred from these lines — WorkerManager polls ``/readyz`` when the

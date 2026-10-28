@@ -24,8 +24,8 @@ only make a row read as in-sync or torn, both of which are skipped. Re-running
 is idempotent — a persisted row reads as in-sync next time.
 
 Usage (production):
-  railway ssh --service gateway "python3 /app/scripts/backfill_garmin_tokens.py"          # dry-run
-  railway ssh --service gateway "python3 /app/scripts/backfill_garmin_tokens.py --apply"
+  docker compose exec gateway python3 /app/scripts/backfill_garmin_tokens.py          # dry-run
+  docker compose exec gateway python3 /app/scripts/backfill_garmin_tokens.py --apply
 """
 from __future__ import annotations
 import argparse

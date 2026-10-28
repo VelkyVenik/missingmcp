@@ -1,6 +1,6 @@
 # Production stack on hydra (Hetzner CAX21, arm64) — see deploy/README.md.
 # Lives at /opt/missingmcp/ on the server next to:
-#   gateway.env  app secrets/config (0600, never in git) — `railway variables` minus PORT
+#   gateway.env  app secrets/config (0600, never in git) — see README → Configuration
 #   .env         IMAGE_TAG=<commit sha>, written by deploy.sh (compose interpolation only)
 #   data/        the /data volume: gateway.db + worker token dirs
 name: missingmcp
@@ -10,7 +10,7 @@ services:
     image: ghcr.io/velkyvenik/missingmcp:${IMAGE_TAG:?IMAGE_TAG unset - run deploy.sh <sha>}
     restart: unless-stopped
     env_file: gateway.env
-    # These win over gateway.env, so a copied Railway variable can't break them.
+    # These win over gateway.env, so a stray PORT/DATA_DIR there can't break them.
     environment:
       PORT: "8080"
       DATA_DIR: /data

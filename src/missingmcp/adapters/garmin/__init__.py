@@ -12,7 +12,7 @@ from .login import _SKIP_WHEN_PROXIED
 
 
 def _attempt_message(egress_label: str, outcome: str) -> str:
-    """Railway's log UI indexes/displays `message`; without it, structured
+    """Log UIs index/display `message` (Railway's did); without it, structured
     events like garmin-login-attempt are invisible in text search (ops saw
     only garminconnect's bridged 'Login failed:…' lines on 2026-10-05)."""
     return f"garmin login via {egress_label}: {outcome}"

@@ -8,7 +8,7 @@ Usage:
   python scripts/subscribers.py                 # table view (counts + rows)
   python scripts/subscribers.py --emails        # subscriber emails, one per line
   python scripts/subscribers.py --db /data/gateway.db
-  railway ssh --service gateway "python3 /app/scripts/subscribers.py --emails"
+  docker compose exec gateway python3 /app/scripts/subscribers.py --emails
 """
 from __future__ import annotations
 import argparse

@@ -6,9 +6,7 @@ tests/garmin_stub_worker.py on the real MCP SDK. The stateful run is the
 control: it reproduces the production failure, so the test can't pass by
 never replacing the worker.
 """
-import importlib.util
 import json
-import pathlib
 import random
 import socket
 import sys
@@ -171,14 +169,9 @@ def test_get_and_delete_are_405_without_touching_a_worker(gateway, capsys):
     assert gateway.mgr._workers == {}            # nothing spawned for either
     assert gateway.client.get("/garmin/mcp").status_code == 401   # auth still first
 
-    # The 405s reach the before/after report through the log the gateway
-    # really writes (Railway adds the timestamp field).
+    # The 405s are logged like every forwarded response (tool=None marks
+    # GET/DELETE), so operators can count them in the log stream.
     rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()
             if line.startswith("{")]
-    for r in rows:
-        r["timestamp"] = "2026-10-15T10:00:00.000000000Z"
-    path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "session_loss.py"
-    spec = importlib.util.spec_from_file_location("session_loss", path)
-    session_loss = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(session_loss)
-    assert session_loss.report(rows)["get_delete_status"] == {405: 2}
+    assert [r["status"] for r in rows
+            if r.get("event") == "mcp-response" and r.get("tool") is None] == [405, 405]

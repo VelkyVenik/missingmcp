@@ -22,9 +22,9 @@ Usage:
 
 DB path resolves like daily_report.py ($DB_PATH, $DATA_DIR/gateway.db, /data,
 ./.localdata). Dry-run needs only the DB; --apply also needs GATEWAY_SECRET (to
-build config) and POSTHOG_API_KEY (to emit) — both present on Railway, where
-this runs:
-  railway ssh --service gateway "python3 /app/scripts/backfill_account_connected.py --before 2026-07-20 --apply"
+build config) and POSTHOG_API_KEY (to emit) — both present in the production
+container (hydra, /opt/missingmcp):
+  docker compose exec gateway python3 /app/scripts/backfill_account_connected.py --before 2026-07-20 --apply
 """
 from __future__ import annotations
 import argparse

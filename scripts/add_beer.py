@@ -26,9 +26,9 @@ fails the DB write.
 
 DB path resolves like daily_report.py: $DB_PATH, $DATA_DIR/gateway.db, /data,
 ./.localdata. Needs GATEWAY_SECRET in the env (to build config; the blob is
-never decrypted here) and POSTHOG_API_KEY to actually emit — both present on
-Railway, where the script runs:
-  railway ssh --service gateway "python3 /app/scripts/add_beer.py --email honza@example.cz"
+never decrypted here) and POSTHOG_API_KEY to actually emit — both present in
+the production container (hydra, /opt/missingmcp):
+  docker compose exec gateway python3 /app/scripts/add_beer.py --email honza@example.cz
 """
 from __future__ import annotations
 import argparse

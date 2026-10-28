@@ -11,7 +11,7 @@ Usage:
   python scripts/status.py                 # summary counts only
   python scripts/status.py --detail        # + per-account devices, clients, workers
   python scripts/status.py --db /data/gateway.db
-  railway ssh --service gateway "python3 /app/scripts/status.py --detail"
+  docker compose exec gateway python3 /app/scripts/status.py --detail
 """
 from __future__ import annotations
 import argparse

@@ -14,7 +14,7 @@ Usage:
 
 DB path resolves like status.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
 In Docker:  docker compose exec gateway python /app/scripts/usage.py
-On Railway: railway ssh --service gateway "python3 /app/scripts/usage.py"
+On hydra (/opt/missingmcp): docker compose exec gateway python3 /app/scripts/usage.py
 """
 from __future__ import annotations
 import argparse

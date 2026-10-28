@@ -14,7 +14,7 @@ Usage:
 
 DB path resolves like usage.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
 Webhook: --webhook or $SLACK_WEBHOOK_URL (required only with --post).
-On Railway: railway ssh --service gateway "python3 /app/scripts/daily_report.py"
+On hydra (/opt/missingmcp): docker compose exec gateway python3 /app/scripts/daily_report.py
 """
 from __future__ import annotations
 import argparse

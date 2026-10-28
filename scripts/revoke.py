@@ -16,7 +16,7 @@ gateway re-checks the DB on every request, so revocation takes effect immediatel
 
 DB path resolves like status.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
 In Docker:  docker compose exec gateway python /app/scripts/revoke.py --account <email>
-On Railway: railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
+On hydra (/opt/missingmcp): docker compose exec gateway python3 /app/scripts/revoke.py --account <email>
 """
 from __future__ import annotations
 import argparse
