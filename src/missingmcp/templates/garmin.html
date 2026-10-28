@@ -181,10 +181,10 @@
     <div class="wrap">
       <h2 class="sec-h">All tools</h2>
 <!-- GENERATED:TOOLS:BEGIN — do not edit by hand; regenerate with scripts/gen_garmin_tools.py -->
-      <p class="lede">All <strong>154 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/e79df6fc59b276d03c478398b91c7e40a791f46b"><code>e79df6f</code></a>). Click a group to expand.</p>
+      <p class="lede">All <strong>157 tools</strong> this connector currently exposes, grouped by area &mdash; straight from the <a href="https://github.com/Taxuspt/garmin_mcp">garmin_mcp</a> source (<a href="https://github.com/Taxuspt/garmin_mcp/tree/a2ca5fcac34524b83814fe2fcf3d479f8a75983f"><code>a2ca5fc</code></a>). Click a group to expand.</p>
       <div class="tools">
         <details>
-          <summary>Activities <span class="count">&middot; 22 tools</span></summary>
+          <summary>Activities <span class="count">&middot; 23 tools</span></summary>
           <dl>
             <dt><code>get_activities_by_date</code></dt><dd>Get activities between specified dates with pagination support.</dd>
             <dt><code>get_activities_fordate</code></dt><dd>Get activities for a specific date</dd>
@@ -207,6 +207,7 @@
             <dt><code>count_activities</code></dt><dd>Get total count of activities in the user&#x27;s Garmin account</dd>
             <dt><code>get_activities</code></dt><dd>Get activities with pagination support.</dd>
             <dt><code>create_manual_activity</code></dt><dd>Log a manual activity in Garmin Connect — useful for activities done without a watch.</dd>
+            <dt><code>delete_activity</code></dt><dd>Permanently delete an activity from Garmin Connect.</dd>
             <dt><code>get_activity_types</code></dt><dd>Get all available activity types</dd>
           </dl>
         </details>
@@ -260,7 +261,7 @@
           </dl>
         </details>
         <details>
-          <summary>Devices <span class="count">&middot; 6 tools</span></summary>
+          <summary>Devices <span class="count">&middot; 7 tools</span></summary>
           <dl>
             <dt><code>get_devices</code></dt><dd>Get all Garmin devices associated with the user account</dd>
             <dt><code>get_device_last_used</code></dt><dd>Get information about the last used Garmin device</dd>
@@ -268,6 +269,7 @@
             <dt><code>get_primary_training_device</code></dt><dd>Get information about the primary training device</dd>
             <dt><code>get_device_solar_data</code></dt><dd>Get solar data for a specific device</dd>
             <dt><code>get_device_alarms</code></dt><dd>Get alarms from all Garmin devices</dd>
+            <dt><code>push_workout_to_device</code></dt><dd>Send a workout from the workout library to a Garmin device</dd>
           </dl>
         </details>
         <details>
@@ -296,7 +298,7 @@
             <dt><code>get_earned_badges</code></dt><dd>Get earned badges for user</dd>
             <dt><code>get_adhoc_challenges</code></dt><dd>Get user-created social/group challenges (e.g., step competitions with friends)</dd>
             <dt><code>get_available_badge_challenges</code></dt><dd>Get official Garmin badge challenges available to join</dd>
-            <dt><code>get_badge_challenges</code></dt><dd>Get all badge challenges the user has joined (completed and in-progress)</dd>
+            <dt><code>get_badge_challenges</code></dt><dd>Get badge challenges the user has completed.</dd>
             <dt><code>get_non_completed_badge_challenges</code></dt><dd>Get badge challenges currently in progress (not yet completed)</dd>
             <dt><code>get_race_predictions</code></dt><dd>Get predicted race times based on current fitness level</dd>
             <dt><code>get_inprogress_virtual_challenges</code></dt><dd>Get in-progress virtual challenges/expeditions</dd>
@@ -315,7 +317,7 @@
             <dt><code>get_cycling_ftp</code></dt><dd>Get the latest cycling Functional Threshold Power (FTP) data.</dd>
             <dt><code>get_lactate_threshold</code></dt><dd>Get lactate threshold data</dd>
             <dt><code>request_reload</code></dt><dd>Request reload of epoch data</dd>
-            <dt><code>get_training_load_trend</code></dt><dd>Get the Performance Management Chart (CTL/ATL/TSB) over a date range.</dd>
+            <dt><code>get_training_load_trend</code></dt><dd>Get Garmin&#x27;s daily acute and chronic training load over a date range.</dd>
             <dt><code>get_training_load_balance</code></dt><dd>Get Garmin&#x27;s Load Focus — the distribution of the trailing-month training load across Aerobic Low, Aerobic High, and Anaerobic intensity bands, plus the system&#x27;s feedback phrase (e.g. AEROBIC_HIGH_SHORTAGE, BALANCED…</dd>
             <dt><code>get_hrv_trend</code></dt><dd>Get HRV (Heart Rate Variability) trend over a date range.</dd>
             <dt><code>get_vo2max_trend</code></dt><dd>Get VO2 max trend over a date range.</dd>
@@ -326,7 +328,7 @@
           </dl>
         </details>
         <details>
-          <summary>Workouts <span class="count">&middot; 14 tools</span></summary>
+          <summary>Workouts <span class="count">&middot; 15 tools</span></summary>
           <dl>
             <dt><code>get_workouts</code></dt><dd>Get all workouts with curated summary list</dd>
             <dt><code>get_workout_by_id</code></dt><dd>Get detailed information for a specific workout</dd>
@@ -340,6 +342,7 @@
             <dt><code>get_training_plan_workouts</code></dt><dd>Compatibility alias for get_garmin_coach_workouts</dd>
             <dt><code>schedule_workout</code></dt><dd>Schedule a workout to a specific calendar date</dd>
             <dt><code>schedule_workouts</code></dt><dd>Schedule multiple workouts to specific calendar dates</dd>
+            <dt><code>reschedule_workout</code></dt><dd>Move a scheduled workout to another date on the Garmin Connect calendar</dd>
             <dt><code>unschedule_workout</code></dt><dd>Remove a scheduled workout from the Garmin Connect calendar</dd>
             <dt><code>unschedule_workouts</code></dt><dd>Remove multiple scheduled workouts from the Garmin Connect calendar</dd>
           </dl>
@@ -396,7 +399,7 @@
           <dl>
             <dt><code>get_courses</code></dt><dd>List all courses saved on Garmin Connect.</dd>
             <dt><code>get_course_details</code></dt><dd>Get full details of a Garmin Connect course by ID.</dd>
-            <dt><code>download_course_gpx</code></dt><dd>Download the exact official GPX file for a Garmin Connect course.</dd>
+            <dt><code>download_course_gpx</code></dt><dd>Download a Garmin Connect course as a GPX file.</dd>
             <dt><code>upload_course</code></dt><dd>Upload a GPX file as a Garmin Connect Course.</dd>
             <dt><code>delete_course</code></dt><dd>Delete a course from Garmin Connect.</dd>
           </dl>
