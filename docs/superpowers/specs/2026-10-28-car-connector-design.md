@@ -264,10 +264,15 @@ beta) → "Under the hood" → "All tools" (generated) → CTA.
   `start_login` and `verify` succeed).
 - The typed email is unverified. It is still the `account_key`, so global unsubscribe and every
   existing per-account op apply unchanged.
-- New log events (stable schema): `car-login-ok` / `car-login-failed` (reason: `invalid_key`,
-  `vin_not_covered`, `rate_limited`, `upstream_error`, `invalid_form`),
-  `car-upstream-error` (status, problem type, tool), `car-key-expired` (on the 401 → re-auth
-  path). Fields carry the 8-char hash prefix only.
+- Log events (stable schema; amended at implementation): sign-in failures use the existing
+  generic `login-start-failed` / `login-verify-failed` events with car `reason` values
+  `invalid_form`, `invalid_key`, `vin_not_covered`, `rate_limited`, `upstream_error`. The expired
+  key on a tool call surfaces as the existing `local-forward-auth-stale`. One new event:
+  `car-upstream-error` (`account`, `tool`, `status`, `problem` = problem-type tail). `account` is
+  the account key, as in every other event. Key and VIN never appear.
+- **Client-neutral** (operator, 2026-10-28): the connector targets Claude, ChatGPT and Grok
+  alike. Server-side it already is (open DCR, standard OAuth 2.1 + MCP). Copy on the form and the
+  landing page names all three, and the landing page has connect steps for each.
 
 ## Testing
 
