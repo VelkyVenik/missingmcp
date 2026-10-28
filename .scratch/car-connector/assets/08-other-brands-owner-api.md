@@ -17,7 +17,8 @@ press, forums; **[inference]** = my conclusion; **[operator]** = verified by Vac
 | Volvo | ✅ developer.volvocars.com | Operator registers an app; owner consents with Volvo ID; full access approved manually (14–21 days per FAQ) | Read (scopes evcc uses) | Poor: re-login every 7 days |
 | Mercedes-Benz | ❌ B2B / paid; community uses tokens scraped from the app | — | — | No |
 | Ford | ❌ FordConnect is B2B (evcc: "FordConnect Query") | — | — | No |
-| Renault, Stellantis (Peugeot, Opel, Citroën, DS, Fiat), Toyota, Nissan | ❌ nothing owner-facing; Renault only fleet APIs | — | — | No |
+| Toyota / Lexus | ❌ only an EU Data Act *request* portal (EDA) in the customer portal; no owner API | — | — | No (see §4a) |
+| Renault, Stellantis (Peugeot, Opel, Citroën, DS, Fiat), Nissan | ❌ nothing owner-facing; Renault only fleet APIs | — | — | No |
 | Smartcar / High Mobility / Enode | Paid B2B aggregators | — | — | No (no-monetization stance) |
 
 ## 1. BMW + Mini — CarData
@@ -82,6 +83,28 @@ press, forums; **[inference]** = my conclusion; **[operator]** = verified by Vac
 - **[secondary]** evcc index (2026-10-28) has no EU Data Act / official entry for Renault,
   Stellantis brands, Toyota, Nissan, Mercedes, Porsche, Smart; Ford only FordConnect Query.
 
+## 4a. Toyota (added 2026-10-28)
+
+- **[primary]** Toyota Motor Europe's Data Sharing Notice: owners (or a third party they
+  authorise) request their vehicle data through the **European Data Access (EDA) portal** in
+  the customer portal; free, machine-readable, may require identity verification. It describes
+  a data *request*, not an API with owner credentials. No developer portal found.
+- **[secondary]** Every community integration (`mytoyota` Python client, `ha_toyota`, Domoticz
+  plugin) signs in with the owner's MyToyota username + password against the app backend
+  (`ctpa-oneapi`); `ha_toyota` states "there is no official API from Toyota". Europe-bought
+  cars only; the MyT → MyToyota app migration already broke these once.
+- **[secondary]** evcc's index has no Toyota EU Data Act / official entry.
+- **[secondary]** EU Commission guidance: the Data Act covers data access, not remote access
+  to vehicle functions — so even a future Toyota Data Act channel would be read-only.
+- **[inference]** Not addable on an official API: the only working route is the unofficial
+  app API with the owner's password. Watch: whether the EDA portal turns into a continuous API
+  with owner client credentials, Pleos-style.
+- **Decision (Vaclav, 2026-10-28):** maybe one day, the same way as
+  [pytoyoda/ha_toyota](https://github.com/pytoyoda/ha_toyota) (MyToyota login against the app
+  backend). This would be the first `/car` brand on an unofficial API and with a stored
+  password, so it needs its own stance first (password handling like Garmin, ToS risk,
+  breakage on app changes). **Not on the website.**
+
 ## 5. Re-check for ticket 07
 
 - **[secondary]** The evcc index now lists **"EU Data Act"** entries for **Volkswagen, Audi and
@@ -106,3 +129,8 @@ press, forums; **[inference]** = my conclusion; **[operator]** = verified by Vac
   [Teslemetry: pay per use](https://teslemetry.com/blog/tesla-fleet-api-pay-per-use)
 - [Volvo: getting started](https://developer.volvocars.com/apis/docs/getting-started)
 - [mbapi2020](https://github.com/renenulschde/mbapi2020)
+- Toyota: [Data Sharing Notice](https://www.toyota.ie/legal/data-sharing-notice),
+  [ha_toyota](https://github.com/pytoyoda/ha_toyota) (formerly DurgNomis-drol),
+  [ha_toyota #164](https://github.com/DurgNomis-drol/ha_toyota/issues/164),
+  [mytoyota on PyPI](https://pypi.org/project/mytoyota/0.8.0/),
+  [Domoticz Toyota plugin](https://github.com/joro75/Domoticz-Toyota-Plugin)
