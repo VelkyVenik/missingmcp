@@ -1,5 +1,5 @@
 <!-- Connector page — follows the section skeleton established by garmin.html:
-     hero → what is this → supported brands → what your assistant can do
+     hero → see it in Claude (demo video) → what is this → supported brands → what your assistant can do
      → how to connect (per AI client) → tips & tricks → limits → terms & risks
      → under the hood → all tools. One connector for every car brand: brands are
      listed here, chosen per account on the sign-in form. Client-neutral copy —
@@ -15,6 +15,21 @@
       </div>
     </div>
   </div>
+
+  <section id="demo">
+    <div class="wrap">
+      <h2 class="sec-h">See it in Claude</h2>
+      <figure class="demo">
+        <!-- Autoplay (muted, looped) is started by site.js only when the video is
+             on screen and the visitor hasn't asked for reduced motion; controls
+             let anyone pause it (WCAG 2.2.2). -->
+        <video src="/static/car-demo.mp4" poster="/static/car-demo-poster.jpg" width="1048" height="692"
+               controls muted loop playsinline preload="none" data-autoplay
+               aria-label="A real claude.ai conversation: &quot;Check my Skoda car.&quot; — Claude reports locks, battery 74% and 296 km range, climate and odometer, then pre-heats the car to 20 °C after &quot;yes, please.&quot;"></video>
+        <figcaption>A real conversation in claude.ai with this connector (parking address blurred).</figcaption>
+      </figure>
+    </div>
+  </section>
 
   <section id="about">
     <div class="wrap">
@@ -91,9 +106,7 @@
         </div>
       </div>
 
-      <figure class="shot"><img src="/static/myskoda-smart-home.png" width="380" height="825" loading="lazy" alt="MyŠkoda app, Smart home screen: Keys list, Create key button, Vehicle VIN with a copy button; Profile tab at the bottom"><figcaption>MyŠkoda &rarr; Profile &rarr; Smart home</figcaption></figure>
-
-      <h3 id="clients">Adding the URL in your assistant</h3>
+      <h3 id="clients" class="sub-h">Adding the URL in your assistant</h3>
       <div class="cards">
         <div class="card">
           <h3>Claude</h3>

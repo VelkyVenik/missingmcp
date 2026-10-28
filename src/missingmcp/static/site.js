@@ -89,6 +89,35 @@ document.addEventListener("submit", function (e) {
   }
 });
 
+// Demo videos ([data-autoplay]): muted autoplay only while on screen, and never
+// for visitors who asked for reduced motion — they get the poster and the
+// controls. The controls let anyone pause it (WCAG 2.2.2).
+(function () {
+  var videos = document.querySelectorAll("video[data-autoplay]");
+  if (!videos.length) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var play = function (v) { var p = v.play(); if (p && p.catch) { p.catch(function () {}); } };
+  if (!("IntersectionObserver" in window)) { videos.forEach(play); return; }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        if (!e.target.dataset.userPaused) { play(e.target); }
+      } else if (!e.target.paused) {
+        e.target.dataset.autoPaused = "1";
+        e.target.pause();
+      }
+    });
+  }, { threshold: 0.4 });
+  videos.forEach(function (v) {
+    // a pause the visitor made sticks; one we made while scrolled away doesn't
+    v.addEventListener("pause", function () {
+      if (v.dataset.autoPaused) { delete v.dataset.autoPaused; } else { v.dataset.userPaused = "1"; }
+    });
+    v.addEventListener("play", function () { delete v.dataset.userPaused; });
+    io.observe(v);
+  });
+})();
+
 // Back/forward cache restores the page as it was left — busy, button
 // disabled — so a user going back to fix a typo couldn't submit again.
 window.addEventListener("pageshow", function () {

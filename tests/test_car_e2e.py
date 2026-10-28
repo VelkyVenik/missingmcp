@@ -244,8 +244,39 @@ def test_myskoda_screenshots_served_and_linked(fake_skoda):
     r = client.get("/static/myskoda-smart-home.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
     page, _, _ = _form_page(client)
-    assert "/static/myskoda-smart-home.png" in page
-    assert "/static/myskoda-smart-home.png" in client.get("/car").text
+    assert "/static/myskoda-smart-home.png" in page          # only on the form now
+
+
+def test_demo_video_on_landing_is_pausable(fake_skoda):
+    """PR #67 review (WCAG 2.2.2): the auto-playing demo must be pausable —
+    a <video> with controls, no autoplay attribute (site.js starts it, skipping
+    reduced-motion visitors), and a poster."""
+    page = _client(fake_skoda).get("/car").text
+    tag = re.search(r"<video[^>]*>", page).group(0)
+    for attr in ('src="/static/car-demo.mp4"', 'poster="/static/car-demo-poster.jpg"',
+                 "controls", "muted", "loop", "playsinline", "data-autoplay"):
+        assert attr in tag
+    assert " autoplay" not in tag.replace("data-autoplay", "")
+
+
+def test_demo_video_served_with_byte_ranges(fake_skoda):
+    """Safari only plays <video> from servers that honor Range (206)."""
+    client = _client(fake_skoda)
+    full = client.get("/static/car-demo.mp4")
+    assert full.status_code == 200 and full.headers["content-type"] == "video/mp4"
+    assert full.headers["accept-ranges"] == "bytes"
+    size = len(full.content)
+    r = client.get("/static/car-demo.mp4", headers={"Range": "bytes=0-1"})
+    assert r.status_code == 206 and r.content == full.content[:2]
+    assert r.headers["content-range"] == f"bytes 0-1/{size}"
+    r = client.get("/static/car-demo.mp4", headers={"Range": "bytes=100-"})
+    assert r.status_code == 206 and r.content == full.content[100:]
+    r = client.get("/static/car-demo.mp4", headers={"Range": "bytes=-10"})
+    assert r.status_code == 206 and r.content == full.content[-10:]
+    r = client.get("/static/car-demo.mp4", headers={"Range": f"bytes={size}-"})
+    assert r.status_code == 416 and r.headers["content-range"] == f"bytes */{size}"
+    poster = client.get("/static/car-demo-poster.jpg")
+    assert poster.status_code == 200 and poster.headers["content-type"] == "image/jpeg"
 
 
 def test_home_page_does_not_promote_car(fake_skoda):

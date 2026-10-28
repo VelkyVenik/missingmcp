@@ -294,7 +294,8 @@ def build_app(config: Config) -> Starlette:
     # without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png",
-                         "og.png", "myskoda-smart-home.png")}
+                         "og.png", "myskoda-smart-home.png", "car-demo.mp4",
+                         "car-demo-poster.jpg")}
     site_js = (_STATIC / "site.js").read_text()
 
     async def healthz(request):
@@ -373,12 +374,35 @@ def build_app(config: Config) -> Starlette:
                             headers={"Cache-Control": "public, max-age=3600"})
         return handler
 
-    def static_png(name):
+    def static_png(name, media_type="image/png"):
         body = _assets[name]
 
         async def handler(request):
-            return Response(body, media_type="image/png",
+            return Response(body, media_type=media_type,
                             headers={"Cache-Control": "public, max-age=86400"})
+        return handler
+
+    def static_video(name, media_type="video/mp4"):
+        """Like static_png, plus single byte-range support: Safari (macOS and iOS)
+        refuses to play a <video> whose server answers Range with a plain 200."""
+        body = _assets[name]
+        size = len(body)
+        base = {"Cache-Control": "public, max-age=86400", "Accept-Ranges": "bytes"}
+
+        async def handler(request):
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", request.headers.get("range", "").strip())
+            if not m or (m[1] == "" and m[2] == ""):
+                return Response(body, media_type=media_type, headers=base)
+            if m[1] == "":                       # suffix range: last N bytes
+                start, end = max(0, size - int(m[2])), size - 1
+            else:
+                start = int(m[1])
+                end = min(int(m[2]), size - 1) if m[2] else size - 1
+            if start >= size or start > end:
+                return Response(status_code=416,
+                                headers={**base, "Content-Range": f"bytes */{size}"})
+            return Response(body[start:end + 1], status_code=206, media_type=media_type,
+                            headers={**base, "Content-Range": f"bytes {start}-{end}/{size}"})
         return handler
 
     def adapter_routes(adapter):
@@ -548,6 +572,10 @@ def build_app(config: Config) -> Starlette:
         # MyŠkoda "Smart home" screen for the car connector's key guide (keys and
         # VIN pixelated in the source screenshot).
         Route("/static/myskoda-smart-home.png", static_png("myskoda-smart-home.png"),
+              methods=["GET"]),
+        # Real claude.ai session with the car connector (parking address pixelated).
+        Route("/static/car-demo.mp4", static_video("car-demo.mp4"), methods=["GET"]),
+        Route("/static/car-demo-poster.jpg", static_png("car-demo-poster.jpg", "image/jpeg"),
               methods=["GET"]),
     ]
     for a in adapters.values():
