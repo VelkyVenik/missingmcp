@@ -85,7 +85,7 @@ def test_discovery_documents(fake_skoda):
 def test_form_renders_brand_and_fields(fake_skoda):
     page, _, _ = _form_page(_client(fake_skoda))
     for needle in ('name="car_brand"', 'value="skoda"', 'name="car_email"',
-                   'name="car_api_key"', 'name="car_vin"', "Chytrá domácnost"):
+                   'name="car_api_key"', 'name="car_vin"', "Smart home"):
         assert needle in page
 
 
@@ -222,6 +222,15 @@ def test_landing_lists_every_tool_brand_and_client(fake_skoda):
                    "Beta"):
         assert needle in r.text
     assert "{USAGE_METER_CAR}" not in r.text      # placeholder filled per request
+
+
+def test_myskoda_screenshots_served_and_linked(fake_skoda):
+    client = _client(fake_skoda)
+    r = client.get("/static/myskoda-smart-home.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    page, _, _ = _form_page(client)
+    assert "/static/myskoda-smart-home.png" in page
+    assert "/static/myskoda-smart-home.png" in client.get("/car").text
 
 
 def test_home_page_does_not_promote_car(fake_skoda):

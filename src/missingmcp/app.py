@@ -294,7 +294,7 @@ def build_app(config: Config) -> Starlette:
     # without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png",
-                         "og.png")}
+                         "og.png", "myskoda-smart-home.png")}
     site_js = (_STATIC / "site.js").read_text()
 
     async def healthz(request):
@@ -545,6 +545,10 @@ def build_app(config: Config) -> Starlette:
         Route("/static/og.png", static_png("og.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
         Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),
+        # MyŠkoda "Smart home" screen for the car connector's key guide (keys and
+        # VIN pixelated in the source screenshot).
+        Route("/static/myskoda-smart-home.png", static_png("myskoda-smart-home.png"),
+              methods=["GET"]),
     ]
     for a in adapters.values():
         routes.extend(adapter_routes(a))
