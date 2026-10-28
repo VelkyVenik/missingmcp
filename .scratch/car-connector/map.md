@@ -73,12 +73,18 @@ afterwards as a normal plan session.
 - [Write the car connector spec](issues/06-write-spec.md) — **destination reached**:
   `docs/superpowers/specs/2026-10-28-car-connector-design.md`; the sign-in GET runs in
   `start_login`, and `verify` checks the blob offline (amends 04).
+- [Other brands' owner APIs](issues/08-other-brands-research.md) — addable, read-only:
+  **BMW + Mini** (CarData, owner Client ID) and **Hyundai / Kia / Genesis** (Pleos, client ID +
+  secret, EU only); Polestar later; Tesla parked (pay-per-use, billed to the app owner); Volvo,
+  Mercedes, Ford, Renault, Stellantis, Toyota, Nissan no fit. Order: BMW+Mini (09), then
+  Hyundai+Kia (10); both shown as "Soon" on the site now.
 
 ## Not yet specified
 
-- Second brand: no VW Group brand has an official owner API today (see the VW research
-  ticket). Revisit when one ships: how its sign-in slots into the brand picker, and whether one
-  account may later hold several brands.
+- Second brand: BMW + Mini (09), then Hyundai + Kia (10) — both read-only, so the first
+  brands with no actions. Still open: their sign-in shapes in the brand picker, and whether one
+  account may later hold several brands. No VW Group brand yet (07; re-check its evcc
+  "EU Data Act" entries).
 - Later tools: charge mode, charging profiles and timers; auxiliary heating (needs an S-PIN
   stance).
 - Later account hardening: email verification (confirm link), email reminder before key
