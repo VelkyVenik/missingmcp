@@ -130,3 +130,26 @@ window.addEventListener("pageshow", function () {
     }
   });
 });
+
+// Car sign-in: show only the picked brand's notes and fields. Hidden fieldsets
+// are disabled, so their inputs aren't submitted (the server validates per
+// brand; without JS every field shows). The pick survives an error re-render
+// via sessionStorage, best effort.
+(function () {
+  var picker = document.querySelector("[data-brand-picker]");
+  if (!picker) { return; }
+  function show() {
+    document.querySelectorAll("[data-brand]").forEach(function (el) {
+      var on = el.dataset.brand === picker.value;
+      el.hidden = !on;
+      if (el.tagName === "FIELDSET") { el.disabled = !on; }
+    });
+    try { sessionStorage.setItem("car-brand", picker.value); } catch (e) {}
+  }
+  try {
+    var saved = sessionStorage.getItem("car-brand");
+    if (saved && picker.querySelector('option[value="' + saved + '"]')) { picker.value = saved; }
+  } catch (e) {}
+  picker.addEventListener("change", show);
+  show();
+})();

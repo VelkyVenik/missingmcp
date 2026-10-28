@@ -7,16 +7,15 @@ shared by every key on that car, so this module never retries: each call is
 exactly one upstream request. Errors are application/problem+json, told apart
 by the `type` tail (two different 429s share the status).
 
-A future brand implements the same surface: probe_sync / read / action raising
-CarUpstreamError, plus normalize_status / normalize_location."""
+Shared pieces (CarUpstreamError, normalize_vin) live in common.py; bmw.py is the
+second brand."""
 from __future__ import annotations
-import re
 import time
 from dataclasses import dataclass
 import httpx
+from .common import CarUpstreamError, normalize_vin  # noqa: F401 (re-exported)
 
 PROBLEM_PREFIX = "/problems/"
-_VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")   # ISO 3779: no I, O, Q
 
 # operationId → (HTTP method, path tail under /api/v1/vehicles/{vin})
 ACTIONS = {
@@ -28,20 +27,6 @@ ACTIONS = {
     "stopCharging": ("POST", "charging/stop"),
     "setChargingLimit": ("PUT", "charging/limit"),
 }
-
-
-class CarUpstreamError(Exception):
-    """One failed upstream call. kind: invalid_vin | invalid_key | vin_not_covered |
-    rate_limited | car_busy | unsupported | car_timeout | upstream_error.
-    str(e) is safe to log: it never carries the API key or the VIN."""
-
-    def __init__(self, kind: str, status: int = 0, problem: str = "",
-                 retry_after_s: int | None = None):
-        super().__init__(f"{kind} (HTTP {status} {problem})".strip())
-        self.kind = kind
-        self.status = status
-        self.problem = problem
-        self.retry_after_s = retry_after_s
 
 
 @dataclass
@@ -56,14 +41,6 @@ class Reply:
     data: dict | None              # parsed JSON for reads, None for 202 actions
     budget: Budget | None
     expires_at: str | None
-
-
-def normalize_vin(vin: str) -> str:
-    """Uppercased + stripped VIN; raises CarUpstreamError(invalid_vin) if malformed."""
-    v = (vin or "").strip().upper()
-    if not _VIN_RE.match(v):
-        raise CarUpstreamError("invalid_vin")
-    return v
 
 
 def _int(value: str | None) -> int | None:

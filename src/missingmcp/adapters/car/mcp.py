@@ -1,6 +1,12 @@
 """The /car/mcp server: a hand-rolled, stateless, tools-only MCP (the same
 JSON-RPC subset as adapters/whoop/mcp.py) with brand-neutral car tools.
 
+The bmw brand (read-only, ~50 requests/24 h per Client ID) takes its own path,
+_bmw_call: one telematic read is cached 15 min and serves status and location
+alike, and every BMW call first makes sure the access token is fresh (rotating
+refresh, persisted before use — bmw.BmwClient.ensure_fresh). The rest of this
+docstring is the Škoda path.
+
 Shaped by the upstream's 20 requests/hour per car (shared with the owner's
 other keys): tools/list is filtered by the car's stored operations[] (no
 upstream call), status reads are cached for 60 s, actions return as soon as
@@ -15,13 +21,16 @@ from datetime import datetime, timedelta, timezone
 from ... import store
 from ...log import log_warn
 from ..base import SessionExpired
-from . import skoda
-from .skoda import Budget, CarUpstreamError
+from collections import deque
+from . import bmw, skoda
+from .common import CarUpstreamError
+from .skoda import Budget
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_INFO = {"name": "missingmcp-car", "version": "1.0.0"}
 
 STATUS_CACHE_S = 60
+BMW_CACHE_S = 15 * 60
 EXPIRY_NOTICE_DAYS = 14
 TEMP_MIN_C, TEMP_MAX_C = 15, 30
 CHARGE_LIMITS = (50, 60, 70, 80, 90, 100)
@@ -39,13 +48,14 @@ _ACCEPTED = ("Command sent. A sleeping car can take ~2 minutes to react — "
 # tool list from this.
 TOOLS = [
     ("get_vehicle_capabilities",
-     "What this car supports (available tools), its brand, key expiry and the remaining "
-     "request budget. Free: makes no request to the car.",
+     "What this car supports (available tools), its brand, key expiry and the request "
+     "budget. Free: makes no request to the car.",
      _EMPTY, None, True),
     ("get_vehicle_status",
      "Current state: locks, doors, windows, battery %, range, charging, climate, "
      "ventilation, odometer, each with the time the car reported it. Counts against the "
-     "car's 20 requests/hour; cached for 60 s. No location — see get_vehicle_location.",
+     "car maker's request limit (see budget), so it's cached briefly. No location — see "
+     "get_vehicle_location.",
      _EMPTY, None, True),
     ("get_vehicle_location",
      "Where the car is parked: address and GPS coordinates. Only call when the user asks "
@@ -92,6 +102,15 @@ _ERRORS = {
     "car_timeout": "The car didn't respond in time — try again.",
     "vin_not_covered": "The stored key no longer covers this car — reconnect with a new key.",
     "upstream_error": "Škoda's service didn't answer — try again later.",
+}
+
+# The bmw brand's tool errors (invalid_key / container_missing re-auth instead)
+_BMW_ERRORS = {
+    "rate_limited": "BMW's daily limit (~50 requests per Client ID, shared with any other "
+                    "app using it) is used up — try again tomorrow.",
+    "vin_not_covered": "BMW refused access to this car — check that CarData API is still "
+                       "ticked for your Client ID, or reconnect.",
+    "upstream_error": "BMW's service didn't answer — try again later.",
 }
 
 
@@ -160,6 +179,9 @@ class CarLocalForward:
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._budget: dict[str, Budget] = {}                  # VIN → last observed
         self._status_cache: dict[str, tuple[datetime, dict]] = {}   # "account|VIN" → (at, payload)
+        self._bmw = bmw.BmwClient(config)
+        self._bmw_calls: dict[str, deque] = {}        # VIN → monotonic times of our calls
+        self._bmw_cache: dict[str, tuple[datetime, dict]] = {}      # "account|VIN" → (at, telematics)
 
     def _client(self, brand: str):
         return _CLIENTS[brand](self._cfg.car_skoda_api_base)
@@ -242,6 +264,8 @@ class CarLocalForward:
             body = _action_body(name, args)
         except (ValueError, TypeError, OverflowError) as e:
             return _tool_error(rid, f"Invalid or missing argument: {e}")
+        if d.get("brand") == "bmw":
+            return await self._bmw_call(conn, account_key, d, rid, name)
         try:
             if name == "get_vehicle_capabilities":
                 payload = self._capabilities(d)
@@ -274,6 +298,51 @@ class CarLocalForward:
         return {"vehicle": {"brand": d["brand"], "vin_tail": d["vin"][-6:]},
                 "available_tools": [t[0] for t in TOOLS if t[3] is None or t[3] in ops],
                 "key_expires_at": d.get("expires_at")}
+
+    # --- the bmw brand ------------------------------------------------------------
+
+    async def _bmw_call(self, conn, account_key, d, rid, name):
+        try:
+            if name == "get_vehicle_capabilities":
+                payload = self._capabilities(d)
+            else:
+                td, cached = await self._bmw_telematics(conn, account_key, d)
+                payload = (bmw.normalize_status(td) if name == "get_vehicle_status"
+                           else bmw.normalize_location(td))
+                if cached:
+                    payload["cached"] = True
+        except CarUpstreamError as e:
+            # 401 after a fresh token, or our container gone: a reconnect redoes
+            # the sign-in, which mints tokens and recreates the container.
+            if e.kind in ("invalid_key", "container_missing"):
+                raise SessionExpired(str(e)) from e
+            log_warn("car-upstream-error", account=account_key, tool=name,
+                     status=e.status, problem=e.problem)
+            return _tool_error(rid, _BMW_ERRORS.get(e.kind, _BMW_ERRORS["upstream_error"]))
+        payload["budget"] = self._bmw_budget(d["vin"])
+        return _tool_ok(rid, payload)
+
+    async def _bmw_telematics(self, conn, account_key: str, d: dict) -> "tuple[dict, bool]":
+        now = self._now()
+        cache_key = f"{account_key}|{d['vin']}"
+        hit = self._bmw_cache.get(cache_key)
+        if hit and (now - hit[0]).total_seconds() < BMW_CACHE_S:
+            return hit[1], True
+        d = await self._bmw.ensure_fresh(conn, account_key, d)
+        self._bmw_calls.setdefault(d["vin"], deque()).append(time.monotonic())
+        td = await self._bmw.telematics(d)
+        self._bmw_cache[cache_key] = (now, td)
+        return td, False
+
+    def _bmw_budget(self, vin: str) -> dict:
+        """Our own count: BMW's quota is per Client ID and other apps spend it too,
+        and the count is process-local (a deploy resets it)."""
+        calls = self._bmw_calls.setdefault(vin, deque())
+        while calls and time.monotonic() - calls[0] > 24 * 3600:
+            calls.popleft()
+        return {"used_last_24h_by_missingmcp": len(calls), "daily_limit": bmw.DAILY_LIMIT,
+                "note": "BMW's limit is per Client ID, shared with any other app using it; "
+                        "data is cached for 15 min."}
 
     async def _status(self, conn, account_key: str, d: dict) -> dict:
         now = self._now()

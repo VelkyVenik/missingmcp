@@ -51,9 +51,9 @@
           <p>Through the official <a href="https://public.api.connect.skoda-auto.cz/docs" target="_blank" rel="noopener noreferrer">MyŠkoda Public API</a>. Status, battery &amp; range, charging, climate, and ventilation where your car has it.</p>
         </div>
         <div class="card">
-          <span class="pill soon">Soon</span>
+          <span class="pill beta">Beta</span>
           <h3>BMW &amp; Mini</h3>
-          <p>Through the official <strong>BMW CarData</strong> API. Status, battery &amp; range and charging &mdash; read-only, as BMW&rsquo;s API doesn&rsquo;t take commands.</p>
+          <p>Through the official <strong>BMW CarData</strong> API. Status, battery &amp; range, charging, doors and location &mdash; read-only, as BMW&rsquo;s API doesn&rsquo;t take commands.</p>
         </div>
         <div class="card">
           <span class="pill soon">Soon</span>
@@ -97,7 +97,7 @@
         <div class="card">
           <span class="step-n">Step 1</span>
           <h3>Get your key</h3>
-          <p>In the <strong>MyŠkoda</strong> phone app: Profile &rarr; Smart home &rarr; <strong>Create key</strong> &rarr; Copy key. Note the <strong>Vehicle VIN</strong> on the same screen. Keys can only be created in the app.</p>
+          <p><strong>Škoda:</strong> in the MyŠkoda phone app, Profile &rarr; Smart home &rarr; <strong>Create key</strong>, and note the <strong>Vehicle VIN</strong> on the same screen. <strong>BMW / Mini:</strong> in the MyBMW web portal, your car &rarr; BMW CarData &rarr; Technical access &rarr; <strong>Create Client ID</strong>, tick <strong>CarData API</strong>, and note the VIN.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 2</span>
@@ -107,7 +107,7 @@
         <div class="card">
           <span class="step-n">Step 3</span>
           <h3>Fill in the form</h3>
-          <p>A sign-in page opens: pick your brand, enter your email, paste the key and the VIN. We check the key with your car maker once and you&rsquo;re connected.</p>
+          <p>A sign-in page opens: pick your brand, enter your email, paste the key (or Client ID) and the VIN. We check it with your car maker once &mdash; BMW also asks you to approve the sign-in on its own page &mdash; and you&rsquo;re connected.</p>
         </div>
         <div class="card">
           <span class="step-n">Step 4</span>
@@ -170,10 +170,11 @@
       <h2 class="sec-h">Limits</h2>
       <div class="prose">
         <ul>
-          <li><strong>20 requests per hour per car</strong> &mdash; set by Škoda and shared with any other app using a key for the same car. Every answer shows how many are left; status is cached for a minute.</li>
+          <li><strong>Škoda: 20 requests per hour per car</strong> &mdash; shared with any other app using a key for the same car. Every answer shows how many are left; status is cached for a minute.</li>
+          <li><strong>BMW: about 50 requests a day per Client ID</strong> &mdash; shared with any other app on the same Client ID. Data is cached for 15 minutes and is what the car last reported; BMW never wakes the car.</li>
           <li><strong>A sleeping car takes about 2 minutes</strong> to react to a command. Your assistant sends it and doesn&rsquo;t keep checking &mdash; ask again in a moment.</li>
           <li><strong>Keys last about 6 months.</strong> You&rsquo;ll get a heads-up two weeks before; then create a new key and reconnect.</li>
-          <li>No locking, unlocking or honking &mdash; Škoda&rsquo;s API doesn&rsquo;t offer them. Auxiliary heating isn&rsquo;t supported yet.</li>
+          <li>No locking, unlocking or honking &mdash; Škoda&rsquo;s API doesn&rsquo;t offer them. Auxiliary heating isn&rsquo;t supported yet. BMW&rsquo;s API is read-only: no climate or charging commands.</li>
         </ul>
       </div>
     </div>
@@ -183,7 +184,7 @@
     <div class="wrap">
       <h2 class="sec-h">Terms &amp; risks</h2>
       <div class="prose">
-        <p>Škoda&rsquo;s Public API is meant for <strong>personal use</strong> by the car&rsquo;s owner. This connector is a free, unofficial <strong>beta</strong>: you bring your own key, and you can revoke it in the MyŠkoda app anytime. Commands reach a real car &mdash; your assistant asks before running them, but you stay responsible for what you approve.</p>
+        <p>Škoda&rsquo;s Public API and BMW CarData are meant for <strong>personal use</strong> by the car&rsquo;s owner. This connector is a free, unofficial <strong>beta</strong>: you bring your own key or Client ID, and you can revoke it in the MyŠkoda app or the MyBMW portal anytime. Commands reach a real car &mdash; your assistant asks before running them, but you stay responsible for what you approve.</p>
       </div>
     </div>
   </section>
@@ -192,9 +193,9 @@
     <div class="wrap">
       <h2 class="sec-h">Under the hood</h2>
       <div class="prose">
-        <p>The connector is built into the gateway itself, on each car maker&rsquo;s official API &mdash; for Škoda the <a href="https://public.api.connect.skoda-auto.cz/docs" target="_blank" rel="noopener noreferrer">MyŠkoda Public API</a>. No reverse engineering, no passwords: just the key you created.</p>
+        <p>The connector is built into the gateway itself, on each car maker&rsquo;s official API &mdash; for Škoda the <a href="https://public.api.connect.skoda-auto.cz/docs" target="_blank" rel="noopener noreferrer">MyŠkoda Public API</a>, for BMW and Mini <a href="https://bmw-cardata.bmwgroup.com/customer/public/api-documentation/Id-CarData-API" target="_blank" rel="noopener noreferrer">BMW CarData</a>. No reverse engineering, and your password never reaches this gateway.</p>
         <p>Everything is open source in <a href="https://github.com/VelkyVenik/missingmcp">missingmcp</a> &mdash; audit it, or self-host the whole thing.</p>
-        <p>Škoda&reg; is a trademark of ŠKODA AUTO a.s. MissingMCP is an independent project and is not affiliated with, endorsed by, or sponsored by any car maker.</p>
+        <p>Škoda&reg; is a trademark of ŠKODA AUTO a.s.; BMW&reg; and MINI&reg; are trademarks of BMW AG. MissingMCP is an independent project and is not affiliated with, endorsed by, or sponsored by any car maker.</p>
       </div>
     </div>
   </section>
@@ -208,8 +209,8 @@
         <details open>
           <summary>Read <span class="count">&middot; 3 tools</span></summary>
           <dl>
-            <dt><code>get_vehicle_capabilities</code></dt><dd>What this car supports (available tools), its brand, key expiry and the remaining request budget. Free: makes no request to the car.</dd>
-            <dt><code>get_vehicle_status</code></dt><dd>Current state: locks, doors, windows, battery %, range, charging, climate, ventilation, odometer, each with the time the car reported it. Counts against the car&#x27;s 20 requests/hour; cached for 60 s. No location — see get_vehicle_location.</dd>
+            <dt><code>get_vehicle_capabilities</code></dt><dd>What this car supports (available tools), its brand, key expiry and the request budget. Free: makes no request to the car.</dd>
+            <dt><code>get_vehicle_status</code></dt><dd>Current state: locks, doors, windows, battery %, range, charging, climate, ventilation, odometer, each with the time the car reported it. Counts against the car maker&#x27;s request limit (see budget), so it&#x27;s cached briefly. No location — see get_vehicle_location.</dd>
             <dt><code>get_vehicle_location</code></dt><dd>Where the car is parked: address and GPS coordinates. Only call when the user asks where the car is.</dd>
           </dl>
         </details>

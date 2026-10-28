@@ -525,6 +525,153 @@ def fake_skoda():
     u.stop()
 
 
+BMW_CLIENT_ID = "1a2b3c4d-0000-4000-8000-00000000c0de"
+BMW_VIN = "WBY00000000000042"
+BMW_LAT, BMW_LON = "50.0874321", "14.4209876"      # sentinels: privacy tests grep for them
+
+
+def _bmw_telematics() -> dict:
+    t = "2026-10-28T08:15:00.000Z"
+    cell = lambda v, unit=None: {"value": v, "unit": unit, "timestamp": t}  # noqa: E731
+    return {
+        "vehicle.drivetrain.batteryManagement.header": cell("74", "%"),
+        "vehicle.drivetrain.electricEngine.remainingElectricRange": cell("212", "km"),
+        "vehicle.vehicle.travelledDistance": cell("48210", "km"),
+        "vehicle.drivetrain.electricEngine.charging.status": cell("NOCHARGING"),
+        "vehicle.body.chargingPort.status": cell("DISCONNECTED"),
+        "vehicle.powertrain.electric.battery.stateOfCharge.target": cell("80", "%"),
+        "vehicle.cabin.door.row1.driver.isOpen": cell("false"),
+        "vehicle.cabin.door.row1.passenger.isOpen": cell("false"),
+        "vehicle.body.trunk.isOpen": cell("true"),
+        "vehicle.cabin.infotainment.navigation.currentLocation.latitude": cell(BMW_LAT),
+        "vehicle.cabin.infotainment.navigation.currentLocation.longitude": cell(BMW_LON),
+    }
+
+
+class FakeBmwUpstream(_FakeHttpServer):
+    """BMW CarData fake: the OAuth host (/device/code, /token) and the customer
+    API (/customers/...) on one port. Knobs:
+      - client_ids: Client IDs BMW knows
+      - device_state: "pending" | "approved" | "expired" | "denied" for every device code
+      - vins: the account's PRIMARY mappings
+      - containers: [{"name", "containerId"}]; POST appends one
+      - telematics: the container read's telematicData
+      - force_api: HTTP status every /customers call answers with while set
+      - refresh_fails: the refresh grant answers 400 invalid_grant
+    Tokens are at-N / rt-N; a refresh invalidates the refresh token it used and
+    the access tokens before it (rotation)."""
+
+    def __init__(self):
+        self.client_ids = {BMW_CLIENT_ID}
+        self.device_state = "approved"
+        self.vins = [BMW_VIN]
+        self.containers = []
+        self.telematics = _bmw_telematics()
+        self.force_api = None
+        self.refresh_fails = False
+        self._n = 0
+        self.valid_access, self.valid_refresh = set(), set()
+        super().__init__()
+
+    def _mint(self) -> dict:
+        self._n += 1
+        at, rt = f"at-{self._n}", f"rt-{self._n}"
+        self.valid_access, self.valid_refresh = {at}, {rt}
+        return {"access_token": at, "refresh_token": rt, "id_token": "idt", "gcid": "g-1",
+                "token_type": "Bearer", "expires_in": 3599, "scope": "cardata:api:read"}
+
+    def _handler(self) -> type:
+        up = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):  # silence
+                pass
+
+            def _send(self, status, obj=None):
+                body = b"" if obj is None else json.dumps(obj).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _route(self, method):
+                length = int(self.headers.get("content-length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                up.calls.append((method, self.path, dict(self.headers), raw))
+                path, _, query = self.path.partition("?")
+                if path == "/device/code":
+                    form = {k: v[0] for k, v in parse_qs(raw.decode()).items()}
+                    if form.get("client_id") not in up.client_ids:
+                        return self._send(400, {"error": "invalid_client"})
+                    return self._send(200, {
+                        "device_code": "dc-1", "user_code": "BMW-1234", "expires_in": 300,
+                        "interval": 5, "verification_uri": "https://customer.example/oneid/link"})
+                if path == "/token":
+                    form = {k: v[0] for k, v in parse_qs(raw.decode()).items()}
+                    grant = form.get("grant_type")
+                    if grant == "refresh_token":
+                        if up.refresh_fails or form.get("refresh_token") not in up.valid_refresh:
+                            return self._send(400, {"error": "invalid_grant"})
+                        return self._send(200, up._mint())
+                    state = up.device_state
+                    if state == "approved":
+                        return self._send(200, up._mint())
+                    status, err = {"pending": (403, "authorization_pending"),
+                                   "expired": (401, "expired_token"),
+                                   "denied": (403, "access_denied")}[state]
+                    return self._send(status, {"error": err})
+                if not path.startswith("/customers/"):
+                    return self._send(404)
+                if self.headers.get("x-version") != "v1":
+                    return self._send(403, {"exveErrorMsg": "missing x-version"})
+                if up.force_api:
+                    return self._send(up.force_api, {"exveErrorMsg": "forced"})
+                auth = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                if auth not in up.valid_access:
+                    return self._send(401, {"exveErrorMsg": "unauthorized"})
+                if path == "/customers/vehicles/mappings":
+                    return self._send(200, [{"vin": v, "mappedSince": "2025-01-01T00:00:00Z",
+                                             "mappingType": "PRIMARY"} for v in up.vins])
+                if path == "/customers/containers" and method == "GET":
+                    return self._send(200, {"containers": [
+                        {k: v for k, v in c.items() if k != "technicalDescriptors"}
+                        for c in up.containers]})
+                if path == "/customers/containers" and method == "POST":
+                    body = json.loads(raw)
+                    c = {"name": body["name"], "purpose": body["purpose"], "state": "ACTIVE",
+                         "containerId": f"C{len(up.containers) + 1:04d}",
+                         "technicalDescriptors": body["technicalDescriptors"]}
+                    up.containers.append(c)
+                    return self._send(201, c)
+                if path.startswith("/customers/vehicles/") and path.endswith("/telematicData"):
+                    vin = path.split("/")[3]
+                    cid = parse_qs(query).get("containerId", [""])[0]
+                    if vin not in up.vins:
+                        return self._send(403, {"exveErrorMsg": "vin"})
+                    if cid not in {c["containerId"] for c in up.containers
+                                   if c.get("state") == "ACTIVE"}:
+                        return self._send(404, {"exveErrorMsg": "container"})
+                    return self._send(200, {"telematicData": up.telematics})
+                return self._send(404)
+
+            def do_GET(self):
+                self._route("GET")
+
+            def do_POST(self):
+                self._route("POST")
+
+        return H
+
+
+@pytest.fixture
+def fake_bmw():
+    u = FakeBmwUpstream().start()
+    _wait_listening(u.port)
+    yield u
+    u.stop()
+
+
 class StubUpstreamOAuthAdapter:
     """A complete Adapter implementing the upstream-OAuth login shape (C) with
     a canned token exchange — pins oauth.authorize_get's redirect branch and

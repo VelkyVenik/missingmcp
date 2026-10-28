@@ -171,6 +171,8 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | no | — | Credentials of your WHOOP developer app (see WHOOP connector setup); both unset ⇒ the whoop connector is disabled. |
 | `WHOOP_API_BASE` | no | `https://api.prod.whoop.com` | WHOOP API origin; override only for testing. |
 | `CAR_SKODA_API_BASE` | no | `https://public.api.connect.skoda-auto.cz` | Škoda Public API origin for the car connector; override only for testing. |
+| `CAR_BMW_AUTH_BASE` | no | `https://customer.bmwgroup.com/gcdm/oauth` | BMW CarData OAuth (device code + token) origin for the car connector; override only for testing. |
+| `CAR_BMW_API_BASE` | no | `https://api-cardata.bmwgroup.com` | BMW CarData customer API origin for the car connector; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (most providers) or `path`. |
