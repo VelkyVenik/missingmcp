@@ -383,3 +383,26 @@ def test_concurrent_status_and_location_cost_one_read(fake_bmw):
     for status, _h, raw in asyncio.run(both()):
         assert status == 200 and json.loads(raw)["result"]["isError"] is False
     assert len(_telematic_calls(fake_bmw)) == 1
+
+
+def test_queued_request_never_takes_over_a_reconnected_car(fake_bmw):
+    """Codex P1 (round 2): two stale requests queue on the refresh lock, the
+    account reconnects to another car meanwhile — the waiter must end too, not
+    proceed on the new car's credentials."""
+    cfg = _cfg(fake_bmw)
+    conn = store.init_db(":memory:")
+    api = bmw.BmwClient(cfg)
+    d = _stale_blob(fake_bmw)
+    store.upsert_account(conn, "car", KEY, json.dumps(d), cfg.gateway_secret)
+    other = {**d, "vin": "WBY00000000000099", "refresh_token": "rt-new",
+             "access_expires_at": int(time.time()) + 3600}
+    fake_bmw.delay_s = 0.3
+
+    async def race():
+        first = asyncio.create_task(api.ensure_fresh(conn, KEY, dict(d)))
+        second = asyncio.create_task(api.ensure_fresh(conn, KEY, dict(d)))
+        await asyncio.sleep(0.1)                      # first holds the lock, second waits
+        store.upsert_account(conn, "car", KEY, json.dumps(other), cfg.gateway_secret)
+        return await asyncio.gather(first, second, return_exceptions=True)
+    results = asyncio.run(race())
+    assert all(isinstance(r, SessionExpired) for r in results), results

@@ -228,6 +228,11 @@ class BmwClient:
             current = json.loads(raw) if raw else None
             if not current or current.get("brand") != "bmw":
                 raise SessionExpired("car account changed brand or vanished")
+            # A waiter may find the account reconnected to another car while it
+            # queued: that sign-in revoked this request's token, so it must never
+            # proceed on (and cache under its old VIN) the new car's credentials.
+            if (current.get("client_id"), current.get("vin")) != (d["client_id"], d["vin"]):
+                raise SessionExpired("car account was reconnected to another car")
             if current["access_expires_at"] - time.time() > REFRESH_MARGIN_S:
                 return current
             try:
