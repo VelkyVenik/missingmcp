@@ -276,7 +276,12 @@
     .btn-beer:hover { text-decoration: none; opacity: .92; }
 
     footer { border-top: 1px solid var(--border); padding: 1.6rem 0 2.2rem; font-size: .85rem; color: var(--dim); }
-    footer .wrap > div + div { margin-top: .45rem; }
+    /* One row on desktop — who/what on the left, links on the right — so the
+       footer reads as one bar under the centered final CTA instead of three
+       stacked left-aligned lines. Wraps to stacked lines on phones. */
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between;
+                   align-items: center; column-gap: 2rem; row-gap: .8rem; }
+    .foot-brand > div + div { margin-top: .3rem; }
     /* No separator dots between links — a wrapping flex row with gaps stays
        tidy at any width; nowrap spans make prose lines break only between
        sentences, never mid-name. */
@@ -303,13 +308,15 @@
 {CONTENT}
   <footer>
     <div class="wrap">
-      <div><span>MissingMCP &middot; Your data, in Claude.</span> <span>Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</span></div>
+      <div class="foot-brand">
+        <div><span>MissingMCP &middot; Your data, in Claude.</span> <span>Built by <a href="https://slajs.eu">Vaclav Slajs</a>.</span></div>
+        <div><span>This instance is run by {OPERATOR}.</span></div>
+      </div>
       <div class="foot-links">
         <a href="https://github.com/VelkyVenik/missingmcp">Source on GitHub</a>
         <a href="/privacy">Privacy</a>
         <a href="https://buymeacoffee.com/venik" target="_blank" rel="noopener noreferrer">&#127866; Buy me a beer</a>
       </div>
-      <div><span>This instance is run by {OPERATOR}.</span></div>
     </div>
   </footer>
 </body>
