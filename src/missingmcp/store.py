@@ -369,20 +369,33 @@ def create_access_token(conn, token_hash: str, adapter: str, account_key: str,
     conn.commit()
 
 
+LAST_USED_RESOLUTION_S = 300
+
+
+def _utc_str(ts: float) -> str:
+    """A unix time in SQLite's datetime('now') format (UTC, sortable as text)."""
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts))
+
+
 def account_key_for_token_hash(conn, token_hash: str) -> "tuple[str, str] | None":
     row = conn.execute(
-        "SELECT adapter, account_key, expires_at FROM access_tokens WHERE token_hash=?",
+        "SELECT adapter, account_key, expires_at, last_used FROM access_tokens "
+        "WHERE token_hash=?",
         (token_hash,),
     ).fetchone()
     if row is None:
         return None
     if row["expires_at"] is not None and time.time() > row["expires_at"]:
         return None  # expired; the reaper purges it
-    conn.execute(
-        "UPDATE access_tokens SET last_used=datetime('now') WHERE token_hash=?",
-        (token_hash,),
-    )
-    conn.commit()
+    # last_used is coarse on purpose: at most one write per LAST_USED_RESOLUTION_S
+    # per token, not one commit per MCP request.
+    if row["last_used"] is None or row["last_used"] < _utc_str(
+            time.time() - LAST_USED_RESOLUTION_S):
+        conn.execute(
+            "UPDATE access_tokens SET last_used=datetime('now') WHERE token_hash=?",
+            (token_hash,),
+        )
+        conn.commit()
     return (row["adapter"], row["account_key"])
 
 
@@ -561,6 +574,54 @@ def record_usage(conn, adapter: str, account_key: str, tool: str) -> None:
         (adapter, account_key, tool),
     )
     conn.commit()
+
+
+class UsageBuffer:
+    """tool_usage counts accumulated in memory and written in one transaction by
+    the lifespan loop (`flush`), instead of a commit per MCP request. Lost on a
+    crash (up to one loop tick of counts) — they are statistics, not state.
+    Event-loop-only: no lock."""
+
+    def __init__(self) -> None:
+        self._pending: dict[tuple[str, str, str], list] = {}   # key -> [calls, last_used]
+
+    def add(self, adapter: str, account_key: str, tool: str) -> None:
+        entry = self._pending.setdefault((adapter, account_key, tool), [0, None])
+        entry[0] += 1
+        entry[1] = _utc_str(time.time())
+
+    def pending(self) -> int:
+        return len(self._pending)
+
+    def flush(self, conn) -> int:
+        """Write the pending counts; returns the number of entries flushed. On a DB
+        error the batch goes back into the buffer for the next flush.
+
+        Counts for an account that no longer exists are dropped: a purge
+        (`scripts/revoke.py --purge`, retired-adapter cleanup) between a call and
+        the flush must not resurrect its tool_usage rows (and its email)."""
+        if not self._pending:
+            return 0
+        batch, self._pending = self._pending, {}
+        try:
+            conn.executemany(
+                "INSERT INTO tool_usage (adapter, account_key, tool, calls, last_used) "
+                "SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS "
+                "(SELECT 1 FROM accounts WHERE adapter=?1 AND account_key=?2) "
+                "ON CONFLICT(adapter, account_key, tool) DO UPDATE SET "
+                "calls = calls + excluded.calls, "
+                "last_used = MAX(COALESCE(last_used, ''), excluded.last_used)",
+                [(*k, calls, last) for k, (calls, last) in batch.items()],
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            for k, (calls, last) in batch.items():
+                entry = self._pending.setdefault(k, [0, last])
+                entry[0] += calls
+                entry[1] = max(entry[1] or "", last)
+            raise
+        return len(batch)
 
 
 # --- newsletter subscribers & connector suggestions -----------------------
