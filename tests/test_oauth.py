@@ -151,7 +151,7 @@ def test_login_no_mfa_redirects_with_code(conn):
     assert q["code"]
     # account stored under normalized (lowercased) email
     assert store.get_account_tokens(conn, "garmin", "me@x.cz", CONFIG.gateway_secret) == '{"t":1}'
-    # operators query this exact literal in Railway logs — a typo here breaks monitoring silently
+    # operators query this exact literal in the logs — a typo here breaks monitoring silently
     status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
     assert status_calls == ["ok"]
 
@@ -173,7 +173,7 @@ def test_login_mfa_then_verify_redirects(conn):
     _assert_signin_link(r1.text, {"client_id": cid, "redirect_uri": "https://claude.ai/cb",
                                   "state": "xyz", "code_challenge": "abc",
                                   "code_challenge_method": "S256"})
-    # operators query this exact literal in Railway logs — a typo here breaks monitoring silently
+    # operators query this exact literal in the logs — a typo here breaks monitoring silently
     status_calls = [c.kwargs["status"] for c in log_spy.call_args_list if c.args and c.args[0] == "login-start-result"]
     assert status_calls == ["needs_mfa"]
     assert "{OPERATOR_NAME}" not in r1.text  # operator placeholder must be filled on the normal MFA page

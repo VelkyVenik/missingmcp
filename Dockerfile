@@ -41,11 +41,11 @@ RUN uv pip install --system . && \
         "garmin-mcp @ git+https://github.com/Taxuspt/garmin_mcp@${GARMIN_MCP_REF}" "mcp<2" && \
     ln -s /opt/garmin-mcp/bin/garmin-mcp /usr/local/bin/garmin-mcp
 # -e 143: uvicorn (>=0.29) re-raises the SIGTERM it shut down on, so a clean
-# stop exits 143 and Railway mails "Deploy Crashed!" on every deploy. Only the
-# platform sends SIGTERM here; real crashes (OOM = SIGKILL, 137) still surface.
+# stop exits 143, which platforms report as a crash (Railway mailed "Deploy
+# Crashed!" on every deploy). Only the platform sends SIGTERM here; real crashes (OOM = SIGKILL, 137) still surface.
 ENTRYPOINT ["tini", "-e", "143", "--"]
 CMD ["missingmcp"]
 EXPOSE 8080
-# No VOLUME directive: Railway's builder rejects it ("use Railway Volumes") and
-# provides /data via a platform-managed volume; self-hosters mount /data with
-# `docker run -v`. Persistence is supplied by the runtime, not the image.
+# No VOLUME directive: some builders reject it (Railway's did) and provide
+# /data as a platform-managed volume; docker compose and `docker run -v`
+# mount it explicitly. Persistence is supplied by the runtime, not the image.

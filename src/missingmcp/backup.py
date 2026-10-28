@@ -1,5 +1,5 @@
 """Off-box SQLite backups: a periodic consistent snapshot uploaded to an
-S3-compatible bucket (Railway bucket / Tigris). Deliberately dependency-free:
+S3-compatible bucket (Tigris, R2, ...). Deliberately dependency-free:
 a minimal AWS SigV4 signer over httpx instead of boto3.
 
 Key layout: db/gateway-<weekday>.db — seven rotating slots, overwritten

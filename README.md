@@ -48,13 +48,12 @@ their Garmin credentials, and never touch a terminal or a token file.
 
 ## Deploy
 
-**Railway (how missingmcp.com runs):** one service built from the `Dockerfile`,
-a volume mounted at `/data`, a single replica (the gateway keeps process-local
-state by design), and TLS terminated at the Railway edge. Set the env vars from
-[Configuration](#configuration) on the service; pushes to `main` deploy
-automatically once the service is connected to the GitHub repo. An optional
-Railway bucket enables [Backups](#backups) (`railway bucket create backups`,
-then wire its credentials as the `BACKUP_S3_*` variables).
+**How missingmcp.com runs:** one Hetzner VM (`hydra`), the gateway as a single
+docker compose service with `/data` on the host, Caddy terminating TLS behind
+Cloudflare. Every push to `main` builds an arm64 image to GHCR and deploys it
+(`.github/workflows/deploy.yml`). Runbook, monitoring and alerts:
+[`deploy/README.md`](deploy/README.md). It ran on Railway until the 2026-10-25
+cutover.
 
 **Self-hosted (plain Docker):**
 
@@ -174,10 +173,10 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `CAR_SKODA_API_BASE` | no | `https://public.api.connect.skoda-auto.cz` | Škoda Public API origin for the car connector; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
-| `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |
+| `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (most providers) or `path`. |
 | `BACKUP_INTERVAL_HOURS` | no | `6` | Hours between backup uploads. First backup runs right after startup. |
 | `POSTHOG_API_KEY` | no | — | Public `phc_` project key. Unset ⇒ **all** PostHog telemetry (events, log tee, web analytics) is off. |
-| `POSTHOG_LOGS` | no | `false` | `true` tees every structured stdout line to PostHog Logs over OTLP. Off by default since 2026-10-19: at 2,500 WAU that was 43M+ lines (~9 GB) a month on the PostHog bill, and Railway keeps the logs anyway. Strict `true`/`false`. |
+| `POSTHOG_LOGS` | no | `false` | `true` tees every structured stdout line to PostHog Logs over OTLP. Off by default since 2026-10-19: at 2,500 WAU that was 43M+ lines (~9 GB) a month on the PostHog bill, and the host journal keeps the logs anyway. Strict `true`/`false`. |
 | `POSTHOG_HOST` | no | `https://eu.i.posthog.com` | Server-side ingestion host (SDK events + OTLP log tee). |
 | `POSTHOG_WEB_HOST` | no | `$POSTHOG_HOST` | posthog-js `api_host` — set it to the managed reverse proxy (e.g. `https://j.missingmcp.com`) for ad-blocker resilience. |
 | `POSTHOG_UI_HOST` | no | `https://eu.posthog.com` | PostHog app host; posthog-js needs it when `POSTHOG_WEB_HOST` is a proxy. |
@@ -232,7 +231,7 @@ re-materialized from the DB on demand.
 
 > **The backup is useless without `GATEWAY_SECRET`** (account blobs stay
 > AES-256-GCM encrypted inside it) — and that is the point. Keep a copy of
-> `GATEWAY_SECRET` somewhere that is *not* the bucket and *not* Railway
+> `GATEWAY_SECRET` somewhere that is *not* the bucket and *not* the server
 > (e.g. your password manager). Losing the secret = losing every account.
 
 **Restore:** download the newest object, put it at `$DATA_DIR/gateway.db`
@@ -262,11 +261,6 @@ python scripts/daily_report.py --post                 # + POST it to Slack ($SLA
 python scripts/add_beer.py --email <supporter>        # record a "buy me a beer" donation (1 beer, 5 EUR)
 python scripts/add_beer.py --email <supporter> --beers 3 --at 2026-07-20  # 3 beers, backdated
 ```
-
-`scripts/session_loss.py` works on Railway logs instead (`railway logs --json`
-output, see its docstring): the share of garmin calls failing on a lost MCP
-session (404), overall and within 5 s of a worker start — the before/after
-measure for `GARMIN_MCP_STATELESS_HTTP`.
 
 The gateway also posts this daily user-stats report to Slack on its own each
 morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
@@ -308,45 +302,12 @@ Progress is reported **only** as log events — `campaign-batch`,
 `campaign-daily-cap`, `campaign-auto-paused`, `campaign-done`,
 `campaign-send-unknown`, `campaign-run-failed` — never by mail.
 
-**Daily triage** — a GitHub Actions workflow
-(`.github/workflows/daily-triage.yml`) runs `scripts/daily_triage.py` every
-morning (~07:45 Prague): it pulls the last 24 h of error/warn rows from the
-gateway's Railway logs, classifies the known error signatures
-deterministically, and — only when something actionable remains — has Claude
-write the operator's triage (what happened → what it means → proposed action,
-per class) and posts it to Slack. Healthy days post a one-line "all quiet"
-(the daily heartbeat); if the analysis fails, the deterministic aggregate
-table posts instead — never silence. The analysis runs on the operator's
-Claude subscription via headless Claude Code (repo secret
-`CLAUDE_CODE_OAUTH_TOKEN`, minted with `claude setup-token`); an
-`ANTHROPIC_API_KEY` secret works as the fallback backend. Also needs
-`RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL` (already present for the hourly
-pager). Run by hand with `python scripts/daily_triage.py --dry-run` (needs the
-`RAILWAY_*` env; the analysis step degrades gracefully without a token).
-
-**Hourly hard-signal pager** — a GitHub Actions workflow
-(`.github/workflows/hourly-digest.yml`) runs `scripts/hourly_digest.py` every
-hour: it reads the last 60 min of the gateway's Railway logs via the Railway
-API, does a liveness probe, and pages (`<!here>`) **only** on a hard signal —
-a failed probe (site down), `worker-start-failed` across ≥2 distinct accounts
-in the hour (the broken-image signature), any 5xx, any `critical`, or a
-sign-in egress whose every `sso-probe` in the hour (≥2) failed to connect
-(needs `SSO_PROBE_INTERVAL` ≤ 1800 s; fetched with its own log filter). It is
-otherwise fully silent — plain error volume belongs to the daily triage.
-Requires repo secrets `RAILWAY_API_TOKEN` + `SLACK_WEBHOOK_URL`
-(service/environment ids are set as workflow env). `RAILWAY_API_TOKEN` may be a
-Railway **project** token (narrowest scope — reaches only this project; sent via
-the `Project-Access-Token` header) or an account/workspace token (sent as
-`Authorization: Bearer`); the script tries both. Run it by hand with
-`python scripts/hourly_digest.py --dry-run` (needs `RAILWAY_API_TOKEN`,
-`RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID` in the environment).
-
 **PostHog telemetry** — with `POSTHOG_API_KEY` set (see the env table), the
 gateway also ships analytics to PostHog (EU cloud; design:
 `docs/superpowers/specs/2026-07-20-posthog-telemetry-design.md`):
 per-request `$mcp_*` events (PostHog's built-in MCP analytics), a lean
 connect-funnel/conversion event set, an OTLP tee of the structured log stream
-(PostHog Logs, only with `POSTHOG_LOGS=true` — Railway stays the durable archive), and posthog-js on the
+(PostHog Logs, only with `POSTHOG_LOGS=true` — the host journal stays the durable archive), and posthog-js on the
 site (UTM campaign attribution; autocapture disabled on OAuth pages). Egress
 rule: identity + metadata only — never MCP bodies, credentials, or form
 contents; the account email travels only as `distinct_id`. Everything is
@@ -374,21 +335,23 @@ docker exec missingmcp python /app/scripts/status.py
 docker logs -f missingmcp                   # live structured-JSON events
 ```
 
-**On Railway** run them over `railway ssh`; logs live in the Railway dashboard
-(`railway logs --service gateway` for a live tail):
+**On missingmcp.com** (hydra) run them in the compose service; logs live in
+the host journal (see [`deploy/README.md`](deploy/README.md) → Operating):
 
 ```bash
-railway ssh --service gateway "python3 /app/scripts/status.py"
-railway ssh --service gateway "python3 /app/scripts/revoke.py --account <email>"
+ssh venik@hydra.venik.org
+cd /opt/missingmcp
+docker compose exec gateway python3 /app/scripts/status.py
+docker compose exec gateway python3 /app/scripts/revoke.py --account <email>
+journalctl -t missingmcp-gateway -f -o cat           # live structured-JSON events
 ```
 
 All logging is structured JSON on stdout (one event per line) with a proper
 `level` attribute — including uvicorn/stdlib records (event `stdlib-log`) and
 each worker's own output (event `worker-log`, with an `account` attribute;
-lines matching ERROR/Traceback are elevated to error severity). On Railway
-that makes everything searchable in the log explorer — filter e.g.
-`@event:worker-log @account:<email>` to trace one user's worker, or
-`@level:error` for problems. Request latency is recorded per call in the
+lines matching ERROR/Traceback are elevated to error severity). That makes
+everything greppable — e.g. `"event": "worker-log"` plus the account's email
+to trace one user's worker, or `"level": "error"` for problems. Request latency is recorded per call in the
 `mcp-response` event (`ttfb_ms`, `total_ms`, `bytes`, `tool`, `account`);
 login/verify and worker-spawn events carry `ms` durations. The gateway also
 logs a `stats` event (accounts / tokens / people-with-token / clients /

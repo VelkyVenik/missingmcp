@@ -32,7 +32,7 @@ class Config:
     backup_s3_access_key: str
     backup_s3_secret_key: str
     backup_s3_region: str
-    backup_s3_url_style: str      # "virtual-host" (Railway buckets) | "path"
+    backup_s3_url_style: str      # "virtual-host" (most providers) | "path"
     backup_interval: int          # seconds
     # WHOOP adapter (adapters/whoop). The adapter is registered only when both
     # client credentials are set — see adapters.build_adapters.
@@ -165,7 +165,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         posthog_ui_host=env.get("POSTHOG_UI_HOST", "https://eu.posthog.com").rstrip("/"),
         # Off by default (2026-10-19): the tee shipped every stdout line —
         # 43M+ lines / ~9 GB a month at 2,500 WAU — and PostHog billing hit
-        # $120 with a $250 projection. Railway keeps the logs regardless.
+        # $120 with a $250 projection. The host journal keeps the logs regardless.
         posthog_logs=_flag(env, "POSTHOG_LOGS", False),
         mail_api_token=env.get("MAIL_API_TOKEN", "").strip(),
         mail_account_id=env.get("MAIL_ACCOUNT_ID", "").strip(),

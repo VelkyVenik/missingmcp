@@ -40,7 +40,8 @@ _STDLIB_LEVELS = {  # stdlib levelname -> our structured schema's level values
 class _StructuredHandler(logging.Handler):
     """Bridges stdlib logging (uvicorn, garminconnect, urllib3, warnings) into
     the structured JSON stream on STDOUT. Without it those loggers fall back to
-    logging.lastResort on STDERR, which Railway classifies as error-severity —
+    logging.lastResort on STDERR, which the log pipeline files as error-severity
+    (Railway did; docker's journald driver logs stderr at priority err) —
     uvicorn's plain 'INFO: Started server process' lines showed up as errors."""
 
     def emit(self, record: logging.LogRecord) -> None:

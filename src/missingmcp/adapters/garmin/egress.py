@@ -12,8 +12,8 @@ from garminconnect import client as _gc_client
 from ...log import log
 
 # Reliability ticket 12: Cloudflare in front of Garmin's SSO rate-limits the
-# gateway's shared Railway egress IP, while the same request from a clean IP
-# gets through. GARMIN_SSO_PROXY lists proxies on dedicated IPs; each account
+# gateway's shared egress IP (Railway's, at the time), while the same request
+# from a clean IP gets through. GARMIN_SSO_PROXY lists proxies on dedicated IPs; each account
 # signs in through one of them (sticky by account hash), and each egress —
 # every proxy plus the direct path, kept as the last resort — has its own
 # circuit breaker, so one blocked IP sheds its accounts onto the others.
