@@ -14,25 +14,26 @@
       </details>
     </div>
     <div class="note" data-brand="bmw">
-      <strong>BMW &amp; Mini &mdash; create a Client ID in the MyBMW portal</strong>
+      <strong>BMW Group &mdash; create a Client ID in your brand&rsquo;s portal</strong>
       <ol>
-        <li>Sign in at the <strong>MyBMW</strong> (or MINI) website &rarr; your car &rarr; <strong>BMW CarData</strong></li>
+        <li>Sign in at <strong>MyBMW</strong>, <strong>MINI</strong>, <strong>Rolls-Royce</strong>, <strong>Toyota Supra Connect</strong> or <strong>My BMW Motorrad</strong> on the web &rarr; your vehicle &rarr; <strong>BMW CarData</strong></li>
         <li><strong>Technical access</strong> &rarr; <strong>Create Client ID</strong>, and tick <strong>CarData API</strong></li>
         <li>Copy the <strong>Client ID</strong> and your car&rsquo;s <strong>VIN</strong></li>
       </ol>
       Next, BMW asks you to approve the sign-in on its own page. Already using a Client ID (Home Assistant, evcc&hellip;)? Reuse it &mdash; but BMW&rsquo;s ~50 requests a day are shared between all apps on it.
+      Tested on BMW so far &mdash; the other makes run on the same BMW CarData and should work.
     </div>
     {ERROR}
     <form method="post" action="{AUTHORIZE_ACTION}">
 {OAUTH_FIELDS}
-      <label>Brand<select name="car_brand" required data-brand-picker><option value="skoda">Škoda</option><option value="bmw">BMW / Mini</option></select></label>
+      <label>Brand<select name="car_brand" required data-brand-picker><option value="skoda">Škoda</option><option value="bmw">BMW, Mini, Rolls-Royce, Toyota Supra, BMW Motorrad</option></select></label>
       <fieldset data-brand="skoda">
         <label>API key<input name="car_api_key" type="password" autocomplete="off"></label>
         <label>VIN<input name="car_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false"><span class="hint">17 characters &mdash; <em>Vehicle VIN</em> on the same screen, with a copy button.</span></label>
       </fieldset>
       <fieldset data-brand="bmw">
         <label>Client ID<input name="car_bmw_client_id" type="text" autocomplete="off" spellcheck="false"><span class="hint">36 characters, like 1a2b3c4d-&hellip; &mdash; from BMW CarData &rarr; Technical access.</span></label>
-        <label>VIN<input name="car_bmw_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false"><span class="hint">17 characters &mdash; shown in the MyBMW app and on the BMW CarData page.</span></label>
+        <label>VIN<input name="car_bmw_vin" type="text" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false"><span class="hint">17 characters &mdash; shown in your brand&rsquo;s app and on the BMW CarData page.</span></label>
       </fieldset>
       <label>Your email<input name="car_email" type="email" autocomplete="email" required><span class="hint">Only for important news about this connector.</span></label>
       <button class="btn" type="submit" data-busy-label="Contacting your car maker…">Connect</button>
