@@ -294,7 +294,7 @@ def build_app(config: Config) -> Starlette:
     # without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png",
-                         "og.png", "myskoda-smart-home.png")}
+                         "og.png", "myskoda-smart-home.png", "car-demo.gif")}
     site_js = (_STATIC / "site.js").read_text()
 
     async def healthz(request):
@@ -373,11 +373,11 @@ def build_app(config: Config) -> Starlette:
                             headers={"Cache-Control": "public, max-age=3600"})
         return handler
 
-    def static_png(name):
+    def static_png(name, media_type="image/png"):
         body = _assets[name]
 
         async def handler(request):
-            return Response(body, media_type="image/png",
+            return Response(body, media_type=media_type,
                             headers={"Cache-Control": "public, max-age=86400"})
         return handler
 
@@ -548,6 +548,9 @@ def build_app(config: Config) -> Starlette:
         # MyŠkoda "Smart home" screen for the car connector's key guide (keys and
         # VIN pixelated in the source screenshot).
         Route("/static/myskoda-smart-home.png", static_png("myskoda-smart-home.png"),
+              methods=["GET"]),
+        # Real claude.ai session with the car connector (parking address pixelated).
+        Route("/static/car-demo.gif", static_png("car-demo.gif", "image/gif"),
               methods=["GET"]),
     ]
     for a in adapters.values():

@@ -248,5 +248,13 @@ def test_myskoda_screenshots_served_and_linked(fake_skoda):
     assert "/static/myskoda-smart-home.png" in client.get("/car").text
 
 
+def test_demo_gif_served_and_on_landing(fake_skoda):
+    client = _client(fake_skoda)
+    r = client.get("/static/car-demo.gif")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/gif"
+    assert r.content[:6] in (b"GIF87a", b"GIF89a")
+    assert '<img src="/static/car-demo.gif"' in client.get("/car").text
+
+
 def test_home_page_does_not_promote_car(fake_skoda):
     assert "/car" not in _client(fake_skoda).get("/").text
