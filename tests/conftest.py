@@ -320,6 +320,211 @@ def fake_whoop():
     u.stop()
 
 
+SKODA_VIN = "TMBTEST0000000001"
+SKODA_KEY = "key-1"
+SKODA_PROBLEMS = "https://public.api.connect.skoda-auto.cz/problems/"
+
+
+def _skoda_vehicle() -> dict:
+    """Full `vehicle` object, shaped like the redacted live read (an EV: charging
+    + AC only). Identifying fields hold sentinels so privacy tests can grep for them."""
+    return {
+        "airConditioning": {
+            "state": "OFF", "airConditioningAtUnlock": True,
+            "carCapturedTimestamp": "2026-10-28T08:32:56Z",
+            "targetTemperature": {"value": 22.0, "unit": "CELSIUS"},
+            "windowHeating": {"enabled": True, "front": "OFF", "rear": "OFF"}},
+        "activeVentilation": {"state": "OFF", "carCapturedTimestamp": "2026-10-28T08:32:56Z"},
+        "charging": {
+            "isVehicleInSavedLocation": True, "carCapturedTimestamp": "2026-10-28T08:35:36Z",
+            "settings": {"autoUnlockPlugWhenCharged": "OFF", "availableChargeModes": ["MANUAL"],
+                         "batteryCareModeTargetValueInPercent": 80,
+                         "chargingCareMode": "ACTIVATED", "maxChargeCurrentAc": "MAXIMUM",
+                         "preferredChargeMode": "MANUAL", "targetStateOfChargeInPercent": 80},
+            "status": {"battery": {"remainingCruisingRangeInMeters": 296000,
+                                   "stateOfChargeInPercent": 75},
+                       "chargePowerInKw": 0.0, "fullyChargedAt": "2026-10-28T08:35:36Z",
+                       "plugConnectionState": "DISCONNECTED", "plugLockState": "UNLOCKED",
+                       "remainingTimeToFullyChargedInMinutes": 0, "state": "CONNECT_CABLE"}},
+        "licensePlate": "PLATE-SENTINEL",
+        "name": "NAME-SENTINEL",
+        "renderUrl": "https://render.example/RENDER-SENTINEL.png",
+        "odometer": {"mileageInKm": 8279, "carCapturedTimestamp": "2026-10-28T08:42:45.085Z"},
+        "operations": [{"name": n} for n in (
+            "startCharging", "stopCharging", "setChargingLimit", "setChargeMode",
+            "updateChargingProfile", "startAirConditioning", "stopAirConditioning")],
+        "parkingPosition": {"state": "PARKED", "formattedAddress": "ADDR-SENTINEL",
+                            "gpsCoordinates": {"latitude": 49.123456, "longitude": 16.654321}},
+        "status": {"overall": {"doorsLocked": "YES", "locked": "YES", "doors": "CLOSED",
+                               "windows": "CLOSED", "lights": "OFF",
+                               "reliableLockStatus": "LOCKED"},
+                   "detail": {"sunroof": "UNSUPPORTED", "trunk": "CLOSED", "bonnet": "CLOSED"},
+                   "carCapturedTimestamp": "2026-10-28T08:33:00.682Z"},
+    }
+
+
+# include name → (vehicle key(s), error type when the car lacks it)
+_SKODA_SECTIONS = {
+    "info": (("name", "licensePlate", "renderUrl"), None),
+    "status": (("status",), "STATUS_UNSUPPORTED"),
+    "fuelStatus": (("fuelStatus",), "FUEL_STATUS_UNSUPPORTED"),
+    "odometer": (("odometer",), "ODOMETER_UNSUPPORTED"),
+    "parkingPosition": (("parkingPosition",), "PARKING_POSITION_UNSUPPORTED"),
+    "airConditioning": (("airConditioning",), "AIR_CONDITIONING_UNSUPPORTED"),
+    "auxiliaryHeating": (("auxiliaryHeating",), "AUXILIARY_HEATING_UNSUPPORTED"),
+    "activeVentilation": (("activeVentilation",), "ACTIVE_VENTILATION_UNSUPPORTED"),
+    "charging": (("charging",), "CHARGING_UNSUPPORTED"),
+    "chargingProfiles": (("chargingProfiles",), "CHARGING_PROFILES_UNSUPPORTED"),
+    "operations": (("operations",), None),
+}
+
+# action path tail → (method, operationId)
+_SKODA_ACTIONS = {
+    "air-conditioning/start": ("POST", "startAirConditioning"),
+    "air-conditioning/stop": ("POST", "stopAirConditioning"),
+    "active-ventilation/start": ("POST", "startActiveVentilation"),
+    "active-ventilation/stop": ("POST", "stopActiveVentilation"),
+    "charging/start": ("POST", "startCharging"),
+    "charging/stop": ("POST", "stopCharging"),
+    "charging/limit": ("PUT", "setChargingLimit"),
+}
+
+
+class FakeSkodaUpstream(_FakeHttpServer):
+    """MyŠkoda Public API fake (contract 1.1.0 + live observations). Knobs:
+      - keys: api key → set of VINs it covers
+      - vehicle: the full vehicle object (sections returned per `include`)
+      - unsupported: include names this car lacks (→ errors[] *_UNSUPPORTED)
+      - expires_at / remaining / reset: X-API-Key-Expires-At and RateLimit-* values;
+        each counted call (2xx, 422, 429, 5xx) decrements remaining, 401/403/404 don't
+      - force: (status, problem type tail) answered by every call while set
+      - delay_s: sleep before answering
+    """
+
+    def __init__(self):
+        self.keys = {SKODA_KEY: {SKODA_VIN}}
+        self.vehicle = _skoda_vehicle()
+        self.unsupported = {"auxiliaryHeating", "activeVentilation", "fuelStatus"}
+        self.expires_at = "2027-04-26T09:11:23.249Z"
+        self.remaining = 20
+        self.reset = 3600
+        self.force = None
+        self.delay_s = 0.0
+        super().__init__()
+
+    def _handler(self) -> type:
+        up = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):  # silence
+                pass
+
+            def _send(self, status, obj=None, headers=None, counted=True):
+                if counted:
+                    up.remaining = max(0, up.remaining - 1)
+                body = b"" if obj is None else json.dumps(obj).encode()
+                self.send_response(status)
+                ctype = "application/json" if status < 400 else "application/problem+json"
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                if counted:
+                    self.send_header("RateLimit-Limit", "20")
+                    self.send_header("RateLimit-Remaining", str(up.remaining))
+                    self.send_header("RateLimit-Reset", str(up.reset))
+                if 200 <= status < 300:
+                    self.send_header("X-API-Key-Expires-At", up.expires_at)
+                for k, v in (headers or {}).items():
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _problem(self, status, tail, detail="", headers=None, counted=True):
+                ptype = "about:blank" if tail == "about:blank" else SKODA_PROBLEMS + tail
+                self._send(status, {"type": ptype, "title": "Problem", "status": status,
+                                    "detail": detail or tail, "instance": self.path},
+                           headers=headers, counted=counted)
+
+            def _route(self, method):
+                length = int(self.headers.get("content-length", 0) or 0)
+                body = self.rfile.read(length) if length else b""
+                up.calls.append((method, self.path, dict(self.headers), body))
+                if up.delay_s:
+                    time.sleep(up.delay_s)
+                path, _, query = self.path.partition("?")
+                key = self.headers.get("X-API-Key", "")
+                if up.force:
+                    status, tail = up.force
+                    extra = {"Retry-After": "1200"} if status == 429 else None
+                    return self._problem(status, tail, headers=extra,
+                                         counted=status not in (401, 403, 404))
+                if not path.startswith("/api/v1/vehicles/"):
+                    return self._problem(404, "about:blank", "No static resource", counted=False)
+                if key not in up.keys:
+                    return self._problem(401, "about:blank", "Missing or invalid API key.",
+                                         counted=False)
+                vin, _, tail = path.removeprefix("/api/v1/vehicles/").partition("/")
+                if vin not in up.keys[key]:
+                    return self._problem(403, "api-key-not-authorized", counted=False)
+                if not tail and method == "GET":
+                    return self._read(parse_qs(query).get("include", [""])[0])
+                action = _SKODA_ACTIONS.get(tail)
+                if action is None or action[0] != method:
+                    return self._problem(404, "about:blank", "No static resource", counted=False)
+                return self._act(action[1], json.loads(body) if body else {})
+
+            def _read(self, include):
+                vehicle, errors = {}, []
+                for name in [i for i in include.split(",") if i]:
+                    keys, err = _SKODA_SECTIONS[name]
+                    if name in up.unsupported:
+                        errors.append({"type": err, "description": f"{name} not supported"})
+                        continue
+                    for k in keys:
+                        if k in up.vehicle:
+                            vehicle[k] = up.vehicle[k]
+                self._send(200, {"vehicle": vehicle, "errors": errors})
+
+            def _act(self, op, body):
+                v = up.vehicle
+                if op == "startAirConditioning":
+                    v["airConditioning"]["state"] = "HEATING"
+                    if "targetTemperature" in body:
+                        v["airConditioning"]["targetTemperature"] = body["targetTemperature"]
+                elif op == "stopAirConditioning":
+                    v["airConditioning"]["state"] = "OFF"
+                elif op == "startActiveVentilation":
+                    v["activeVentilation"]["state"] = "VENTILATING"
+                elif op == "stopActiveVentilation":
+                    v["activeVentilation"]["state"] = "OFF"
+                elif op == "startCharging":
+                    v["charging"]["status"]["state"] = "CHARGING"
+                elif op == "stopCharging":
+                    v["charging"]["status"]["state"] = "READY_FOR_CHARGING"
+                elif op == "setChargingLimit":
+                    v["charging"]["settings"]["targetStateOfChargeInPercent"] = \
+                        body["targetStateOfChargeInPercent"]
+                self._send(202)
+
+            def do_GET(self):
+                self._route("GET")
+
+            def do_POST(self):
+                self._route("POST")
+
+            def do_PUT(self):
+                self._route("PUT")
+
+        return H
+
+
+@pytest.fixture
+def fake_skoda():
+    u = FakeSkodaUpstream().start()
+    _wait_listening(u.port)
+    yield u
+    u.stop()
+
+
 class StubUpstreamOAuthAdapter:
     """A complete Adapter implementing the upstream-OAuth login shape (C) with
     a canned token exchange — pins oauth.authorize_get's redirect branch and

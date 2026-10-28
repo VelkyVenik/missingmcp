@@ -242,10 +242,37 @@ async def authorize_get(request, adapter, state, conn, config) -> HTMLResponse |
     return render_authorize(params, state.csrf.issue(), config, adapter)
 
 
-def _finish(conn, config, params: dict, blob: str, adapter_name: str, account_key: str,
+def _subject_changed(conn, config, adapter, account_key: str, blob: str) -> bool:
+    """True when this sign-in binds the account to a different upstream
+    credential subject than the stored blob (adapter's optional
+    `credential_subject(blob)`, probed with getattr like read_back). Needed where
+    account_key is NOT proven by the upstream: the car connector's typed email.
+    Without it, whoever connected first under someone else's email would keep a
+    valid token after the real owner connects — and ride the owner's key."""
+    subject = getattr(adapter, "credential_subject", None)
+    if subject is None:
+        return False
+    old = store.get_account_tokens(conn, adapter.name, account_key, config.gateway_secret)
+    if old is None:
+        return False
+    try:
+        return subject(old) != subject(blob)
+    except Exception:  # noqa: BLE001 - unreadable old blob: fail closed
+        return True
+
+
+def _finish(conn, config, params: dict, blob: str, adapter, account_key: str,
             request=None) -> RedirectResponse:
     # blob already verified by the caller (adapter.verify) before we persist
+    adapter_name = adapter.name
     existed = store.account_exists(conn, adapter_name, account_key)
+    if existed and _subject_changed(conn, config, adapter, account_key, blob):
+        # new credential subject under the same account_key: every token and
+        # pending code minted for the previous one dies before we persist.
+        tokens = store.revoke_account(conn, adapter_name, account_key)
+        codes = store.revoke_codes(conn, adapter_name, account_key)
+        log_warn("account-subject-changed", adapter=adapter_name, account=account_key,
+                 tokens_revoked=tokens, codes_revoked=codes)
     store.upsert_account(conn, adapter_name, account_key, blob, config.gateway_secret)
     # The campaign outcome event + the web↔account stitch (spec tickets 03/05):
     # the browser's posthog-js cookie rides on this authorize request because
@@ -356,7 +383,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
         log("authorize-finish", step="mfa")
         telemetry.capture("login_succeeded", distinct_id=result.account_key,
                           properties={"adapter": adapter.name, "step": "mfa"})
-        return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+        return _finish(conn, config, params, result.blob, adapter, result.account_key,
                        request=request)
 
     # login step
@@ -412,7 +439,7 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
     log("authorize-finish", step="login")
     telemetry.capture("login_succeeded", distinct_id=result.account_key,
                       properties={"adapter": adapter.name, "step": "login"})
-    return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+    return _finish(conn, config, params, result.blob, adapter, result.account_key,
                    request=request)
 
 
@@ -510,5 +537,5 @@ async def authorize_callback(request, adapter, state, conn, config) -> HTMLRespo
     log("authorize-finish", step="upstream")
     telemetry.capture("login_succeeded", distinct_id=result.account_key,
                       properties={"adapter": adapter.name, "step": "upstream"})
-    return _finish(conn, config, params, result.blob, adapter.name, result.account_key,
+    return _finish(conn, config, params, result.blob, adapter, result.account_key,
                    request=request)

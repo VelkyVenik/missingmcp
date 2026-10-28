@@ -386,6 +386,18 @@ def account_key_for_token_hash(conn, token_hash: str) -> "tuple[str, str] | None
     return (row["adapter"], row["account_key"])
 
 
+def token_still_valid(conn, token_hash: str, adapter: str, account_key: str) -> bool:
+    """Read-only re-check of an already authenticated Bearer (no last_used write):
+    still present, unexpired, and bound to the same (adapter, account_key)."""
+    row = conn.execute(
+        "SELECT adapter, account_key, expires_at FROM access_tokens WHERE token_hash=?",
+        (token_hash,),
+    ).fetchone()
+    return (row is not None
+            and (row["expires_at"] is None or time.time() <= row["expires_at"])
+            and (row["adapter"], row["account_key"]) == (adapter, account_key))
+
+
 def cleanup_expired_tokens(conn) -> None:
     conn.execute(
         "DELETE FROM access_tokens WHERE expires_at IS NOT NULL AND expires_at < ?",
@@ -500,6 +512,15 @@ def create_code(conn, code_hash, client_id, redirect_uri, code_challenge, method
          account_key, int(time.time()) + ttl),
     )
     conn.commit()
+
+
+def revoke_codes(conn, adapter: str, account_key: str) -> int:
+    """Delete an account's not-yet-exchanged authorization codes (they would mint
+    tokens for the account's current blob). Returns rows deleted."""
+    cur = conn.execute("DELETE FROM oauth_codes WHERE adapter=? AND account_key=?",
+                       (adapter, account_key))
+    conn.commit()
+    return cur.rowcount
 
 
 def consume_code(conn, code_hash) -> dict | None:

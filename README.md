@@ -110,6 +110,20 @@ WHOOP's official v2 API (no worker subprocess, no shared upstream). Requires
 the operator to register a WHOOP developer app — see [WHOOP connector
 setup](#whoop-connector-setup) in Configuration.
 
+### Car — `/car/mcp` (beta)
+
+One connector for every supported car brand; the brand is picked per account on
+the sign-in form. Today: **Škoda**, on the official
+[MyŠkoda Public API](https://public.api.connect.skoda-auto.cz/docs). Each user
+brings their own API key (MyŠkoda app → Profil → Chytrá domácnost → Vytvořit
+klíč) plus the car's VIN and an email. Key and VIN are stored encrypted; no
+operator setup or secret is needed, so the connector is always on. Served
+in-process (local strategy). Tools are brand-neutral: status, location (only on
+request), and climate / ventilation / charging start-stop and charge limit,
+filtered per car by what it supports. Škoda allows 20 requests/hour per car;
+status is cached for 60 s and every result reports the remaining budget. Works
+in Claude, ChatGPT and Grok (connect steps on the `/car` landing page).
+
 ### Rohlík — no longer missing
 
 The gateway briefly served a Rohlík connector (remote strategy: credential
@@ -124,10 +138,12 @@ The remote-forward strategy remains a first-class, tested part of the core
 
 1. In any Claude client: **Settings → Connectors → Add custom connector**, or in
    the CLI: `claude mcp add --transport http garmin https://<your-domain>/garmin/mcp`
-   (whoop: `claude mcp add --transport http whoop https://<your-domain>/whoop/mcp`).
+   (whoop: `claude mcp add --transport http whoop https://<your-domain>/whoop/mcp`;
+   car: `.../car/mcp`).
 2. Claude opens the gateway's sign-in page — enter the service's email +
-   password (Garmin also prompts for an MFA code when needed), or for WHOOP,
-   sign in on WHOOP's own OAuth page.
+   password (Garmin also prompts for an MFA code when needed); for WHOOP,
+   sign in on WHOOP's own OAuth page; for car, pick the brand and paste your
+   own API key + VIN.
 3. Done — the service's tools are now available in Claude.
 
 ## Configuration
@@ -155,6 +171,7 @@ Set via environment (or `.env`). See [`.env.example`](.env.example).
 | `OPERATOR_URL` | no | — | Homepage the operator name links to (footer, trust notes). Unset → plain text. |
 | `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | no | — | Credentials of your WHOOP developer app (see WHOOP connector setup); both unset ⇒ the whoop connector is disabled. |
 | `WHOOP_API_BASE` | no | `https://api.prod.whoop.com` | WHOOP API origin; override only for testing. |
+| `CAR_SKODA_API_BASE` | no | `https://public.api.connect.skoda-auto.cz` | Škoda Public API origin for the car connector; override only for testing. |
 | `BACKUP_S3_ENDPOINT` / `BACKUP_S3_BUCKET` / `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | no | — | S3-compatible bucket for off-box DB backups (see Backups). Backups are disabled unless all four are set. |
 | `BACKUP_S3_REGION` | no | `auto` | SigV4 region of the bucket. |
 | `BACKUP_S3_URL_STYLE` | no | `virtual-host` | `virtual-host` (Railway buckets) or `path`. |

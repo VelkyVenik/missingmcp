@@ -203,8 +203,9 @@ from missingmcp.adapters import build_adapters
 
 def test_registry_builds_all_adapters():
     adapters = build_adapters(CFG)
-    assert set(adapters) == {"garmin"}
+    assert set(adapters) == {"garmin", "car"}     # car needs no operator secret: always on
     assert adapters["garmin"].name == "garmin"
+    assert adapters["car"].name == "car"
     assert adapters["garmin"].forward.command() == ["uvx", "garmin-mcp"]
 
 

@@ -106,3 +106,44 @@ def test_unauthenticated_is_401():
     r = c.post("/acmelocal/mcp", json={"jsonrpc": "2.0", "method": "initialize"})
     assert r.status_code == 401
     assert adapter.forward.handled == []
+
+
+def _slow_body_request(on_body):
+    """A POST whose body arrives only after `on_body()` ran — i.e. something
+    happened on the event loop while handle_mcp awaited the request body."""
+    from starlette.requests import Request
+    body = json.dumps({"jsonrpc": "2.0", "method": "initialize", "id": 1}).encode()
+    scope = {"type": "http", "method": "POST", "path": "/acmelocal/mcp",
+             "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
+             "client": ("127.0.0.1", 1234), "query_string": b""}
+    sent = []
+
+    async def receive():
+        if not sent:
+            on_body()
+            sent.append(True)
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+    return Request(scope, receive)
+
+
+def test_token_revoked_while_body_in_flight_never_reaches_new_credentials():
+    """Codex P1 (PR #65): a reconnect that revokes the token and replaces the blob
+    while the request body is still arriving must not hand the new credentials
+    to the revoked token."""
+    import asyncio
+    conn = store.init_db(":memory:")
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://x"})
+    store.upsert_account(conn, "acmelocal", "me@x.cz", BLOB, cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(TOKEN), "acmelocal", "me@x.cz", "c1")
+    adapter = StubLocalAdapter()
+
+    def reconnect():
+        store.revoke_account(conn, "acmelocal", "me@x.cz")
+        store.upsert_account(conn, "acmelocal", "me@x.cz", '{"access_token":"victim"}',
+                             cfg.gateway_secret)
+
+    r = asyncio.run(proxy.handle_mcp(_slow_body_request(reconnect), "POST", adapter, conn,
+                                     None, cfg, cfg.gateway_secret, security.RateLimiter()))
+    assert r.status_code == 401
+    assert adapter.forward.handled == []
