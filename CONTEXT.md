@@ -20,9 +20,17 @@ the URL `/<adapter>/mcp`.
 _Avoid_: connector (that's the person's view), provider, integration
 
 **Upstream**:
-The third-party service an adapter connects to (Garmin, WHOOP) — the system that
-owns the data and authenticates the account. Never the gateway itself.
+The third-party service an adapter connects to (Garmin, WHOOP, the Škoda Public
+API) — the system that owns the data and authenticates the account. Never the
+gateway itself. An adapter has one upstream, except the `car` adapter, which has
+one per **brand**; each of its accounts is bound to exactly one brand.
 _Avoid_: provider, backend, vendor
+
+**Brand**:
+A car maker served by the `car` connector (e.g. Škoda), chosen per account at
+sign-in. It decides the account's upstream, its sign-in form and which tools
+the account's vehicle can run.
+_Avoid_: make, OEM, manufacturer
 
 **Forward strategy**:
 How an adapter serves `/<adapter>/mcp` — **worker** (proxied to a per-account
@@ -47,7 +55,9 @@ _Avoid_: dead adapter, dropped adapter, disabled adapter
 **Account**:
 A person's connection to one upstream service, keyed by `(adapter, account_key)`
 where `account_key` is their lowercased login email. Holds the encrypted
-credential blob.
+credential blob. When the upstream has no email (the `car` connector's Škoda
+brand), the person types one at sign-in. It is unverified but still serves as
+the account email.
 _Avoid_: user, customer, login (those blur account vs. device vs. person).
 
 **Active account**:
