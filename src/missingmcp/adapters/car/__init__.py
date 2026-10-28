@@ -38,7 +38,7 @@ class CarAdapter:
     # generic "connect your Car account to Claude" reads wrong for a car.
     # The title doubles as the link-preview headline (iMessage shows the domain under
     # it, so no "| MissingMCP"); the search phrase "MCP server" lives in the description.
-    landing_title = "Connect your car to Claude, ChatGPT & Grok"
+    landing_title = "Control your car from Claude, ChatGPT & Grok"
     landing_description = ("Hosted car MCP server: ask Claude, ChatGPT or Grok about "
                            "battery, range and locks, and pre-heat the cabin. Škoda first, "
                            "your own API key, free beta.")

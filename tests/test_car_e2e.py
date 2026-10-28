@@ -285,7 +285,7 @@ def test_car_landing_has_its_own_link_preview(fake_skoda):
     page = client.get("/car").text
     assert re.search(r'og:image" content="https://gw\.example\.com/static/og-car\.png\?v=\w{8}"', page)
     assert "own car" in re.search(r'og:image:alt" content="([^"]+)"', page).group(1)
-    assert re.search(r"<title>Connect your car to Claude, ChatGPT (&amp;|&) Grok</title>", page)
+    assert re.search(r"<title>Control your car from Claude, ChatGPT (&amp;|&) Grok</title>", page)
     assert "Connect Car to Claude" not in page and "<title>Car MCP Server" not in page
     assert client.get("/static/og-car.png").headers["content-type"] == "image/png"
     # other connectors keep the site-wide card
