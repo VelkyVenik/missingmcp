@@ -147,3 +147,27 @@ def test_token_revoked_while_body_in_flight_never_reaches_new_credentials():
                                      None, cfg, cfg.gateway_secret, security.RateLimiter()))
     assert r.status_code == 401
     assert adapter.forward.handled == []
+
+
+def test_usage_buffered_when_buffer_given():
+    """app.py passes a UsageBuffer: the request itself writes no tool_usage row,
+    the lifespan loop's flush does."""
+    conn = store.init_db(":memory:")
+    cfg = load_config({"GATEWAY_SECRET": "s" * 40, "PUBLIC_URL": "https://x"})
+    store.upsert_account(conn, "acmelocal", "me@x.cz", BLOB, cfg.gateway_secret)
+    store.create_access_token(conn, store.hash_token(TOKEN), "acmelocal", "me@x.cz", "c1")
+    adapter, rate, usage = StubLocalAdapter(), security.RateLimiter(), store.UsageBuffer()
+
+    async def handler(request):
+        return await proxy.handle_mcp(request, "POST", adapter, conn, None, cfg,
+                                      cfg.gateway_secret, rate, usage=usage)
+
+    c = TestClient(Starlette(routes=[Route("/acmelocal/mcp", handler, methods=["POST"])]))
+    r = _post(c, body={"jsonrpc": "2.0", "method": "tools/call",
+                       "params": {"name": "get_profile"}, "id": 1})
+    assert r.status_code == 200
+    assert conn.execute("SELECT COUNT(*) FROM tool_usage").fetchone()[0] == 0
+    assert usage.flush(conn) == 1
+    assert [tuple(r) for r in conn.execute(
+        "SELECT adapter, account_key, tool, calls FROM tool_usage")] == [
+        ("acmelocal", "me@x.cz", "get_profile", 1)]

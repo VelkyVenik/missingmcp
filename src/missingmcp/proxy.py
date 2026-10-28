@@ -125,7 +125,8 @@ def _reauth_required(config, adapter) -> JSONResponse:
     )
 
 
-async def handle_mcp(request, method, adapter, conn, manager, config, secret, rate) -> Response:
+async def handle_mcp(request, method, adapter, conn, manager, config, secret, rate,
+                     usage=None) -> Response:
     t0 = time.monotonic()
     log("mcp-request", adapter=adapter.name, method=method,
         has_session=bool(request.headers.get("mcp-session-id")))
@@ -168,7 +169,10 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
     tool = _mcp_tool(body)
     if tool:
         try:
-            store.record_usage(conn, adapter.name, key, tool)
+            if usage is not None:   # buffered; the lifespan loop flushes it
+                usage.add(adapter.name, key, tool)
+            else:
+                store.record_usage(conn, adapter.name, key, tool)
         except Exception:  # noqa: BLE001 - usage metrics must never break a request
             pass
     ph_event = _mcp_event(body, adapter.name)

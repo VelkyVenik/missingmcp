@@ -17,7 +17,7 @@ from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
 from .adapters.garmin.probe import SsoProbe
 from .adapters.base import is_remote, is_local, is_upstream_oauth
-from .log import log
+from .log import log, log_exc
 
 _TPL = Path(__file__).parent / "templates"
 _STATIC = Path(__file__).parent / "static"
@@ -73,6 +73,7 @@ def build_app(config: Config) -> Starlette:
     # 10 min; tokens are one-time-consume, so the longer life costs nothing.
     auth_state = oauth.AuthState(security.CsrfStore(ttl=1800))
     rate = security.RateLimiter()
+    usage_buf = store.UsageBuffer()   # tool_usage counts, flushed by the lifespan loop
     bk = backup.Backup(config)
     dr = report.DailyReport(config)
     ml = mailer.Mailer(config)
@@ -507,7 +508,8 @@ def build_app(config: Config) -> Starlette:
         def mcp(method):
             async def handler(request):
                 return await proxy.handle_mcp(request, method, adapter, conn, manager,
-                                              config, config.gateway_secret, rate)
+                                              config, config.gateway_secret, rate,
+                                              usage=usage_buf)
             return handler
 
         routes = [
@@ -534,6 +536,12 @@ def build_app(config: Config) -> Starlette:
     async def lifespan(app):
         stop = asyncio.Event()
 
+        def _flush_usage():
+            try:
+                usage_buf.flush(conn)
+            except Exception as e:  # noqa: BLE001 - counts stay buffered for the next tick
+                log_exc("usage-flush-failed", e, pending=usage_buf.pending())
+
         async def loop():
             last_stats = None
             while not stop.is_set():
@@ -549,6 +557,7 @@ def build_app(config: Config) -> Starlette:
                 if sso_probe.enabled and sso_probe.due():
                     # sso_probe.run never raises; one impersonated GET per interval
                     await asyncio.to_thread(sso_probe.run)
+                _flush_usage()   # buffered tool_usage counts, one commit
                 with contextlib.suppress(Exception):
                     for manager in managers.values():
                         await manager.reap_idle()
@@ -580,6 +589,7 @@ def build_app(config: Config) -> Starlette:
                 await task
             for manager in managers.values():
                 manager.shutdown()
+            _flush_usage()
             # blocking queue flush (SDK + OTLP) — keep it off the event loop
             await asyncio.to_thread(telemetry.shutdown)
 
