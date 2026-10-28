@@ -41,6 +41,8 @@ class Config:
     whoop_api_base: str           # tests/staging override; both OAuth and data URLs derive from it
     # car adapter (adapters/car), always registered; Škoda Public API base, tests/staging override.
     car_skoda_api_base: str
+    car_bmw_auth_base: str        # BMW CarData OAuth (device flow + token)
+    car_bmw_api_base: str         # BMW CarData customer REST API
     # Daily user-stats report to Slack (report.py); disabled when the webhook is unset.
     slack_webhook_url: str
     daily_report_hour: int        # local hour (0-23) to post the daily report
@@ -152,6 +154,10 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         whoop_api_base=env.get("WHOOP_API_BASE", "https://api.prod.whoop.com").rstrip("/"),
         car_skoda_api_base=env.get("CAR_SKODA_API_BASE",
                                    "https://public.api.connect.skoda-auto.cz").rstrip("/"),
+        car_bmw_auth_base=env.get("CAR_BMW_AUTH_BASE",
+                                  "https://customer.bmwgroup.com/gcdm/oauth").rstrip("/"),
+        car_bmw_api_base=env.get("CAR_BMW_API_BASE",
+                                 "https://api-cardata.bmwgroup.com").rstrip("/"),
         slack_webhook_url=env.get("SLACK_WEBHOOK_URL", ""),
         daily_report_hour=int(env.get("DAILY_REPORT_HOUR", "8")),
         daily_report_tz=env.get("DAILY_REPORT_TZ", "Europe/Prague"),

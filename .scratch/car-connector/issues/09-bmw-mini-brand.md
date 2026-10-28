@@ -1,7 +1,7 @@
 # 09 — Brand: BMW + Mini (BMW CarData)
 
 Type: task
-Status: needs-triage
+Status: claimed
 Blocked by: 08
 
 ## Goal
@@ -25,3 +25,26 @@ CarData customer API. Facts: [assets/08-other-brands-owner-api.md §1](../assets
   `normalize_status` / `normalize_location`), no actions.
 - Fake CarData upstream in tests; privacy greps as for Škoda.
 - `/car` brand card flips from "Soon" to "Beta"; manual smoke on Vaclav's car.
+
+## Progress (2026-10-28)
+
+- Contract: BMW's own OpenAPI files, found in the portal bundle and copied to
+  `assets/bmw-cardata-customer-api-v1.json` + `assets/bmw-cardata-device-code-flow.json`.
+  Device code + PKCE S256 confirmed; BMW returns only `verification_uri`
+  (`https://customer.bmwgroup.com/oneid/link`), the user types the code there; token errors:
+  403 `authorization_pending` / `access_denied`, 401 `expired_token` / `invalid_client`,
+  400 `slow_down`. Containers carry `state` ACTIVE/DELETED. The quota is not in the spec.
+- Spec: `docs/superpowers/specs/2026-10-28-car-bmw-brand-design.md`. Implemented on
+  `feat/car-bmw` (bmw.py, confirm step, read-only tools, rotating refresh, fake upstream tests).
+- **Live smoke on Vaclav's i3 (2026-10-28), new Client ID:** device code → approved on
+  `customer.bmwgroup.com/oneid/link` → token (scope `cardata:api:read openid
+  authenticate_user`, 3599 s, refresh token) → VIN is the single PRIMARY mapping → container
+  created → telematic read OK (battery 91 %, range 151 km, odometer 104 226 km). First attempt:
+  the token poll got a **500** right as the user approved, then `access_denied` — now a 5xx
+  re-prompts instead of starting over. Values are strings; is-open keys are **"OPEN"/"CLOSED"**;
+  location, climate and charging time came back **null** (car not reporting them). **No
+  rate-limit headers** on the reply, so the gateway's own 24 h count is all there is.
+- Former left-overs, now moot or answered: the old Grok-bot Client ID was deleted, so no
+  sharing; the 429 shape is still unseen. does a second device sign-in on the same Client ID
+  keep the Grok bot's tokens alive; real quota behaviour (429 shape); which container keys the
+  i3 actually returns (doors, climate).

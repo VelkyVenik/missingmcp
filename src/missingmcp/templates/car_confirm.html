@@ -1,0 +1,17 @@
+  <div class="auth">
+    <h1>Approve on <span class="hl">BMW</span>&rsquo;s page</h1>
+    <p class="sub">BMW signs you in on its own website: open the link, sign in with your BMW (or MINI) account and approve this code.</p>
+    <div class="code">{USER_CODE}</div>
+    {ERROR}
+    <form method="post" action="{AUTHORIZE_ACTION}">
+      <input type="hidden" name="csrf" value="{CSRF}">
+      <input type="hidden" name="login_id" value="{LOGIN_ID}">
+      <a class="btn" href="{VERIFY_URL}" target="_blank" rel="noopener noreferrer">Open BMW to approve &rarr;</a>
+      <button class="btn alt" type="submit" data-busy-label="Checking with BMW…">I&rsquo;ve approved it</button>
+    </form>
+    <div class="note">
+      The code works for a few minutes. Your BMW password goes only to BMW; this gateway
+      keeps the resulting encrypted tokens. It is operated by <strong>{OPERATOR}{OPERATOR_EMAIL}</strong>.
+    </div>
+    <p class="sub">Took too long or changed your mind? <a href="{SIGNIN_URL}">Start again</a>.</p>
+  </div>

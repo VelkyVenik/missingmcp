@@ -89,6 +89,14 @@ def _authorize_page(adapter, config) -> str:
     ).replace("{OPERATOR}", pages.operator_html(config))
 
 
+def _second_factor_fields(adapter, pending) -> dict:
+    """Extra placeholders for the second-factor page, from the pending state —
+    OPTIONAL adapter method, probed with getattr (like readiness_path): a device
+    sign-in shows the user code and the link where it's approved."""
+    fields = getattr(adapter, "second_factor_fields", None)
+    return fields(pending) if fields else {}
+
+
 def _second_factor_page(adapter, config) -> str:
     return pages.render_page(
         adapter.second_factor_template, f"{adapter.display_name} verification — MissingMCP",
@@ -359,7 +367,8 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
                          {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                           "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                           "SIGNIN_URL": _signin_url(adapter, params),
-                          **_operator_fields(config)},
+                          **_operator_fields(config),
+                          **_second_factor_fields(adapter, e.state)},
                          str(e))
             return HTMLResponse(body, status_code=400)
         except LoginError as e:  # contract: "start over" — back to the credential form
@@ -420,7 +429,8 @@ async def authorize_post(request, adapter, state, conn, config) -> HTMLResponse 
                      {"CSRF": state.csrf.issue(), "LOGIN_ID": lid,
                       "AUTHORIZE_ACTION": f"/{adapter.name}/oauth/authorize",
                       "SIGNIN_URL": _signin_url(adapter, params),
-                      **_operator_fields(config)}, "")
+                      **_operator_fields(config),
+                      **_second_factor_fields(adapter, result.state)}, "")
         return HTMLResponse(body)
     try:
         t0 = time.monotonic()
