@@ -34,6 +34,13 @@ class CarAdapter:
     authorize_template = "car_authorize.html"
     second_factor_template = ""
     landing_template = "car.html"
+    # Landing copy + link-preview card (app.adapter_routes probes these): the
+    # generic "connect your Car account to Claude" reads wrong for a car.
+    landing_title = "Car MCP Server — Your car in Claude, ChatGPT & Grok | MissingMCP"
+    landing_description = ("Hosted car MCP server: ask Claude, ChatGPT or Grok about "
+                           "battery, range and locks, and pre-heat the cabin. Škoda first, "
+                           "your own API key, free beta.")
+    og_image = "og-car.png"
 
     def __init__(self, config):
         self.forward = CarLocalForward(config)

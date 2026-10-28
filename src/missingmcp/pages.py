@@ -17,13 +17,16 @@ _SITE_JS_VER = hashlib.sha256(
 # Same cache-buster trick for the link-preview card: scrapers (Facebook, LinkedIn,
 # Slack) cache og:image per URL and hold a stale copy for days, so a regenerated
 # card needs a new URL to be picked up.
-_OG_IMAGE = "og.png"
-_OG_IMAGE_VER = hashlib.sha256(
-    (Path(__file__).parent / "static" / _OG_IMAGE).read_bytes()
-).hexdigest()[:8]
+_OG_IMAGE = "og.png"                     # the site-wide card
+# Every card scripts/gen_og_image.py draws (one per --variant) → its alt text.
+OG_IMAGES = {
+    "og.png": "MissingMCP — Claude & ChatGPT answer from your own Garmin data.",
+    "og-car.png": "MissingMCP — Claude, ChatGPT & Grok answer from your own car.",
+}
+_OG_IMAGE_VER = {name: hashlib.sha256(
+    (Path(__file__).parent / "static" / name).read_bytes()).hexdigest()[:8]
+    for name in OG_IMAGES}
 _OG_IMAGE_W, _OG_IMAGE_H = 1200, 630     # keep in sync with scripts/gen_og_image.py
-_OG_IMAGE_ALT = ("MissingMCP — Claude & ChatGPT answer from your own Garmin "
-                 "data.")
 _DEFAULT_DESC = ("The connectors your AI is missing — sign in once, add a URL, "
                  "start asking.")
 # Social previews cut around 125 characters, while a meta description can usefully
@@ -53,7 +56,8 @@ def og_desc(desc: str, override: str | None = None) -> str:
 
 
 def _head_meta(title: str, desc: str, public_url: str, path: str,
-               noindex: bool, extra_head: str, og_description: str) -> str:
+               noindex: bool, extra_head: str, og_description: str,
+               og_image: str = _OG_IMAGE) -> str:
     """SEO head block: sign-in/MFA pages get noindex, indexable pages get a
     canonical URL (the 404 catch-all serves the home fragment, so every stray
     URL canonicalizes to /) plus Open Graph tags for link previews."""
@@ -64,7 +68,7 @@ def _head_meta(title: str, desc: str, public_url: str, path: str,
         url = public_url + path
         t = html.escape(title, quote=True)
         d = html.escape(og_description, quote=True)
-        img = f"{public_url}/static/{_OG_IMAGE}?v={_OG_IMAGE_VER}"
+        img = f"{public_url}/static/{og_image}?v={_OG_IMAGE_VER[og_image]}"
         lines += [
             f'<link rel="canonical" href="{url}">',
             '<meta property="og:type" content="website">',
@@ -77,7 +81,7 @@ def _head_meta(title: str, desc: str, public_url: str, path: str,
             # instead of fetching the image to find out it is 1.91:1.
             f'<meta property="og:image:width" content="{_OG_IMAGE_W}">',
             f'<meta property="og:image:height" content="{_OG_IMAGE_H}">',
-            f'<meta property="og:image:alt" content="{html.escape(_OG_IMAGE_ALT, quote=True)}">',
+            f'<meta property="og:image:alt" content="{html.escape(OG_IMAGES[og_image], quote=True)}">',
             # summary_large_image, not summary: with a 1.91:1 card, `summary`
             # renders it as a cropped thumbnail.
             '<meta name="twitter:card" content="summary_large_image">',
@@ -89,11 +93,13 @@ def _head_meta(title: str, desc: str, public_url: str, path: str,
 
 def render_page(fragment: str, title: str, desc: str | None = None, *,
                 public_url: str = "", path: str = "", noindex: bool = False,
-                extra_head: str = "", social_desc: str | None = None) -> str:
+                extra_head: str = "", social_desc: str | None = None,
+                og_image: str = _OG_IMAGE) -> str:
     """Wrap a template fragment in the shared site layout. Placeholders inside
     the fragment ({PUBLIC_URL}, {ERROR}, {OAUTH_FIELDS}, ...) survive for the
     caller to fill afterwards. `social_desc` overrides the link-preview line when
-    the search description is too long to survive a preview intact."""
+    the search description is too long to survive a preview intact; `og_image`
+    picks the link-preview card (a key of OG_IMAGES)."""
     desc = desc or _DEFAULT_DESC
     return (tpl("_layout.html")
             .replace("{TITLE}", title)
@@ -101,7 +107,7 @@ def render_page(fragment: str, title: str, desc: str | None = None, *,
             .replace("{SITE_JS_VER}", _SITE_JS_VER)
             .replace("{HEAD_META}", _head_meta(title, desc, public_url, path,
                                                noindex, extra_head,
-                                               og_desc(desc, social_desc)))
+                                               og_desc(desc, social_desc), og_image))
             .replace("{CONTENT}", tpl(fragment)))
 
 

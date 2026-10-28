@@ -279,5 +279,19 @@ def test_demo_video_served_with_byte_ranges(fake_skoda):
     assert poster.status_code == 200 and poster.headers["content-type"] == "image/jpeg"
 
 
+def test_car_landing_has_its_own_link_preview(fake_skoda):
+    """A shared /car link showed the Garmin sleep card and 'Connect Car to Claude'."""
+    client = _client(fake_skoda)
+    page = client.get("/car").text
+    assert re.search(r'og:image" content="https://gw\.example\.com/static/og-car\.png\?v=\w{8}"', page)
+    assert "own car" in re.search(r'og:image:alt" content="([^"]+)"', page).group(1)
+    assert "<title>Car MCP Server — Your car in Claude, ChatGPT &amp; Grok" in page \
+        or "<title>Car MCP Server — Your car in Claude, ChatGPT & Grok" in page
+    assert "Connect Car to Claude" not in page
+    assert client.get("/static/og-car.png").headers["content-type"] == "image/png"
+    # other connectors keep the site-wide card
+    assert "/static/og.png?v=" in client.get("/garmin").text
+
+
 def test_home_page_does_not_promote_car(fake_skoda):
     assert "/car" not in _client(fake_skoda).get("/").text

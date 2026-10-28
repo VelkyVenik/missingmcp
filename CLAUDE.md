@@ -36,6 +36,9 @@ python scripts/gen_car_tools.py
 # pages.py is derived from the file's hash, so a redraw invalidates scraper caches
 # by itself:
 uv run --with pillow python scripts/gen_og_image.py
+# per-connector cards: --variant car → static/og-car.png (alt text in pages.OG_IMAGES;
+# an adapter picks its card via an optional `og_image` attribute)
+uv run --with pillow python scripts/gen_og_image.py --variant car
 
 # Production (missingmcp.com) runs on Railway, built from the Dockerfile, and
 # auto-deploys on every push to main — pushing = deploying. Verify after push:

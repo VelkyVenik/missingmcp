@@ -99,13 +99,13 @@ def build_app(config: Config) -> Starlette:
 
     def _render(name: str, title: str, desc: str | None = None,
                 path: str = "/", extra_head: str = "",
-                social_desc: str | None = None) -> str:
+                social_desc: str | None = None, og_image: str = "og.png") -> str:
         ph = telemetry.web_head(config)
         if ph:
             extra_head = f"{extra_head}\n{ph}" if extra_head else ph
         return pages.render_page(
             name, title, desc, public_url=config.public_url, path=path,
-            extra_head=extra_head, social_desc=social_desc,
+            extra_head=extra_head, social_desc=social_desc, og_image=og_image,
         ).replace(
             "{PUBLIC_URL}", config.public_url
         ).replace("{OPERATOR}", pages.operator_html(config)).replace(
@@ -294,7 +294,7 @@ def build_app(config: Config) -> Starlette:
     # without an img-src rule.
     _assets = {n: (_STATIC / n).read_bytes()
                for n in ("icon.png", "favicon-32.png", "apple-touch-icon.png",
-                         "og.png", "myskoda-smart-home.png", "car-demo.mp4",
+                         "og.png", "og-car.png", "myskoda-smart-home.png", "car-demo.mp4",
                          "car-demo-poster.jpg")}
     site_js = (_STATIC / "site.js").read_text()
 
@@ -410,14 +410,19 @@ def build_app(config: Config) -> Starlette:
         manager = managers.get(p)          # None for remote-forward adapters
         # SEO pattern scales per adapter: "<Name> MCP Server" is the query
         # people actually search for ("garmin mcp", "whoop mcp", ...).
-        landing_desc = (f"Hosted {adapter.display_name} MCP server: connect your "
-                        f"{adapter.display_name} account to Claude in two minutes. "
-                        "Sign in once, add a URL, start asking. Free and open source.")
-        landing_page = _render(
-            adapter.landing_template,
+        # An adapter whose subject isn't "an account at <service>" (car) can
+        # override the copy and the link-preview card; probed with getattr.
+        landing_desc = getattr(adapter, "landing_description", None) or (
+            f"Hosted {adapter.display_name} MCP server: connect your "
+            f"{adapter.display_name} account to Claude in two minutes. "
+            "Sign in once, add a URL, start asking. Free and open source.")
+        landing_title = getattr(adapter, "landing_title", None) or (
             f"{adapter.display_name} MCP Server — Connect {adapter.display_name} "
-            "to Claude | MissingMCP",
+            "to Claude | MissingMCP")
+        landing_page = _render(
+            adapter.landing_template, landing_title,
             landing_desc, path=f"/{p}",
+            og_image=getattr(adapter, "og_image", None) or "og.png",
             extra_head=_json_ld({
                 "@type": "SoftwareApplication",
                 "name": f"{adapter.display_name} MCP Server (MissingMCP)",
@@ -567,6 +572,7 @@ def build_app(config: Config) -> Starlette:
         # The link-preview card. Linked with a ?v= content hash, so scrapers that
         # cache og:image per URL pick up a regenerated card.
         Route("/static/og.png", static_png("og.png"), methods=["GET"]),
+        Route("/static/og-car.png", static_png("og-car.png"), methods=["GET"]),
         Route("/static/favicon-32.png", static_png("favicon-32.png"), methods=["GET"]),
         Route("/static/apple-touch-icon.png", static_png("apple-touch-icon.png"), methods=["GET"]),
         # MyŠkoda "Smart home" screen for the car connector's key guide (keys and
