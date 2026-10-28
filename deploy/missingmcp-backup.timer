@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly missingmcp gateway DB backup
+
+[Timer]
+# Off the top of the hour (when other cron-ish jobs pile up); Persistent catches
+# up a run missed across the nightly 03:30 UTC auto-reboot.
+OnCalendar=*-*-* *:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

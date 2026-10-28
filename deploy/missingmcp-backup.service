@@ -1,0 +1,16 @@
+# Hourly gateway DB snapshot → /mnt/backup (deploy/backup.sh).
+# Install: deploy/README.md → Backups.
+[Unit]
+Description=missingmcp gateway DB backup to /mnt/backup
+# Wants, not RequiresMountsFor: a failed mount must still run the script, whose
+# mountpoint check then fails the unit and fires OnFailure. A Requires= on the
+# mount would only fail the start job — no failed state, no alert.
+Wants=mnt-backup.mount
+After=mnt-backup.mount
+OnFailure=missingmcp-backup-alert.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/missingmcp-backup
+Nice=10
+IOSchedulingClass=idle
