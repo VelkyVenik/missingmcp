@@ -102,11 +102,7 @@
         </div>
         <div class="card">
           <h3>Missing something?</h3>
-          <p>Oura and Apple Health are on the wishlist &mdash; not in active development. Every connector here started as &ldquo;I wish my AI could&hellip;&rdquo; &mdash; tell me what you&rsquo;re missing.</p>
-          <div class="card-actions">
-            <button class="linklike" type="button" data-modal="suggest">Suggest a connector &rarr;</button>
-            <button class="linklike" type="button" data-modal="subscribe">Notify me about new connectors &rarr;</button>
-          </div>
+          <p>Oura and Apple Health are on the wishlist &mdash; not in active development. Every connector here started as &ldquo;I wish my AI could&hellip;&rdquo; &mdash; tell {OPERATOR}{OPERATOR_EMAIL} what you&rsquo;re missing.</p>
         </div>
       </div>
       <p class="quiet">No longer missing: <strong>Rohl&iacute;k</strong> now ships its own official MCP server &mdash; add <code>https://mcp.rohlik.cz/mcp</code> directly, no gateway needed (<a href="https://www.rohlik.cz/stranka/mcp-server" target="_blank" rel="noopener noreferrer">official guide</a>). The best possible ending for a connector.</p>
@@ -137,28 +133,3 @@
     </div>
   </div>
 
-  <dialog id="modal-subscribe" class="modal">
-    <form class="modal-card" data-endpoint="/subscribe">
-      <button class="modal-x" type="button" data-close aria-label="Close">&times;</button>
-      <h3>Get notified about new connectors</h3>
-      <p class="modal-sub">Leave your email and I&rsquo;ll let you know when a new connector goes live. No spam.</p>
-      <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <label>Email<input name="email" type="email" required placeholder="you@example.com"></label>
-      <button class="btn" type="submit">Notify me</button>
-      <p class="modal-msg" data-msg></p>
-    </form>
-  </dialog>
-
-  <dialog id="modal-suggest" class="modal">
-    <form class="modal-card" data-endpoint="/suggest">
-      <button class="modal-x" type="button" data-close aria-label="Close">&times;</button>
-      <h3>Suggest a connector</h3>
-      <p class="modal-sub">Which app should your AI speak to next? Tell me what you&rsquo;re missing.</p>
-      <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <label>Email<input name="email" type="email" required placeholder="you@example.com"></label>
-      <label>What&rsquo;s missing?<textarea name="description" rows="3" required placeholder="e.g. Strava, Oura, Fitbit&hellip;"></textarea></label>
-      <label class="check"><input type="checkbox" name="wants_updates" value="1"> Also notify me when new connectors go live</label>
-      <button class="btn" type="submit">Send suggestion</button>
-      <p class="modal-msg" data-msg></p>
-    </form>
-  </dialog>

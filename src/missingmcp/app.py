@@ -215,48 +215,6 @@ def build_app(config: Config) -> Starlette:
     async def privacy(request):
         return HTMLResponse(privacy_page)
 
-    async def subscribe(request):
-        ip = request.client.host if request.client else "unknown"
-        if not rate.check(f"subscribe:{ip}", 5, 60):
-            return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
-        raw = await security.read_body_limited(request, max_bytes=64_000)
-        if raw is None:
-            return JSONResponse({"ok": False, "error": "too_large"}, status_code=413)
-        form = urllib.parse.parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True)
-        if (form.get("website", [""])[0] or "").strip():   # honeypot: bots fill it
-            return JSONResponse({"ok": True})               # look successful, store nothing
-        email = (form.get("email", [""])[0] or "").strip().lower()
-        if not security.valid_email(email):
-            return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
-        store.add_subscriber(conn, email)
-        log("subscribe")                                # never log the address itself
-        # anonymous conversion event — the email stays local (egress rule)
-        telemetry.capture("subscribe", anonymous=True,
-                          distinct_id=telemetry.anon_id_from_cookie(request.cookies))
-        return JSONResponse({"ok": True})
-
-    async def suggest(request):
-        ip = request.client.host if request.client else "unknown"
-        if not rate.check(f"suggest:{ip}", 5, 60):
-            return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
-        raw = await security.read_body_limited(request, max_bytes=64_000)
-        if raw is None:
-            return JSONResponse({"ok": False, "error": "too_large"}, status_code=413)
-        form = urllib.parse.parse_qs(raw.decode("utf-8", "replace"), keep_blank_values=True)
-        if (form.get("website", [""])[0] or "").strip():
-            return JSONResponse({"ok": True})
-        email = (form.get("email", [""])[0] or "").strip().lower()
-        if not security.valid_email(email):
-            return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
-        description = (form.get("description", [""])[0] or "").strip()[:2000]
-        wants = (form.get("wants_updates", [""])[0] or "").lower() in ("1", "true", "on", "yes")
-        store.add_suggestion(conn, email, description, wants)
-        log("suggest", wants_updates=wants)
-        # anonymous conversion event — email and suggestion text stay local
-        telemetry.capture("suggest", anonymous=True,
-                          distinct_id=telemetry.anon_id_from_cookie(request.cookies))
-        return JSONResponse({"ok": True})
-
     # Campaign unsubscribe (mailer.py). The token in the link is the only
     # credential: random per send, maps to one address. GET shows a confirm
     # button (mail scanners prefetch links — a GET must never unsubscribe);
@@ -598,8 +556,6 @@ def build_app(config: Config) -> Starlette:
         Route("/garmin/chatgpt", garmin_chatgpt, methods=["GET"]),
         Route("/garmin/grok", garmin_grok, methods=["GET"]),
         Route("/privacy", privacy, methods=["GET"]),
-        Route("/subscribe", subscribe, methods=["POST"]),
-        Route("/suggest", suggest, methods=["POST"]),
         Route("/unsubscribe", unsubscribe_get, methods=["GET"]),
         Route("/unsubscribe", unsubscribe_post, methods=["POST"]),
         Route("/healthz", healthz, methods=["GET"]),

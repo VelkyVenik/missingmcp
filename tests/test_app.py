@@ -398,16 +398,13 @@ def test_whoop_states_its_user_cap():
 
 def test_home_lists_upcoming_connectors(tmp_path):
     # Parked connectors are a wishlist line, not roadmap cards: named but
-    # explicitly not in active development, with the suggest/subscribe modals
-    # as the only calls to action. No "Soon" pills anywhere.
+    # explicitly not in active development. No "Soon" pills anywhere.
     r = _client(tmp_path).get("/").text
     assert "Oura and Apple Health are on the wishlist" in r
     assert "not in active development" in r
     assert "100 connected users" in r               # WHOOP card stays, honestly capped
     assert r.count("Beta") == 1                     # only the car card is beta (WHOOP's pill retired)
     assert 'class="pill soon"' not in r
-    assert 'data-modal="suggest"' in r
-    assert 'data-modal="subscribe"' in r
 
 
 def test_hero_leads_with_outcome(tmp_path):
@@ -509,100 +506,23 @@ def _rows(db, sql):
         c.close()
 
 
-def test_subscribe_stores_email(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/subscribe", data={"email": "Fan@Example.com"})
-    assert r.status_code == 200 and r.json() == {"ok": True}
-    # normalized lowercase, stored
-    assert _rows(db, "SELECT email FROM subscribers") == [("fan@example.com",)]
-
-
-def test_subscribe_duplicate_is_silent_ok(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    c.post("/subscribe", data={"email": "fan@example.com"})
-    r = c.post("/subscribe", data={"email": "fan@example.com"})
-    assert r.status_code == 200 and r.json() == {"ok": True}
-    assert len(_rows(db, "SELECT email FROM subscribers")) == 1
-
-
-def test_subscribe_rejects_bad_email(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/subscribe", data={"email": "not-an-email"})
-    assert r.status_code == 400 and r.json()["error"] == "invalid_email"
-    assert _rows(db, "SELECT email FROM subscribers") == []
-
-
-def test_subscribe_honeypot_is_silent_noop(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/subscribe", data={"email": "bot@example.com", "website": "http://spam"})
-    assert r.status_code == 200 and r.json() == {"ok": True}   # looks fine to the bot
-    assert _rows(db, "SELECT email FROM subscribers") == []    # but nothing stored
-
-
-def test_subscribe_rate_limited(tmp_path):
-    c, _ = _client_and_db(tmp_path)
-    codes = [c.post("/subscribe", data={"email": f"u{i}@example.com"}).status_code
-             for i in range(7)]
-    assert 429 in codes                                        # 5/60s window exceeded
-
-
-def test_suggest_stores_suggestion_without_subscribing(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/suggest", data={"email": "a@example.com", "description": "Strava"})
-    assert r.status_code == 200 and r.json() == {"ok": True}
-    assert _rows(db, "SELECT email, description, wants_updates FROM suggestions") == \
-        [("a@example.com", "Strava", 0)]
-    assert _rows(db, "SELECT email FROM subscribers") == []
-
-
-def test_suggest_with_updates_also_subscribes(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/suggest", data={"email": "b@example.com", "description": "Oura",
-                                 "wants_updates": "1"})
-    assert r.status_code == 200 and r.json() == {"ok": True}
-    assert _rows(db, "SELECT email FROM subscribers") == [("b@example.com",)]
-
-
-def test_suggest_honeypot_is_silent_noop(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/suggest", data={"email": "bot@example.com", "description": "x",
-                                 "website": "spam"})
-    assert r.status_code == 200 and r.json() == {"ok": True}
-    assert _rows(db, "SELECT email FROM suggestions") == []
-
-
-def test_subscribe_rejects_oversized_body(tmp_path):
-    c, db = _client_and_db(tmp_path)
-    r = c.post("/subscribe", data={"email": "a@b.co", "description": "x" * 70_000})
-    assert r.status_code == 413 and r.json()["error"] == "too_large"
-    assert _rows(db, "SELECT email FROM subscribers") == []
-
-
-def test_home_has_signup_modals_not_github_link(tmp_path):
-    r = _client(tmp_path).get("/").text
-    # the old GitHub-issues link in the card is gone (GitHub stays only in footer/security)
-    assert "github.com/VelkyVenik/missingmcp/issues/new" not in r
-    # two buttons open the two modals
-    assert 'data-modal="suggest"' in r
-    assert 'data-modal="subscribe"' in r
-    # the two dialogs exist and post to the right endpoints
-    assert 'id="modal-subscribe"' in r and 'data-endpoint="/subscribe"' in r
-    assert 'id="modal-suggest"' in r and 'data-endpoint="/suggest"' in r
-    # honeypot present in each form, and the opt-in checkbox on the suggest form
-    assert r.count('name="website"') == 2
-    assert 'name="wants_updates"' in r
+def test_signup_forms_are_gone(tmp_path):
+    # the home-page subscribe/suggest forms were retired (2026-10-30); the
+    # endpoints are gone with them, the collected rows stay in the DB
+    c = _client(tmp_path)
+    r = c.get("/").text
+    assert "data-modal" not in r and "<dialog" not in r and "data-endpoint" not in r
+    assert "what you&rsquo;re missing" in r and "{OPERATOR" not in r   # email is the channel now
+    assert c.post("/subscribe", data={"email": "a@b.co"}).status_code in (404, 405)
+    assert c.post("/suggest", data={"email": "a@b.co"}).status_code in (404, 405)
+    js = c.get("/static/site.js").text
+    assert "showModal" not in js and "fetch(" not in js
 
 
 def test_github_still_reachable_in_footer(tmp_path):
     # removing the card link must not remove GitHub from the site entirely
     r = _client(tmp_path).get("/").text
     assert 'href="https://github.com/VelkyVenik/missingmcp"' in r
-
-
-def test_site_js_has_modal_behavior(tmp_path):
-    r = _client(tmp_path).get("/static/site.js").text
-    assert "data-modal" in r and "showModal" in r
-    assert "data-endpoint" in r and "fetch(" in r
 
 
 def test_site_js_is_cache_busted(tmp_path):
@@ -613,15 +533,9 @@ def test_site_js_is_cache_busted(tmp_path):
     assert len(_SITE_JS_VER) == 8
 
 
-def test_suggest_description_is_required(tmp_path):
-    # required so email+Enter can't submit an empty wish (native validation blocks it)
-    r = _client(tmp_path).get("/").text
-    assert '<textarea name="description" rows="3" required' in r
-
-
 def test_privacy_mentions_signup_storage_and_deletion(tmp_path):
     r = _client(tmp_path).get("/privacy").text
-    assert "newsletter" in r.lower() or "notify" in r.lower()   # opt-in disclosed
+    assert "email address" in r.lower()                         # past opt-ins disclosed
     assert "email the operator" in r.lower()                    # deletion path
 
 
