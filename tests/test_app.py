@@ -512,6 +512,7 @@ def test_signup_forms_are_gone(tmp_path):
     c = _client(tmp_path)
     r = c.get("/").text
     assert "data-modal" not in r and "<dialog" not in r and "data-endpoint" not in r
+    assert "what you&rsquo;re missing" in r and "{OPERATOR" not in r   # email is the channel now
     assert c.post("/subscribe", data={"email": "a@b.co"}).status_code in (404, 405)
     assert c.post("/suggest", data={"email": "a@b.co"}).status_code in (404, 405)
     js = c.get("/static/site.js").text
