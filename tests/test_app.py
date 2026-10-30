@@ -393,6 +393,7 @@ def test_whoop_states_its_user_cap():
     assert "pill live" not in g        # and not advertised as Live either
     assert "approval" not in g.lower() # the pending-approval era copy is gone
     assert "100 connected users" in g  # the current user cap
+    assert "Full for now" in g         # cap reached 2026-10-26; drop once WHOOP raises it
 
 
 def test_home_lists_upcoming_connectors(tmp_path):
