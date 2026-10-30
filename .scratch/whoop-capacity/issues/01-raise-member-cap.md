@@ -1,7 +1,7 @@
 # 01 — Raise the WHOOP member cap (100 → 1,000)
 
 Type: task
-Status: ready-for-human
+Status: ready-for-human — request submitted 2026-10-30, waiting for WHOOP
 Blocked by: —
 
 ## Context
@@ -17,9 +17,9 @@ last two weeks, plus ~80 token refreshes/day. One tool call = one WHOOP API requ
 
 ## Steps
 
-1. Submit WHOOP's limit-increase form (developer dashboard): Growth tier (1,000 members),
+1. ~~Submit WHOOP's limit-increase form (developer dashboard): Growth tier (1,000 members),
    300 calls/min, 30,000 calls/day. The drafted answers are in the 2026-10-30 session; the public URL
-   is https://missingmcp.com/whoop. Attach screenshots of a Claude conversation using WHOOP data.
+   is https://missingmcp.com/whoop. Attach screenshots of a Claude conversation using WHOOP data.~~ Done 2026-10-30.
 2. Wait for WHOOP's answer.
 3. Once raised: revert the "Full for now" copy on `/whoop` (`templates/whoop.html`) and the
    home card (`templates/home.html`), update the cap in both and in `tests/test_app.py`
