@@ -259,10 +259,9 @@ silent: a surge of interrupted POST tool calls would be user-facing.
 `build_app(config)` wires routes + security-headers middleware + shared
 singletons (db conn, one `WorkerManager` **per worker-based adapter** — remote
 and local adapters get none — `AuthState`, `RateLimiter`), a per-adapter landing
-route rendered from `adapter.landing_template`, plus two unauthenticated public
-opt-in endpoints — `POST /subscribe` and `POST /suggest` — capturing home-page
-signups/suggestions (rate-limited + honeypot + email-format check; storage only,
-no email sent).
+route rendered from `adapter.landing_template`. (The home-page opt-in endpoints
+`POST /subscribe` and `POST /suggest` were retired 2026-10-30; the rows they
+collected stay in `subscribers`/`suggestions`, still a campaign audience.)
 
 The lifespan periodically reaps idle workers (all managers) and runs data
 hygiene — cleans expired codes/tokens, sweeps abandoned OAuth clients (0 tokens,

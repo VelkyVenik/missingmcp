@@ -88,7 +88,7 @@ Modules (`src/missingmcp/`), in dependency order — one responsibility each, co
 - **`telemetry.py`** — PostHog events + an optional OTLP tee of the structured log stream (`POSTHOG_LOGS`, off by default — cost). Env-gated by `POSTHOG_API_KEY` (unset ⇒ every function is a no-op), fire-and-forget throughout. MCP usage leaves as aggregates only — `mcp_active` (once per account per UTC day) and `mcp_tool_calls` (per tool per UTC hour, flushed by the lifespan loop and on shutdown), both personless; no per-call events (cost). Funnel events stay identified.
 - **`workers.py`** — `WorkerManager`: per-account lazy spawn under a lock, `/healthz` poll, idle reaper, LRU cap, token-rotation read-back into the store; worker output pumped into the structured log.
 - **`proxy.py`** — `authenticate` (Bearer + rate limits) and `handle_mcp`: shared core + strategy dispatch, every auth failure funnelling through `_reauth_required`.
-- **`app.py`** — `build_app`: routes, middleware, shared singletons (one `WorkerManager` per worker-based adapter), the public `/subscribe` + `/suggest` endpoints, and the lifespan reap/cleanup loop. `main()` is the console entrypoint.
+- **`app.py`** — `build_app`: routes, middleware, shared singletons (one `WorkerManager` per worker-based adapter), the campaign `/unsubscribe` page, and the lifespan reap/cleanup loop. `main()` is the console entrypoint.
 
 ## Cross-cutting invariants (easy to break, hard to see from one file)
 
