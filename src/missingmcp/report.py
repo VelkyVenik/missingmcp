@@ -1,21 +1,14 @@
-"""Daily user-stats report to Slack: yesterday's new / active / total users per
-connector, computed straight from the DB and posted once a day from the app
-lifespan loop. The same build_report / render_slack functions back the standalone
-scripts/daily_report.py, so testing the script tests the real output.
-
-Dependency-free (an httpx POST), mirroring backup.py's shape: a `DailyReport`
-class with enabled/due/run, whose run() never raises. DB reads happen against a
-fresh read-only connection opened inside run() (never the app's shared conn — run()
-executes in a worker thread via asyncio.to_thread, like Backup.run).
+"""Daily user-stats report: yesterday's new / active / total users per connector,
+computed straight from the DB. Backs `scripts/daily_report.py` (`sudo mmcp report`
+on hydra), which the operator's Grok bot reads for its daily status. Nothing in
+the app posts it anywhere — the in-app Slack post was removed 2026-11-07.
 """
 from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import httpx
 from . import store
-from .log import log, log_exc
 
 _UTC_FMT = "%Y-%m-%d %H:%M:%S"   # matches SQLite datetime('now')
 
@@ -54,7 +47,7 @@ def build_report(conn, now_local: datetime) -> dict:
     }
 
 
-def render_slack(report: dict) -> str:
+def render_text(report: dict) -> str:
     t = report["totals"]
     lines = [f"*MissingMCP — daily report for {report['date']}*"]
     if report["adapters"]:
@@ -70,53 +63,9 @@ def render_slack(report: dict) -> str:
     return "\n".join(lines)
 
 
-def post_slack(webhook_url: str, text: str) -> None:
-    """Blocking POST of one Slack message. Raises on failure."""
-    resp = httpx.post(webhook_url, json={"text": text}, timeout=15.0)
-    if resp.status_code != 200:
-        raise RuntimeError(f"slack post rejected: HTTP {resp.status_code}")
-
-
 def open_ro(db_path: str) -> sqlite3.Connection:
     """Read-only connection for a report run (own connection, thread-safe use).
     Build the file: URI via as_uri() so a path with `?`/`#`/spaces is escaped and
     can't be mis-parsed into a different file or mode."""
     uri = Path(db_path).absolute().as_uri() + "?mode=ro"
     return sqlite3.connect(uri, uri=True)
-
-
-class DailyReport:
-    """Posts the daily user-stats report to Slack once a day at ~report hour (local
-    tz), driven from the app lifespan loop. run() never raises. Process-local: a
-    redeploy AFTER the report hour skips today and resumes tomorrow, so frequent
-    deploys don't produce duplicate posts (at the cost of not catching up if the
-    app was down for the whole report hour)."""
-
-    def __init__(self, config, now: datetime | None = None):
-        self._cfg = config
-        self._tz = ZoneInfo(config.daily_report_tz)
-        n = now or datetime.now(self._tz)
-        self._last_date = n.date() if n.hour >= config.daily_report_hour else None
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self._cfg.slack_webhook_url)
-
-    def due(self, now: datetime | None = None) -> bool:
-        n = now or datetime.now(self._tz)
-        return n.hour >= self._cfg.daily_report_hour and n.date() != self._last_date
-
-    def run(self, now: datetime | None = None) -> None:   # blocking: via asyncio.to_thread
-        n = now or datetime.now(self._tz)
-        try:
-            conn = open_ro(self._cfg.db_path)
-            try:
-                report = build_report(conn, n)
-            finally:
-                conn.close()
-            post_slack(self._cfg.slack_webhook_url, render_slack(report))
-            log("daily-report-ok", date=report["date"], **report["totals"])
-        except Exception as e:  # noqa: BLE001 - a report must never take the gateway down
-            log_exc("daily-report-failed", e, error=str(e))
-        finally:
-            self._last_date = n.date()
