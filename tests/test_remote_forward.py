@@ -148,3 +148,31 @@ def test_mcp_response_event_records_latency(fake_remote, capsys):
     assert isinstance(resp["ttfb_ms"], int) and isinstance(resp["total_ms"], int)
     assert resp["total_ms"] >= resp["ttfb_ms"] >= 0
     assert resp["bytes"] > 0
+
+
+# --- in-band tool errors reach the usage rollup ------------------------------
+
+CALL = {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+        "params": {"name": "get_stats", "arguments": {}}}
+
+
+@pytest.mark.parametrize("mode", ["json", "sse"])
+@pytest.mark.parametrize("payload,failed", [
+    ('{"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"ok"}],"isError":false}}', False),
+    ('{"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"boom"}],"isError":true}}', True),
+    ('{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"Unknown tool"}}', True),
+])
+def test_tool_error_inside_http_200_is_counted(fake_remote, monkeypatch, mode, payload, failed):
+    """Regression: the rollup only saw HTTP >= 400, so a tool that ran and
+    failed (isError in a 200) counted as success — errors were always 0."""
+    seen = []
+
+    def capture(event, key, status, ttfb_ms, total_ms, nbytes, rpc_failed=False):
+        seen.append((status, rpc_failed))
+    monkeypatch.setattr(proxy, "_capture_mcp", capture)
+    fake_remote.response_mode = mode
+    fake_remote.response_json = payload
+    _, c = _setup(fake_remote)
+    r = _post(c, body=CALL, headers={"Accept": "application/json, text/event-stream"})
+    assert r.status_code == 200
+    assert seen == [(200, failed)]

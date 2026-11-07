@@ -331,3 +331,35 @@ def test_connect_error_retry_gives_up_after_one_attempt(tmp_path, fake_worker, c
     assert ensured == [dead1, dead2]               # exactly two attempts, no loop
     events = [jsonlib.loads(l) for l in capsys.readouterr().out.splitlines() if l.strip()]
     assert any(e.get("event") == "mcp-forward-error" for e in events)
+
+
+# --- _rpc_failed: the in-band error reader -------------------------------------
+
+def test_rpc_failed_reads_json_sse_and_batches():
+    from missingmcp.proxy import _rpc_failed
+    err = b'{"jsonrpc":"2.0","id":1,"result":{"content":[],"isError":true}}'
+    ok = b'{"jsonrpc":"2.0","id":1,"result":{"content":[]}}'
+    assert _rpc_failed(err, "application/json") is True
+    assert _rpc_failed(ok, "application/json") is False
+    assert _rpc_failed(b"[" + ok + b"," + err + b"]", "application/json") is True
+    assert _rpc_failed(b"event: message\ndata: " + err + b"\n\n", "text/event-stream") is True
+    assert _rpc_failed(b"event: message\ndata: " + ok + b"\n\n", "text/event-stream") is False
+
+
+def test_rpc_failed_never_raises_and_skips_big_bodies():
+    from missingmcp.proxy import RPC_ERROR_SCAN_BYTES, _rpc_failed
+    assert _rpc_failed(b"", "application/json") is False
+    assert _rpc_failed(b"not json", "application/json") is False
+    assert _rpc_failed(b"data: {broken\n\n", "text/event-stream") is False
+    big = b'{"result":{"isError":true,"pad":"' + b"x" * RPC_ERROR_SCAN_BYTES + b'"}}'
+    assert _rpc_failed(big, "application/json") is False   # a real result, not parsed
+
+
+def test_rpc_failed_assembles_multiline_sse_events():
+    from missingmcp.proxy import _rpc_failed
+    # One JSON-RPC message split across data: lines (valid SSE), CRLF endings,
+    # preceded by an unparseable event that must not mask it.
+    raw = (b"event: message\r\ndata: {broken\r\n\r\n"
+           b"event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\r\n"
+           b"data:  \"result\":{\"content\":[],\"isError\":true}}\r\n\r\n")
+    assert _rpc_failed(raw, "text/event-stream") is True

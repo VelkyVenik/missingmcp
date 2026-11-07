@@ -201,6 +201,9 @@ def web_bootstrap_js(config) -> str:
 #   mcp_active      once per (adapter, account) per UTC day, on its first tool
 #                   call — distinct_id = account → DAU/WAU = distinct accounts
 #   mcp_tool_calls  per (adapter, tool) per UTC hour: calls, errors, hour —
+#                   errors = HTTP >= 400 *or* a failure reported inside a 200
+#                   (JSON-RPC `error` / `isError: true`, proxy._rpc_failed;
+#                   counted from 2026-11-07, ~always 0 before) —
 #                   flushed by the lifespan loop once the hour is over, and on
 #                   shutdown (a crash loses at most the running hour)
 # Both personless. Process-local: after a restart an account can send a second
