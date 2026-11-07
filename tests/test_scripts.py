@@ -140,6 +140,7 @@ def test_revoke_purge_removes_account_and_usage(seeded_db, capsys, monkeypatch):
     conn = sqlite3.connect(seeded_db)
     assert conn.execute("SELECT adapter FROM accounts").fetchall() == [("rohlik",)]
     assert conn.execute("SELECT DISTINCT adapter FROM tool_usage").fetchall() == [("rohlik",)]
+    assert conn.execute("SELECT DISTINCT adapter FROM daily_activity").fetchall() == [("rohlik",)]
     conn.close()
 
 

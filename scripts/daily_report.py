@@ -7,8 +7,7 @@ it runs as `sudo mmcp report`, which the Grok bot reads for its daily status.
 
 Usage:
   python scripts/daily_report.py                       # print yesterday's report
-  python scripts/daily_report.py --now 2026-07-18      # report the day BEFORE this date
-  python scripts/daily_report.py --tz UTC              # override the timezone
+  python scripts/daily_report.py --now 2026-07-18      # report the UTC day BEFORE this date
 
 DB path resolves like usage.py: $DB_PATH, $DATA_DIR/gateway.db, /data, ./.localdata.
 On hydra (/opt/missingmcp): docker compose exec gateway python3 /app/scripts/daily_report.py
@@ -17,8 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
 # Make `missingmcp` importable when run from a checkout (src/ layout), not only
 # when installed (Docker/uv).
@@ -41,18 +39,16 @@ def main():
     p = argparse.ArgumentParser(description="MCP gateway daily user-stats report.")
     p.add_argument("--db", default=None, help="SQLite DB path (default: auto-resolve)")
     p.add_argument("--now", default=None,
-                   help="ISO datetime/date; the report covers the day BEFORE it "
-                        "(default: real now)")
-    p.add_argument("--tz", default="Europe/Prague", help="timezone (default Europe/Prague)")
+                   help="ISO datetime/date (naive = UTC); the report covers the UTC "
+                        "day BEFORE it (default: real now)")
     args = p.parse_args()
 
-    tz = ZoneInfo(args.tz)
     if args.now:
-        now_local = datetime.fromisoformat(args.now)
-        now_local = now_local.replace(tzinfo=tz) if now_local.tzinfo is None \
-            else now_local.astimezone(tz)
+        now = datetime.fromisoformat(args.now)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
     else:
-        now_local = datetime.now(tz)
+        now = datetime.now(timezone.utc)
 
     db_path = args.db or resolve_db()
     if not os.path.exists(db_path):
@@ -60,7 +56,7 @@ def main():
 
     conn = report_mod.open_ro(db_path)
     try:
-        rep = report_mod.build_report(conn, now_local)
+        rep = report_mod.build_report(conn, now)
     finally:
         conn.close()
     print(report_mod.render_text(rep))

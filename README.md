@@ -258,7 +258,7 @@ python scripts/usage.py                               # per-account tool usage +
 python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
 python scripts/subscribers.py                         # newsletter signups + suggestions
 python scripts/subscribers.py --emails                # subscriber emails, one per line
-python scripts/daily_report.py                        # yesterday's new/active/total users (= `sudo mmcp report`)
+python scripts/daily_report.py                        # yesterday's (UTC) new/active/total + 7d WAU (= `sudo mmcp report`)
 python scripts/add_beer.py --email <supporter>        # record a "buy me a beer" donation (1 beer, 5 EUR)
 python scripts/add_beer.py --email <supporter> --beers 3 --at 2026-07-20  # 3 beers, backdated
 ```
