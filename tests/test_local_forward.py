@@ -171,3 +171,21 @@ def test_usage_buffered_when_buffer_given():
     assert [tuple(r) for r in conn.execute(
         "SELECT adapter, account_key, tool, calls FROM tool_usage")] == [
         ("acmelocal", "me@x.cz", "get_profile", 1)]
+
+
+def test_local_tool_error_inside_http_200_is_counted(monkeypatch):
+    seen = []
+
+    def capture(event, key, status, ttfb_ms, total_ms, nbytes, rpc_failed=False):
+        seen.append((status, rpc_failed))
+    monkeypatch.setattr(proxy, "_capture_mcp", capture)
+    _conn, adapter, c = _setup()
+
+    async def failing(conn, account_key, blob, body):
+        return 200, {"content-type": "application/json"}, (
+            b'{"jsonrpc":"2.0","id":1,"result":{"content":[],"isError":true}}')
+    adapter.forward.handle = failing
+    r = _post(c, body={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                       "params": {"name": "get_x"}})
+    assert r.status_code == 200
+    assert seen == [(200, True)]

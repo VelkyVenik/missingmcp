@@ -11,6 +11,41 @@ from .log import log, log_warn, log_error, log_exc
 # Upstream forward timeout for both strategies (parity with the TS proxy's 30s).
 FORWARD_TIMEOUT_S = 30.0
 
+# How much of a tools/call response is kept to read its error flag. A failed
+# tool answers with a short message; a response past this size is a real
+# result (activity lists, FIT data) and counts as success without parsing.
+RPC_ERROR_SCAN_BYTES = 64 * 1024
+
+
+def _rpc_failed(raw: bytes, content_type: str | None) -> bool:
+    """True when a tools/call response reports failure *inside* an HTTP 200:
+    a JSON-RPC `error`, or a result with `isError: true` (how MCP servers
+    report a tool that ran and failed — the case HTTP status never shows).
+    Reads a JSON body or the `data:` lines of an SSE stream. Only this one
+    boolean leaves (telemetry egress rule); nothing of the content is kept.
+    Never raises: unparseable means "not known to have failed"."""
+    if not raw or len(raw) > RPC_ERROR_SCAN_BYTES:
+        return False
+    try:
+        text = raw.decode("utf-8", errors="replace")
+        if "text/event-stream" in (content_type or ""):
+            messages = [json.loads(line[5:]) for line in text.splitlines()
+                        if line.startswith("data:") and line[5:].strip()]
+        else:
+            body = json.loads(text)
+            messages = body if isinstance(body, list) else [body]
+    except ValueError:
+        return False
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        if m.get("error") is not None:
+            return True
+        result = m.get("result")
+        if isinstance(result, dict) and result.get("isError") is True:
+            return True
+    return False
+
 
 def _mcp_tool(body) -> "str | None":
     """Extract the tool/method name from an MCP JSON-RPC request body for usage
@@ -63,11 +98,14 @@ def _mcp_event(body, adapter_name: str) -> "tuple[str, dict] | None":
 
 
 def _capture_mcp(event, key: str, status: int, ttfb_ms: int, total_ms: int,
-                 nbytes: int) -> None:
+                 nbytes: int, rpc_failed: bool = False) -> None:
     """Count one tool call into the hourly/daily usage rollup (telemetry.mcp_call)
-    — no per-call PostHog event any more (2026-10-19, cost)."""
+    — no per-call PostHog event any more (2026-10-19, cost). A call is an error
+    when the HTTP status is >= 400 or the response reports failure in-band
+    (`rpc_failed`, see `_rpc_failed`)."""
     _name, props = event
-    telemetry.mcp_call(props["adapter"], key, props["$mcp_tool_name"], status >= 400)
+    telemetry.mcp_call(props["adapter"], key, props["$mcp_tool_name"],
+                       status >= 400 or rpc_failed)
 
 
 async def authenticate(request, adapter_name, conn, rate) -> "str | Response":
@@ -190,7 +228,9 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
         log("mcp-response", adapter=adapter.name, account=key, tool=tool,
             status=status, ttfb_ms=ms, total_ms=ms, bytes=len(payload))
         if ph_event:
-            _capture_mcp(ph_event, key, status, ms, ms, len(payload))
+            ctype = next((v for k, v in headers.items() if k.lower() == "content-type"), None)
+            _capture_mcp(ph_event, key, status, ms, ms, len(payload),
+                         _rpc_failed(payload, ctype))
         return Response(payload, status_code=status, headers=headers)
 
     # --- strategy dispatch: where the upstream is and what extra headers it needs
@@ -307,9 +347,12 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
 
     async def stream():
         sent = 0
+        scan = bytearray()   # tools/call only, up to RPC_ERROR_SCAN_BYTES + 1
         try:
             async for chunk in upstream.aiter_raw():
                 sent += len(chunk)
+                if ph_event and len(scan) <= RPC_ERROR_SCAN_BYTES:
+                    scan += chunk[:RPC_ERROR_SCAN_BYTES + 1 - len(scan)]
                 yield chunk
         except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout) as e:
             # Routine stream teardown: the upstream aborts an in-flight
@@ -333,6 +376,7 @@ async def handle_mcp(request, method, adapter, conn, manager, config, secret, ra
                 total_ms=total_ms, bytes=sent)
             if ph_event:
                 _capture_mcp(ph_event, key, upstream.status_code,
-                             ttfb_ms, total_ms, sent)
+                             ttfb_ms, total_ms, sent,
+                             _rpc_failed(bytes(scan), ct))
 
     return StreamingResponse(stream(), status_code=upstream.status_code, headers=resp_headers)
