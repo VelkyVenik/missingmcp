@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.middleware.base import BaseHTTPMiddleware
-from . import backup, mailer, report, store, oauth, pages, proxy, security, telemetry, usage
+from . import backup, mailer, store, oauth, pages, proxy, security, telemetry, usage
 from .config import load_config, Config
 from .workers import WorkerManager
 from .adapters import build_adapters, RETIRED_ADAPTERS
@@ -75,7 +75,6 @@ def build_app(config: Config) -> Starlette:
     rate = security.RateLimiter()
     usage_buf = store.UsageBuffer()   # tool_usage counts, flushed by the lifespan loop
     bk = backup.Backup(config)
-    dr = report.DailyReport(config)
     ml = mailer.Mailer(config)
     # Garmin SSO reachability probe (ticket 12) — diagnostic, env-gated, and
     # meaningless without the garmin adapter, so it stays off when garmin isn't
@@ -506,9 +505,6 @@ def build_app(config: Config) -> Starlette:
                 if bk.enabled and bk.due():
                     # bk.run never raises; to_thread keeps the loop responsive
                     await asyncio.to_thread(bk.run)
-                if dr.enabled and dr.due():
-                    # dr.run never raises; opens its own read-only DB connection
-                    await asyncio.to_thread(dr.run)
                 if ml.enabled and ml.due():
                     # ml.run never raises; one small batch of the active campaign
                     await asyncio.to_thread(ml.run)

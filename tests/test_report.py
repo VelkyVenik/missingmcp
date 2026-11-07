@@ -1,10 +1,9 @@
-"""Daily user-stats report — DB metrics, timezone boundaries, and the DailyReport
-scheduler. Everything is deterministic: `now` is injected, so no wall-clock reads."""
+"""Daily user-stats report — DB metrics and timezone boundaries. Everything is
+deterministic: `now` is injected, so no wall-clock reads."""
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from missingmcp import report, store
-from missingmcp.config import load_config
 
 PRAGUE = ZoneInfo("Europe/Prague")
 # 2026-07-18 09:00 Prague (CEST, UTC+2) → "yesterday" = the 2026-07-17 Prague day
@@ -34,14 +33,6 @@ def _seed(conn):
     conn.commit()
 
 
-def _cfg(tmp_path, webhook="https://hooks.example.com/x", hour=8):
-    env = {"GATEWAY_SECRET": "s" * 40, "DATA_DIR": str(tmp_path),
-           "DB_PATH": str(tmp_path / "gateway.db"), "DAILY_REPORT_HOUR": str(hour)}
-    if webhook is not None:
-        env["SLACK_WEBHOOK_URL"] = webhook
-    return load_config(env)
-
-
 def test_build_report_counts_and_tz_boundary():
     conn = store.init_db(":memory:")
     _seed(conn)
@@ -67,55 +58,19 @@ def test_active_ignores_clients_that_only_handshook():
     assert r["totals"]["active"] == 2
 
 
-def test_render_slack_has_date_and_totals():
+def test_render_text_has_date_and_totals():
     conn = store.init_db(":memory:")
     _seed(conn)
-    text = report.render_slack(report.build_report(conn, NOW))
+    text = report.render_text(report.build_report(conn, NOW))
     assert "daily report for 2026-07-17" in text
     assert "Garmin: +1 new · 2 active · 3 total" in text
     assert "Total: +1 new · 2 active · 4 users" in text
 
 
-def test_render_slack_empty_db():
+def test_render_text_empty_db():
     conn = store.init_db(":memory:")
-    text = report.render_slack(report.build_report(conn, NOW))
+    text = report.render_text(report.build_report(conn, NOW))
     assert "Total: +0 new · 0 active · 0 users" in text  # no crash on empty
-
-
-def test_enabled_gated_on_webhook(tmp_path):
-    assert report.DailyReport(_cfg(tmp_path), now=NOW).enabled is True
-    assert report.DailyReport(_cfg(tmp_path, webhook=None), now=NOW).enabled is False
-
-
-def test_due_fires_once_per_day_after_the_hour(tmp_path):
-    cfg = _cfg(tmp_path, hour=8)
-    dr = report.DailyReport(cfg, now=datetime(2026, 7, 18, 7, 0, tzinfo=PRAGUE))
-    assert dr.due(datetime(2026, 7, 18, 7, 30, tzinfo=PRAGUE)) is False   # before the hour
-    assert dr.due(datetime(2026, 7, 18, 8, 30, tzinfo=PRAGUE)) is True    # at/after the hour
-    dr._last_date = datetime(2026, 7, 18, 8, 30, tzinfo=PRAGUE).date()    # simulate a run
-    assert dr.due(datetime(2026, 7, 18, 20, 0, tzinfo=PRAGUE)) is False   # not again today
-    assert dr.due(datetime(2026, 7, 19, 8, 30, tzinfo=PRAGUE)) is True    # next day
-
-
-def test_redeploy_after_hour_does_not_repost(tmp_path):
-    # Constructed at 14:00 (after the 08:00 hour) → today already counts as done.
-    dr = report.DailyReport(_cfg(tmp_path), now=datetime(2026, 7, 18, 14, 0, tzinfo=PRAGUE))
-    assert dr.due(datetime(2026, 7, 18, 14, 30, tzinfo=PRAGUE)) is False
-    assert dr.due(datetime(2026, 7, 19, 8, 30, tzinfo=PRAGUE)) is True
-
-
-def test_run_posts_and_advances(tmp_path, monkeypatch):
-    conn = store.init_db(str(tmp_path / "gateway.db"))
-    _seed(conn)
-    cfg = _cfg(tmp_path)
-    posted = {}
-    monkeypatch.setattr(report, "post_slack",
-                        lambda url, text: posted.update(url=url, text=text))
-    dr = report.DailyReport(cfg, now=datetime(2026, 7, 18, 7, 0, tzinfo=PRAGUE))
-    dr.run(now=NOW)
-    assert posted["url"] == cfg.slack_webhook_url
-    assert "daily report for 2026-07-17" in posted["text"]
-    assert dr._last_date == NOW.date()        # advanced → won't repost today
 
 
 def test_open_ro_handles_special_chars_in_path(tmp_path):
@@ -128,15 +83,3 @@ def test_open_ro_handles_special_chars_in_path(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0
     finally:
         conn.close()
-
-
-def test_run_never_raises_and_still_advances(tmp_path, monkeypatch):
-    store.init_db(str(tmp_path / "gateway.db"))
-    cfg = _cfg(tmp_path)
-
-    def boom(url, text):
-        raise RuntimeError("slack down")
-    monkeypatch.setattr(report, "post_slack", boom)
-    dr = report.DailyReport(cfg, now=datetime(2026, 7, 18, 7, 0, tzinfo=PRAGUE))
-    dr.run(now=NOW)                            # must NOT raise
-    assert dr._last_date == NOW.date()

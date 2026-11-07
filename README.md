@@ -258,16 +258,10 @@ python scripts/usage.py                               # per-account tool usage +
 python scripts/usage.py --account [<adapter>:]<key>   # one account's per-tool breakdown
 python scripts/subscribers.py                         # newsletter signups + suggestions
 python scripts/subscribers.py --emails                # subscriber emails, one per line
-python scripts/daily_report.py                        # yesterday's new/active/total users (print)
-python scripts/daily_report.py --post                 # + POST it to Slack ($SLACK_WEBHOOK_URL)
+python scripts/daily_report.py                        # yesterday's new/active/total users (= `sudo mmcp report`)
 python scripts/add_beer.py --email <supporter>        # record a "buy me a beer" donation (1 beer, 5 EUR)
 python scripts/add_beer.py --email <supporter> --beers 3 --at 2026-07-20  # 3 beers, backdated
 ```
-
-The gateway also posts this daily user-stats report to Slack on its own each
-morning (`DAILY_REPORT_HOUR`, default 08:00 `DAILY_REPORT_TZ`) when
-`SLACK_WEBHOOK_URL` is set; `scripts/daily_report.py` runs the same report on
-demand for testing.
 
 **Mail campaigns** — one-off announcements to users and newsletter
 subscribers, sent through Cloudflare Email Sending (`MAIL_*` env above). The
@@ -313,8 +307,7 @@ connect-funnel/conversion event set, an OTLP tee of the structured log stream
 site (UTM campaign attribution; autocapture disabled on OAuth pages). Egress
 rule: identity + metadata only — never MCP bodies, credentials, or form
 contents; the account email travels only as `distinct_id`. Everything is
-fire-and-forget: a PostHog outage never blocks a request. The Slack reports
-above keep running unchanged — PostHog complements them. When off-boarding a
+fire-and-forget: a PostHog outage never blocks a request. When off-boarding a
 user (`revoke.py --purge`), also delete the person in PostHog (People → delete)
 to complete the GDPR path.
 

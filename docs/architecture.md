@@ -112,23 +112,12 @@ bucket (dependency-free SigV4 signer over httpx), weekday-rotated keys
 
 ### `report.py`
 
-Daily user-stats Slack report: yesterday's per-connector new/active/total users
-+ a 7-day new count, computed straight from the DB
-(`store.new_accounts_between` / `active_accounts_between` /
-`total_accounts_by_adapter`). Driven by the app lifespan loop
-(`DailyReport.enabled` / `due` / `run`, mirrors `backup.py`; `run` opens its own
-read-only conn and never raises), posts once a day at `DAILY_REPORT_HOUR` (local
-`DAILY_REPORT_TZ`, default 08:00 Europe/Prague). Disabled unless
-`SLACK_WEBHOOK_URL` is set. The same `build_report` / `render_slack` back
-`scripts/daily_report.py` (print / `--post`). A redeploy after the hour skips
-that day (process-local) to avoid duplicate posts.
-
-Complementing it, a separate *external* job — `scripts/hourly_digest.py` run by
-`.github/workflows/hourly-digest.yml` — posts the *log-derived* hourly health
-digest (Railway logs API → summary + liveness probe → Slack, silent unless
-anomaly/probe-fail or the daily heartbeat). It's standalone (httpx + stdlib, does
-NOT import this package) because the app can't read its own stdout logs; see
-README → Monitoring.
+Daily user stats: yesterday's per-connector new/active/total users + a 7-day new
+count, computed straight from the DB (`store.new_accounts_between` /
+`active_accounts_between` / `total_accounts_by_adapter`). `build_report` /
+`render_text` back `scripts/daily_report.py`, which runs on hydra as
+`sudo mmcp report`; the operator's Grok bot reads it for its daily status. The app
+itself posts nothing (the in-app Slack post was removed 2026-11-07).
 
 ### `usage.py`
 
@@ -136,7 +125,7 @@ The public usage meter: `UsageMeter.snippet(adapter)` renders the
 "N people used this in the last 30 days" line the landing pages show as social
 proof. Aggregate only (one count per adapter, never per-user activity), counted
 by `store.active_accounts_between` over a 30-day rolling window (protocol
-traffic excluded, same rule as the daily report), and empty below `MIN_COUNT`
+traffic excluded, same rule as `report.py`), and empty below `MIN_COUNT`
 (10) so an immature connector shows nothing rather than an embarrassing count.
 Counts live in a process-local TTL cache (`CACHE_TTL` 600 s); `app.py` fills
 the `{USAGE_METER_<ADAPTER>}` placeholders per request, matching them by
