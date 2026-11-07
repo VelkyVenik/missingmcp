@@ -123,6 +123,15 @@ def test_active_accounts_empty_when_only_protocol_traffic(conn):
     assert store.active_accounts_between(conn, *DAY) == {}
 
 
+def test_active_accounts_ignores_client_discovery_methods(conn):
+    # Method names real clients send on connect (prod, 2026-11-07); none of
+    # them is a user asking for anything.
+    _seed_usage(conn, [("garmin", "lurker@x.cz", m) for m in (
+        "server/discover", "resources/read", "notifications/roots/list_changed")]
+        + [("garmin", "me@x.cz", "get_activities")])
+    assert store.active_accounts_between(conn, *DAY) == {"garmin": 1}
+
+
 def test_client_roundtrip(conn):
     store.create_client(conn, "c1", "secret_hash", ["https://a/cb", "https://b/cb"], "Claude", "garmin")
     c = store.get_client(conn, "c1")

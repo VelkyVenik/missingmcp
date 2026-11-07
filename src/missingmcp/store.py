@@ -325,6 +325,14 @@ PROTOCOL_METHODS = frozenset({
     "prompts/list",
     "logging/setLevel",
     "completion/complete",
+    # Seen in prod on 2026-11-07 but missing above, so they counted as activity:
+    # `server/discover` (newer MCP spec) alone made ~1,200 merely-connected
+    # accounts look weekly-active (6,213 "WAU" against 5,009 real).
+    "server/discover",
+    "resources/read",
+    "prompts/get",
+    "notifications/roots/list_changed",
+    "notifications/progress",
 })
 
 
