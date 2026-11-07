@@ -112,12 +112,12 @@ bucket (dependency-free SigV4 signer over httpx), weekday-rotated keys
 
 ### `report.py`
 
-Daily user stats: yesterday's per-connector new/active/total users + a 7-day new
-count, computed straight from the DB (`store.new_accounts_between` /
-`active_accounts_between` / `total_accounts_by_adapter`). `build_report` /
-`render_text` back `scripts/daily_report.py`, which runs on hydra as
-`sudo mmcp report`; the operator's Grok bot reads it for its daily status. The app
-itself posts nothing (the in-app Slack post was removed 2026-11-07).
+Daily user stats for the previous **UTC** day: per-connector new / active / total
+users plus 7-day new and active (WAU) counts. New and total come from `accounts`;
+active comes from `daily_activity` (`store.active_accounts_on_days`), one row per
+account per UTC day with a real tool call ([ADR 0003](adr/0003-daily-activity-table.md)).
+`build_report` / `render_text` back `scripts/daily_report.py`, which runs on hydra
+as `sudo mmcp report`; the operator's Grok bot reads it for its daily status.
 
 ### `usage.py`
 

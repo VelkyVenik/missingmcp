@@ -132,6 +132,8 @@ def main():
     if args.purge:
         conn.execute("DELETE FROM tool_usage WHERE adapter=? AND account_key=?",
                      (adapter, key))
+        conn.execute("DELETE FROM daily_activity WHERE adapter=? AND account_key=?",
+                     (adapter, key))
         purged = conn.execute(
             "DELETE FROM accounts WHERE adapter=? AND account_key=?", (adapter, key))
         msg += (" Purged the stored account + usage." if purged.rowcount

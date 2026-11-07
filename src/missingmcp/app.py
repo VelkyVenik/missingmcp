@@ -49,6 +49,9 @@ def _run_data_cleanup(conn, orphan_ttl: int, retired_adapters) -> None:
     n = store.cleanup_orphan_clients(conn, orphan_ttl)
     if n:
         log("cleanup-orphan-clients", count=n)
+    n = store.prune_daily_activity(conn)
+    if n:
+        log("cleanup-daily-activity", count=n)
 
 
 def build_app(config: Config) -> Starlette:

@@ -1,65 +1,58 @@
 """Daily user-stats report: yesterday's new / active / total users per connector,
-computed straight from the DB. Backs `scripts/daily_report.py` (`sudo mmcp report`
-on hydra), which the operator's Grok bot reads for its daily status. Nothing in
-the app posts it anywhere — the in-app Slack post was removed 2026-11-07.
+plus 7-day new and active counts, computed straight from the DB. Backs
+`scripts/daily_report.py` (`sudo mmcp report` on hydra), which the operator's
+Grok bot reads for its daily status.
+
+Days are UTC calendar days — the same days PostHog's `mcp_active` uses — because
+`daily_activity` buckets activity by UTC day.
 """
 from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from . import store
 
 _UTC_FMT = "%Y-%m-%d %H:%M:%S"   # matches SQLite datetime('now')
 
 
-def _utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime(_UTC_FMT)
-
-
-def _yesterday_bounds(now_local: datetime):
-    """UTC bounds of the local calendar day before now_local, plus the local
-    start-of-yesterday (for the weekly window). Returns (start_utc, end_utc,
-    start_local)."""
-    today0 = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_local = today0 - timedelta(days=1)
-    return _utc(start_local), _utc(today0), start_local
-
-
-def build_report(conn, now_local: datetime) -> dict:
-    """Per-adapter new / active / total for yesterday (local calendar day) plus a
-    7-day new-account count, computed from `conn`. `now_local` must be tz-aware."""
-    start_utc, end_utc, start_local = _yesterday_bounds(now_local)
-    week_start_utc = _utc(start_local - timedelta(days=6))  # 7 days incl. yesterday
-    new = store.new_accounts_between(conn, start_utc, end_utc)
-    active = store.active_accounts_between(conn, start_utc, end_utc)
+def build_report(conn, now: datetime) -> dict:
+    """Per-adapter counts for the UTC day before `now` (tz-aware): new accounts,
+    accounts that invoked a tool, total accounts, and the 7-day (incl. that day)
+    new and active counts."""
+    today0 = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    day0 = today0 - timedelta(days=1)
+    week0 = day0 - timedelta(days=6)
+    day, week_first = day0.strftime("%Y-%m-%d"), week0.strftime("%Y-%m-%d")
+    end = today0.strftime(_UTC_FMT)
+    new = store.new_accounts_between(conn, day0.strftime(_UTC_FMT), end)
+    new_week = store.new_accounts_between(conn, week0.strftime(_UTC_FMT), end)
+    active = store.active_accounts_on_days(conn, day, day)
+    active_week = store.active_accounts_on_days(conn, week_first, day)
     total = store.total_accounts_by_adapter(conn)
-    new_week = store.new_accounts_between(conn, week_start_utc, end_utc)
-    adapters = sorted(set(new) | set(active) | set(total) | set(new_week))
-    per = {a: {"new": new.get(a, 0), "active": active.get(a, 0),
-               "total": total.get(a, 0), "new_week": new_week.get(a, 0)}
-           for a in adapters}
+    adapters = sorted(set(new) | set(active) | set(total) | set(new_week) | set(active_week))
+    keys = ("new", "active", "total", "new_week", "active_week")
+    src = dict(zip(keys, (new, active, total, new_week, active_week)))
+    per = {a: {k: src[k].get(a, 0) for k in keys} for a in adapters}
     return {
-        "date": start_local.strftime("%Y-%m-%d"),
+        "date": day,
         "adapters": per,
-        "totals": {k: sum(v[k] for v in per.values())
-                   for k in ("new", "active", "total", "new_week")},
+        "totals": {k: sum(v[k] for v in per.values()) for k in keys},
     }
 
 
 def render_text(report: dict) -> str:
     t = report["totals"]
-    lines = [f"*MissingMCP — daily report for {report['date']}*"]
+    lines = [f"*MissingMCP — daily report for {report['date']} (UTC)*"]
     if report["adapters"]:
         for a, v in report["adapters"].items():
             lines.append(
                 f"• {a.capitalize()}: +{v['new']} new · {v['active']} active "
-                f"· {v['total']} total  _(7d: +{v['new_week']} new)_")
+                f"· {v['total']} total  _(7d: +{v['new_week']} new · {v['active_week']} active)_")
     else:
         lines.append("_no connectors with accounts yet_")
     lines.append(
         f"*Total: +{t['new']} new · {t['active']} active · {t['total']} users*  "
-        f"_(7d: +{t['new_week']} new)_")
+        f"_(7d: +{t['new_week']} new · {t['active_week']} active)_")
     return "\n".join(lines)
 
 

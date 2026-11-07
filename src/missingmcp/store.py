@@ -141,6 +141,17 @@ CREATE TABLE IF NOT EXISTS egress_state (
     last_blocked_at REAL,
     updated_at      TEXT DEFAULT (datetime('now'))
 );
+-- One row per account per UTC day on which it invoked a real tool (protocol
+-- traffic excluded, see PROTOCOL_METHODS). tool_usage keeps only the latest
+-- last_used per tool, so it can't say who was active on a *past* day; this can.
+-- Pruned after ACTIVITY_KEEP_DAYS. ADR 0003.
+CREATE TABLE IF NOT EXISTS daily_activity (
+    adapter     TEXT NOT NULL,
+    account_key TEXT NOT NULL,
+    day         TEXT NOT NULL,              -- UTC date, YYYY-MM-DD
+    PRIMARY KEY (adapter, account_key, day)
+);
+CREATE INDEX IF NOT EXISTS daily_activity_day ON daily_activity (day);
 """
 
 # One-time transform from the pre-adapter (v0) schema. Ciphertext moves verbatim.
@@ -340,9 +351,10 @@ def active_accounts_between(conn, start_utc: str, end_utc: str) -> dict:
     """Distinct accounts that invoked a tool in [start_utc, end_utc), by adapter.
 
     Protocol traffic (`PROTOCOL_METHODS`) is excluded — see that constant for why.
-    Note this still reads `tool_usage.last_used`, which `record_usage` overwrites
-    per (adapter, account_key, tool): an account that called the same tool again
-    later falls out of the earlier window, so the count remains a lower bound."""
+    Reads `tool_usage.last_used`, which keeps only the latest call per
+    (adapter, account_key, tool): exact for a window ending now (the usage
+    meter), a lower bound for a window in the past — use
+    `active_accounts_on_days` for those."""
     placeholders = ",".join("?" * len(PROTOCOL_METHODS))
     rows = conn.execute(
         "SELECT adapter, COUNT(DISTINCT account_key) FROM tool_usage "
@@ -351,6 +363,35 @@ def active_accounts_between(conn, start_utc: str, end_utc: str) -> dict:
         (start_utc, end_utc, *sorted(PROTOCOL_METHODS)),
     ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+def is_activity(tool: str) -> bool:
+    """True when a recorded tool/method name is a user asking for something,
+    i.e. not client protocol traffic — the one rule every activity metric uses."""
+    return tool not in PROTOCOL_METHODS
+
+
+def active_accounts_on_days(conn, first_day: str, last_day: str) -> dict:
+    """Distinct accounts that invoked a tool on any UTC day in
+    [first_day, last_day] (YYYY-MM-DD, inclusive), by adapter. Exact — reads
+    `daily_activity`, which has a row per account per active day."""
+    rows = conn.execute(
+        "SELECT adapter, COUNT(DISTINCT account_key) FROM daily_activity "
+        "WHERE day >= ? AND day <= ? GROUP BY adapter",
+        (first_day, last_day),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+ACTIVITY_KEEP_DAYS = 400   # > a year, so year-over-year comparisons stay possible
+
+
+def prune_daily_activity(conn, keep_days: int = ACTIVITY_KEEP_DAYS) -> int:
+    """Drop daily_activity rows older than keep_days. Returns rows deleted."""
+    cur = conn.execute("DELETE FROM daily_activity WHERE day < date('now', ?)",
+                       (f"-{int(keep_days)} days",))
+    conn.commit()
+    return cur.rowcount
 
 
 def total_accounts_by_adapter(conn) -> dict:
@@ -515,7 +556,8 @@ def purge_adapter(conn, adapter: str) -> dict:
     off-boarding for an adapter we no longer serve (see adapters.RETIRED_ADAPTERS
     and docs/adr/0001). Returns per-table deletion counts."""
     counts = {}
-    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage"):
+    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage",
+                  "daily_activity"):
         cur = conn.execute(f"DELETE FROM {table} WHERE adapter=?", (adapter,))
         counts[table] = cur.rowcount
     conn.commit()
@@ -581,6 +623,10 @@ def record_usage(conn, adapter: str, account_key: str, tool: str) -> None:
         "calls = calls + 1, last_used = datetime('now')",
         (adapter, account_key, tool),
     )
+    if is_activity(tool):
+        conn.execute(
+            "INSERT OR IGNORE INTO daily_activity (adapter, account_key, day) "
+            "VALUES (?, ?, date('now'))", (adapter, account_key))
     conn.commit()
 
 
@@ -592,11 +638,17 @@ class UsageBuffer:
 
     def __init__(self) -> None:
         self._pending: dict[tuple[str, str, str], list] = {}   # key -> [calls, last_used]
+        self._days: set[tuple[str, str, str]] = set()          # (adapter, account, UTC day)
 
     def add(self, adapter: str, account_key: str, tool: str) -> None:
+        now = _utc_str(time.time())
         entry = self._pending.setdefault((adapter, account_key, tool), [0, None])
         entry[0] += 1
-        entry[1] = _utc_str(time.time())
+        entry[1] = now
+        if is_activity(tool):
+            # Day taken at call time, not flush time: a tick that straddles
+            # midnight must not move a call into the next day.
+            self._days.add((adapter, account_key, now[:10]))
 
     def pending(self) -> int:
         return len(self._pending)
@@ -608,9 +660,10 @@ class UsageBuffer:
         Counts for an account that no longer exists are dropped: a purge
         (`scripts/revoke.py --purge`, retired-adapter cleanup) between a call and
         the flush must not resurrect its tool_usage rows (and its email)."""
-        if not self._pending:
+        if not self._pending and not self._days:
             return 0
         batch, self._pending = self._pending, {}
+        days, self._days = self._days, set()
         try:
             conn.executemany(
                 "INSERT INTO tool_usage (adapter, account_key, tool, calls, last_used) "
@@ -621,9 +674,16 @@ class UsageBuffer:
                 "last_used = MAX(COALESCE(last_used, ''), excluded.last_used)",
                 [(*k, calls, last) for k, (calls, last) in batch.items()],
             )
+            conn.executemany(
+                "INSERT OR IGNORE INTO daily_activity (adapter, account_key, day) "
+                "SELECT ?1, ?2, ?3 WHERE EXISTS "
+                "(SELECT 1 FROM accounts WHERE adapter=?1 AND account_key=?2)",
+                sorted(days),
+            )
             conn.commit()
         except Exception:
             conn.rollback()
+            self._days |= days
             for k, (calls, last) in batch.items():
                 entry = self._pending.setdefault(k, [0, last])
                 entry[0] += calls

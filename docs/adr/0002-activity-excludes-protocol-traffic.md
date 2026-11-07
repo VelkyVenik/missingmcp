@@ -38,6 +38,6 @@ metric still need. Only the activity read filters them.
   overwrites `last_used` per `(adapter, account_key, tool)`, so an account that
   calls the same tool again the next day disappears from the earlier day's
   window. The count is therefore a lower bound, and fixing it needs a
-  per-day record rather than an upserted row.
+  per-day record rather than an upserted row. (Fixed by [ADR 0003](0003-daily-activity-table.md).)
 - PostHog measures the same thing from events and does not share either flaw; it
   is the more trustworthy of the two for activity.

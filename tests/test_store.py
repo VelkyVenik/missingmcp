@@ -132,6 +132,73 @@ def test_active_accounts_ignores_client_discovery_methods(conn):
     assert store.active_accounts_between(conn, *DAY) == {"garmin": 1}
 
 
+def _days(conn):
+    return sorted(tuple(r) for r in conn.execute(
+        "SELECT adapter, account_key, day FROM daily_activity"))
+
+
+def test_record_usage_marks_the_day_active_for_real_tools_only(conn):
+    store.record_usage(conn, "garmin", "me@x.cz", "get_activities")
+    store.record_usage(conn, "garmin", "me@x.cz", "get_sleep_data")   # same day → one row
+    store.record_usage(conn, "garmin", "lurker@x.cz", "tools/list")   # protocol → no row
+    today = conn.execute("SELECT date('now')").fetchone()[0]
+    assert _days(conn) == [("garmin", "me@x.cz", today)]
+
+
+def test_usage_buffer_records_active_days_at_call_time(conn, monkeypatch):
+    _accounts(conn, "me@x.cz", "lurker@x.cz")
+    buf = store.UsageBuffer()
+    monkeypatch.setattr(store.time, "time", lambda: 1784332799.0)   # 2026-07-17 23:59:59 UTC
+    buf.add("garmin", "me@x.cz", "get_activities")
+    buf.add("garmin", "lurker@x.cz", "server/discover")
+    monkeypatch.setattr(store.time, "time", lambda: 1784332801.0)   # 2026-07-18 00:00:01 UTC
+    buf.add("garmin", "me@x.cz", "get_activities")
+    buf.flush(conn)
+    assert _days(conn) == [("garmin", "me@x.cz", "2026-07-17"),
+                           ("garmin", "me@x.cz", "2026-07-18")]
+
+
+def test_usage_buffer_drops_active_days_of_purged_account(conn):
+    _accounts(conn, "gone@x.cz")
+    buf = store.UsageBuffer()
+    buf.add("garmin", "gone@x.cz", "get_activities")
+    conn.execute("DELETE FROM accounts WHERE account_key='gone@x.cz'")
+    conn.commit()
+    buf.flush(conn)
+    assert _days(conn) == []
+
+
+def test_usage_buffer_requeues_active_days_on_db_error():
+    buf = store.UsageBuffer()
+    buf.add("garmin", "me@x.cz", "t")
+    broken = store.init_db(":memory:")
+    broken.execute("DROP TABLE daily_activity")
+    with pytest.raises(Exception):
+        buf.flush(broken)
+    good = store.init_db(":memory:")
+    _accounts(good, "me@x.cz")
+    buf.flush(good)
+    assert len(_days(good)) == 1
+
+
+def test_active_accounts_on_days_counts_each_account_once(conn):
+    conn.executemany("INSERT INTO daily_activity VALUES (?,?,?)", [
+        ("garmin", "a@x", "2026-07-15"), ("garmin", "a@x", "2026-07-16"),
+        ("garmin", "b@x", "2026-07-16"), ("whoop", "a@x", "2026-07-16"),
+        ("garmin", "c@x", "2026-07-20"),
+    ])
+    assert store.active_accounts_on_days(conn, "2026-07-15", "2026-07-16") == {"garmin": 2, "whoop": 1}
+    assert store.active_accounts_on_days(conn, "2026-07-16", "2026-07-16") == {"garmin": 2, "whoop": 1}
+
+
+def test_prune_daily_activity_keeps_recent_days(conn):
+    conn.execute("INSERT INTO daily_activity VALUES ('garmin','old@x', date('now','-401 days'))")
+    conn.execute("INSERT INTO daily_activity VALUES ('garmin','new@x', date('now','-399 days'))")
+    conn.commit()
+    assert store.prune_daily_activity(conn) == 1
+    assert [r[1] for r in _days(conn)] == ["new@x"]
+
+
 def test_client_roundtrip(conn):
     store.create_client(conn, "c1", "secret_hash", ["https://a/cb", "https://b/cb"], "Claude", "garmin")
     c = store.get_client(conn, "c1")
@@ -230,8 +297,9 @@ def test_purge_adapter_removes_all_rows_for_that_adapter_only(conn):
     counts = store.purge_adapter(conn, "rohlik")
 
     assert counts == {"accounts": 1, "access_tokens": 1, "oauth_clients": 1,
-                      "oauth_codes": 1, "tool_usage": 1}
-    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage"):
+                      "oauth_codes": 1, "tool_usage": 1, "daily_activity": 1}
+    for table in ("accounts", "access_tokens", "oauth_clients", "oauth_codes", "tool_usage",
+                  "daily_activity"):
         n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE adapter='rohlik'").fetchone()[0]
         assert n == 0, f"{table} still has rohlik rows"
     # garmin intact
@@ -245,7 +313,7 @@ def test_purge_adapter_is_a_noop_for_absent_adapter(conn):
     store.upsert_account(conn, "garmin", "me@x.cz", "{}", SECRET)
     counts = store.purge_adapter(conn, "rohlik")
     assert counts == {"accounts": 0, "access_tokens": 0, "oauth_clients": 0,
-                      "oauth_codes": 0, "tool_usage": 0}
+                      "oauth_codes": 0, "tool_usage": 0, "daily_activity": 0}
     assert store.get_account_tokens(conn, "garmin", "me@x.cz", SECRET) == "{}"
 
 
