@@ -353,3 +353,13 @@ def test_rpc_failed_never_raises_and_skips_big_bodies():
     assert _rpc_failed(b"data: {broken\n\n", "text/event-stream") is False
     big = b'{"result":{"isError":true,"pad":"' + b"x" * RPC_ERROR_SCAN_BYTES + b'"}}'
     assert _rpc_failed(big, "application/json") is False   # a real result, not parsed
+
+
+def test_rpc_failed_assembles_multiline_sse_events():
+    from missingmcp.proxy import _rpc_failed
+    # One JSON-RPC message split across data: lines (valid SSE), CRLF endings,
+    # preceded by an unparseable event that must not mask it.
+    raw = (b"event: message\r\ndata: {broken\r\n\r\n"
+           b"event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\r\n"
+           b"data:  \"result\":{\"content\":[],\"isError\":true}}\r\n\r\n")
+    assert _rpc_failed(raw, "text/event-stream") is True

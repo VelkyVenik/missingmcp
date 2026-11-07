@@ -17,6 +17,24 @@ FORWARD_TIMEOUT_S = 30.0
 RPC_ERROR_SCAN_BYTES = 64 * 1024
 
 
+def _sse_event_data(text: str) -> list[str]:
+    """The data of each SSE event: its `data:` lines joined with newlines (one
+    JSON message may span several lines — valid SSE), events split on blank
+    lines. A single space after `data:` is part of the field syntax, not data."""
+    events, current = [], []
+    for line in text.splitlines():
+        if not line:
+            if current:
+                events.append("\n".join(current))
+                current = []
+        elif line.startswith("data:"):
+            value = line[5:]
+            current.append(value[1:] if value.startswith(" ") else value)
+    if current:
+        events.append("\n".join(current))
+    return events
+
+
 def _rpc_failed(raw: bytes, content_type: str | None) -> bool:
     """True when a tools/call response reports failure *inside* an HTTP 200:
     a JSON-RPC `error`, or a result with `isError: true` (how MCP servers
@@ -26,16 +44,20 @@ def _rpc_failed(raw: bytes, content_type: str | None) -> bool:
     Never raises: unparseable means "not known to have failed"."""
     if not raw or len(raw) > RPC_ERROR_SCAN_BYTES:
         return False
-    try:
-        text = raw.decode("utf-8", errors="replace")
-        if "text/event-stream" in (content_type or ""):
-            messages = [json.loads(line[5:]) for line in text.splitlines()
-                        if line.startswith("data:") and line[5:].strip()]
-        else:
+    text = raw.decode("utf-8", errors="replace")
+    if "text/event-stream" in (content_type or ""):
+        messages = []
+        for data in _sse_event_data(text):
+            try:
+                messages.append(json.loads(data))
+            except ValueError:
+                continue   # one bad event must not hide a failure in another
+    else:
+        try:
             body = json.loads(text)
-            messages = body if isinstance(body, list) else [body]
-    except ValueError:
-        return False
+        except ValueError:
+            return False
+        messages = body if isinstance(body, list) else [body]
     for m in messages:
         if not isinstance(m, dict):
             continue
